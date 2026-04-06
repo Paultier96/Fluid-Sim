@@ -21,11 +21,17 @@ Shader "Instanced/Particle2D" {
 			StructuredBuffer<float2> Positions2D;
 			StructuredBuffer<float2> Velocities;
 			StructuredBuffer<float2> DensityData;
+			StructuredBuffer<int> Phases;
+
 			float scale;
 			float4 colA;
 			Texture2D<float4> ColourMap;
 			SamplerState linear_clamp_sampler;
 			float velocityMax;
+
+			// Phase colours (set from C#)
+			float4 phase0Color;
+			float4 phase1Color;
 
 			struct v2f
 			{
@@ -47,7 +53,16 @@ Shader "Instanced/Particle2D" {
 				v2f o;
 				o.uv = v.texcoord;
 				o.pos = UnityObjectToClipPos(objectVertPos);
-				o.colour = ColourMap.SampleLevel(linear_clamp_sampler, float2(colT, 0.5), 0);
+
+				// base colour from velocity colormap
+				float3 baseCol = ColourMap.SampleLevel(linear_clamp_sampler, float2(colT, 0.5), 0).rgb;
+
+				// phase colour
+				int pid = Phases[instanceID];
+				float3 pcol = pid == 0 ? phase0Color.rgb : phase1Color.rgb;
+
+				// mix base with phase colour (mostly phase)
+				o.colour = lerp(baseCol, pcol, 0.85);
 
 				return o;
 			}

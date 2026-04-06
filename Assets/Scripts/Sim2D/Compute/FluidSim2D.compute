@@ -18,6 +18,7 @@ RWStructuredBuffer<float2> Positions;
 RWStructuredBuffer<float2> PredictedPositions;
 RWStructuredBuffer<float2> Velocities;
 RWStructuredBuffer<float2> Densities; // Density, Near Density
+RWStructuredBuffer<uint> Phases;
 
 // Spatial hashing
 RWStructuredBuffer<uint> SpatialKeys;
@@ -213,6 +214,7 @@ void UpdateSpatialHash (uint3 id : SV_DispatchThreadID)
 RWStructuredBuffer<float2> SortTarget_Positions;
 RWStructuredBuffer<float2> SortTarget_PredictedPositions;
 RWStructuredBuffer<float2> SortTarget_Velocities;
+RWStructuredBuffer<uint> SortTarget_Phases;
 
 [numthreads(NumThreads,1,1)]
 void Reorder (uint3 id : SV_DispatchThreadID)
@@ -223,6 +225,7 @@ void Reorder (uint3 id : SV_DispatchThreadID)
 	SortTarget_Positions[id.x] = Positions[sortedIndex];
 	SortTarget_PredictedPositions[id.x] = PredictedPositions[sortedIndex];
 	SortTarget_Velocities[id.x] = Velocities[sortedIndex];
+	SortTarget_Phases[id.x] = Phases[sortedIndex];
 }
 
 
@@ -234,6 +237,7 @@ void ReorderCopyback (uint3 id : SV_DispatchThreadID)
 	Positions[id.x] = SortTarget_Positions[id.x];
 	PredictedPositions[id.x] = SortTarget_PredictedPositions[id.x];
 	Velocities[id.x] = SortTarget_Velocities[id.x];
+	Phases[id.x] = SortTarget_Phases[id.x];
 }
 
 

@@ -14,6 +14,10 @@ namespace Seb.Fluid2D.Rendering
 		public int gradientResolution;
 		public float velocityDisplayMax;
 
+		[Header("Phase visualization")]
+		public Color phase0Color = Color.white;
+		public Color phase1Color = Color.red;
+
 		Material material;
 		ComputeBuffer argsBuffer;
 		Bounds bounds;
@@ -40,6 +44,7 @@ namespace Seb.Fluid2D.Rendering
 			material.SetBuffer("Positions2D", sim.positionBuffer);
 			material.SetBuffer("Velocities", sim.velocityBuffer);
 			material.SetBuffer("DensityData", sim.densityBuffer);
+			material.SetBuffer("Phases", sim.phaseBuffer);
 
 			ComputeHelper.CreateArgsBuffer(ref argsBuffer, mesh, sim.positionBuffer.count);
 			bounds = new Bounds(Vector3.zero, Vector3.one * 10000);
@@ -52,6 +57,10 @@ namespace Seb.Fluid2D.Rendering
 
 				material.SetFloat("scale", scale);
 				material.SetFloat("velocityMax", velocityDisplayMax);
+
+				// Phase colours (shader must read these)
+				material.SetColor("phase0Color", phase0Color);
+				material.SetColor("phase1Color", phase1Color);
 			}
 		}
 

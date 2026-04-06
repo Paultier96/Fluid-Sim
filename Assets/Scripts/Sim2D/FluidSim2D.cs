@@ -1,4 +1,3 @@
-using Seb.Fluid2D.Rendering;
 using Seb.Helpers;
 using UnityEngine;
 using Unity.Mathematics;
@@ -39,12 +38,14 @@ namespace Seb.Fluid2D.Simulation
 		public ComputeBuffer positionBuffer { get; private set; }
 		public ComputeBuffer velocityBuffer { get; private set; }
 		public ComputeBuffer densityBuffer { get; private set; }
+		public ComputeBuffer phaseBuffer { get; private set; }
 
 		ComputeBuffer sortTarget_Position;
 		ComputeBuffer sortTarget_PredicitedPosition;
 		ComputeBuffer sortTarget_Velocity;
+        ComputeBuffer sortTarget_Phases;
 
-		ComputeBuffer predictedPositionBuffer;
+        ComputeBuffer predictedPositionBuffer;
 		SpatialHash spatialHash;
 
 		// Kernel IDs
@@ -86,19 +87,22 @@ namespace Seb.Fluid2D.Simulation
 			predictedPositionBuffer = ComputeHelper.CreateStructuredBuffer<float2>(numParticles);
 			velocityBuffer = ComputeHelper.CreateStructuredBuffer<float2>(numParticles);
 			densityBuffer = ComputeHelper.CreateStructuredBuffer<float2>(numParticles);
+			phaseBuffer = ComputeHelper.CreateStructuredBuffer<int>(numParticles);
 
 			sortTarget_Position = ComputeHelper.CreateStructuredBuffer<float2>(numParticles);
 			sortTarget_PredicitedPosition = ComputeHelper.CreateStructuredBuffer<float2>(numParticles);
 			sortTarget_Velocity = ComputeHelper.CreateStructuredBuffer<float2>(numParticles);
+            sortTarget_Phases = ComputeHelper.CreateStructuredBuffer<int>(numParticles);
 
-			// Set buffer data
-			SetInitialBufferData(spawnData);
+            // Set buffer data
+            SetInitialBufferData(spawnData);
 
 			// Init compute
 			ComputeHelper.SetBuffer(compute, positionBuffer, "Positions", externalForcesKernel, updatePositionKernel, reorderKernel, copybackKernel);
 			ComputeHelper.SetBuffer(compute, predictedPositionBuffer, "PredictedPositions", externalForcesKernel, spatialHashKernel, densityKernel, pressureKernel, viscosityKernel, reorderKernel, copybackKernel);
 			ComputeHelper.SetBuffer(compute, velocityBuffer, "Velocities", externalForcesKernel, pressureKernel, viscosityKernel, updatePositionKernel, reorderKernel, copybackKernel);
 			ComputeHelper.SetBuffer(compute, densityBuffer, "Densities", densityKernel, pressureKernel, viscosityKernel);
+			ComputeHelper.SetBuffer(compute, phaseBuffer, "Phases", externalForcesKernel, densityKernel, pressureKernel, viscosityKernel, updatePositionKernel, reorderKernel, copybackKernel);
 
 			ComputeHelper.SetBuffer(compute, spatialHash.SpatialIndices, "SortedIndices", spatialHashKernel, reorderKernel);
 			ComputeHelper.SetBuffer(compute, spatialHash.SpatialOffsets, "SpatialOffsets", spatialHashKernel, densityKernel, pressureKernel, viscosityKernel);
@@ -107,8 +111,9 @@ namespace Seb.Fluid2D.Simulation
 			ComputeHelper.SetBuffer(compute, sortTarget_Position, "SortTarget_Positions", reorderKernel, copybackKernel);
 			ComputeHelper.SetBuffer(compute, sortTarget_PredicitedPosition, "SortTarget_PredictedPositions", reorderKernel, copybackKernel);
 			ComputeHelper.SetBuffer(compute, sortTarget_Velocity, "SortTarget_Velocities", reorderKernel, copybackKernel);
+            ComputeHelper.SetBuffer(compute, sortTarget_Phases, "SortTarget_Phases", reorderKernel, copybackKernel);
 
-			compute.SetInt("numParticles", numParticles);
+            compute.SetInt("numParticles", numParticles);
 		}
 
 
@@ -201,13 +206,14 @@ namespace Seb.Fluid2D.Simulation
 
 		void SetInitialBufferData(Spawner2D.ParticleSpawnData spawnData)
 		{
-			float2[] allPoints = new float2[spawnData.positions.Length]; //
+			float2[] allPoints = new float2[spawnData.positions.Length];
 			System.Array.Copy(spawnData.positions, allPoints, spawnData.positions.Length);
 
 			positionBuffer.SetData(allPoints);
 			predictedPositionBuffer.SetData(allPoints);
 			velocityBuffer.SetData(spawnData.velocities);
-		}
+			phaseBuffer.SetData(spawnData.phases);
+        }
 
 		void HandleInput()
 		{
@@ -235,7 +241,7 @@ namespace Seb.Fluid2D.Simulation
 
 		void OnDestroy()
 		{
-			ComputeHelper.Release(positionBuffer, predictedPositionBuffer, velocityBuffer, densityBuffer, sortTarget_Position, sortTarget_Velocity, sortTarget_PredicitedPosition);
+			ComputeHelper.Release(positionBuffer, predictedPositionBuffer, velocityBuffer, densityBuffer, sortTarget_Position, sortTarget_Velocity, sortTarget_PredicitedPosition, phaseBuffer);
 			spatialHash.Release();
 		}
 
