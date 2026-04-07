@@ -13,7 +13,7 @@ OcclusionCullingSettings:
 --- !u!104 &2
 RenderSettings:
   m_ObjectHideFlags: 0
-  serializedVersion: 9
+  serializedVersion: 10
   m_Fog: 0
   m_FogColor: {r: 0.5, g: 0.5, b: 0.5, a: 1}
   m_FogMode: 3
@@ -42,8 +42,8 @@ RenderSettings:
 --- !u!157 &3
 LightmapSettings:
   m_ObjectHideFlags: 0
-  serializedVersion: 12
-  m_GIWorkflowMode: 1
+  serializedVersion: 13
+  m_BakeOnSceneLoad: 0
   m_GISettings:
     serializedVersion: 2
     m_BounceScale: 1
@@ -66,9 +66,6 @@ LightmapSettings:
     m_LightmapParameters: {fileID: 0}
     m_LightmapsBakeMode: 1
     m_TextureCompression: 1
-    m_FinalGather: 0
-    m_FinalGatherFiltering: 1
-    m_FinalGatherRayCount: 256
     m_ReflectionCompression: 2
     m_MixedBakeMode: 2
     m_BakeBackend: 1
@@ -174,15 +171,20 @@ MonoBehaviour:
   gravity: -13
   collisionDamping: 0.5
   smoothingRadius: 0.175
-  targetDensity: 234
-  pressureMultiplier: 225
-  nearPressureMultiplier: 5
-  viscosityStrength: 0
+  pressureMultiplier: 1800
+  nearPressureMultiplier: 50
   boundsSize: {x: 43.1, y: 23.86}
   obstacleSize: {x: 20.4, y: 1.69}
   obstacleCentre: {x: 7.5, y: -8.16}
   interactionRadius: 2.5
   interactionStrength: 75
+  phases:
+  - name: Water
+    targetDensity: 234
+    viscosity: 0.03
+  - name: Oil
+    targetDensity: 234
+    viscosity: 0.03
   compute: {fileID: 7200000, guid: 1c77ce8de78fddb419ed2d15cae41af0, type: 3}
   spawner2D: {fileID: 271053320}
 --- !u!114 &271053320
@@ -197,15 +199,20 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 895837b52d5fc53409ded3589d4da696, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  spawnDensity: 500
+  spawnDensity: 300
   initialVelocity: {x: 0, y: 0}
   jitterStr: 0.03
   spawnRegions:
-  - position: {x: 0, y: 2.95}
-    size: {x: 34, y: 15}
+  - position: {x: -8.98, y: 2.95}
+    size: {x: 14.5, y: 14.9}
     debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
+    phaseID: 0
+  - position: {x: 7.65, y: 2.95}
+    size: {x: 14.7, y: 15}
+    debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
+    phaseID: 1
   showSpawnBoundsGizmos: 1
-  spawnParticleCount: 255696
+  spawnParticleCount: 131568
 --- !u!114 &271053322
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -254,6 +261,8 @@ MonoBehaviour:
     m_NumAlphaKeys: 2
   gradientResolution: 64
   velocityDisplayMax: 15
+  phase0Color: {r: 1, g: 0, b: 0, a: 1}
+  phase1Color: {r: 1, g: 1, b: 1, a: 1}
 --- !u!1 &963194225
 GameObject:
   m_ObjectHideFlags: 0

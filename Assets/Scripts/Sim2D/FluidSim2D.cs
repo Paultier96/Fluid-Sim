@@ -1,6 +1,7 @@
 using Seb.Helpers;
-using UnityEngine;
+using System.Linq;
 using Unity.Mathematics;
+using UnityEngine;
 using UnityEngine.Serialization;
 
 namespace Seb.Fluid2D.Simulation
@@ -16,20 +17,34 @@ namespace Seb.Fluid2D.Simulation
 		public float gravity;
 		[Range(0, 1)] public float collisionDamping = 0.95f;
 		public float smoothingRadius = 2;
-		public float targetDensity;
+		//public float targetDensity;
 		public float pressureMultiplier;
 		public float nearPressureMultiplier;
-		public float viscosityStrength;
 		public Vector2 boundsSize;
 		public Vector2 obstacleSize;
 		public Vector2 obstacleCentre;
 
 		[Header("Interaction Settings")]
 		public float interactionRadius;
-
 		public float interactionStrength;
 
-		[Header("References")]
+        [Header("Phases")]
+        public PhaseConfig[] phases;
+
+        [System.Serializable]
+        public class PhaseConfig
+        {
+            public string name = "Water";
+            //public Color debugColor;
+            public float targetDensity = 234;
+            public float viscosity = 0.03f;
+        }
+
+        [Range(0f, 1f)]
+        public float phaseSeparation = 0.3f;
+
+
+        [Header("References")]
 		public ComputeShader compute;
 
 		public Spawner2D spawner2D;
@@ -45,11 +60,23 @@ namespace Seb.Fluid2D.Simulation
 		ComputeBuffer sortTarget_Velocity;
         ComputeBuffer sortTarget_Phases;
 
+        ComputeBuffer phaseTargetDensityBuffer;
+        ComputeBuffer phaseViscosityBuffer;
+        ComputeBuffer phaseInteractionBuffer;
+
         ComputeBuffer predictedPositionBuffer;
 		SpatialHash spatialHash;
 
-		// Kernel IDs
-		const int externalForcesKernel = 0;
+
+        public float[,] interactionMatrix = new float[,]
+		{
+			{ 1.0f, 0.3f }, // water -> water, oil
+			{ 0.3f, 1.0f }  // oil   -> water, oil
+		};
+
+
+        // Kernel IDs
+        const int externalForcesKernel = 0;
 		const int spatialHashKernel = 1;
 		const int reorderKernel = 2;
 		const int copybackKernel = 3;
@@ -67,13 +94,6 @@ namespace Seb.Fluid2D.Simulation
 
 
 		void Start()
-		{
-			Debug.Log("Controls: Space = Play/Pause, R = Reset, LMB = Attract, RMB = Repel");
-
-			Init();
-		}
-
-		void Init()
 		{
 			float deltaTime = 1 / 60f;
 			Time.fixedDeltaTime = deltaTime;
@@ -94,6 +114,13 @@ namespace Seb.Fluid2D.Simulation
 			sortTarget_Velocity = ComputeHelper.CreateStructuredBuffer<float2>(numParticles);
             sortTarget_Phases = ComputeHelper.CreateStructuredBuffer<int>(numParticles);
 
+            phaseTargetDensityBuffer = new ComputeBuffer(phases.Length, sizeof(float));
+            phaseTargetDensityBuffer.SetData(phases.Select(p => p.targetDensity).ToArray());
+
+            phaseViscosityBuffer = new ComputeBuffer(phases.Length, sizeof(float));
+            phaseViscosityBuffer.SetData(phases.Select(p => p.viscosity).ToArray());
+
+
             // Set buffer data
             SetInitialBufferData(spawnData);
 
@@ -112,6 +139,35 @@ namespace Seb.Fluid2D.Simulation
 			ComputeHelper.SetBuffer(compute, sortTarget_PredicitedPosition, "SortTarget_PredictedPositions", reorderKernel, copybackKernel);
 			ComputeHelper.SetBuffer(compute, sortTarget_Velocity, "SortTarget_Velocities", reorderKernel, copybackKernel);
             ComputeHelper.SetBuffer(compute, sortTarget_Phases, "SortTarget_Phases", reorderKernel, copybackKernel);
+
+            ComputeHelper.SetBuffer(compute, phaseViscosityBuffer, "PhaseViscosities", viscosityKernel);
+
+            compute.SetBuffer(externalForcesKernel, "PhaseTargetDensities", phaseTargetDensityBuffer);
+            compute.SetBuffer(densityKernel, "PhaseTargetDensities", phaseTargetDensityBuffer);
+            compute.SetBuffer(pressureKernel, "PhaseTargetDensities", phaseTargetDensityBuffer);
+            compute.SetBuffer(viscosityKernel, "PhaseTargetDensities", phaseTargetDensityBuffer);
+
+
+            interactionMatrix = new float[,]
+			{
+				{ 1.0f, phaseSeparation }, // water -> water, oil
+				{ phaseSeparation, 1.0f }  // oil   -> water, oil
+			};
+			int phaseCount = phases.Length;
+            float[] flat = new float[phaseCount * phaseCount];
+
+            for (int y = 0; y < phaseCount; y++)
+            {
+                for (int x = 0; x < phaseCount; x++)
+                {
+                    flat[y * phaseCount + x] = interactionMatrix[y, x];
+                }
+            }
+
+            phaseInteractionBuffer = new ComputeBuffer(flat.Length, sizeof(float));
+            phaseInteractionBuffer.SetData(flat);
+
+            ComputeHelper.SetBuffer(compute, phaseInteractionBuffer, "PhaseInteractionMatrix", pressureKernel);
 
             compute.SetInt("numParticles", numParticles);
 		}
@@ -175,10 +231,9 @@ namespace Seb.Fluid2D.Simulation
 			compute.SetFloat("gravity", gravity);
 			compute.SetFloat("collisionDamping", collisionDamping);
 			compute.SetFloat("smoothingRadius", smoothingRadius);
-			compute.SetFloat("targetDensity", targetDensity);
+
 			compute.SetFloat("pressureMultiplier", pressureMultiplier);
 			compute.SetFloat("nearPressureMultiplier", nearPressureMultiplier);
-			compute.SetFloat("viscosityStrength", viscosityStrength);
 			compute.SetVector("boundsSize", boundsSize);
 			compute.SetVector("obstacleSize", obstacleSize);
 			compute.SetVector("obstacleCentre", obstacleCentre);

@@ -171,15 +171,20 @@ MonoBehaviour:
   gravity: -13
   collisionDamping: 0.5
   smoothingRadius: 0.2
-  targetDensity: 234
   pressureMultiplier: 225
   nearPressureMultiplier: 18
-  viscosityStrength: 0.03
   boundsSize: {x: 17.1, y: 9.3}
   obstacleSize: {x: 2.75, y: 5}
   obstacleCentre: {x: 0.03, y: -1}
   interactionRadius: 2.5
   interactionStrength: 75
+  phases:
+  - name: Water
+    targetDensity: 234
+    viscosity: 0.03
+  - name: Oil
+    targetDensity: 134
+    viscosity: 0.8
   compute: {fileID: 7200000, guid: 1c77ce8de78fddb419ed2d15cae41af0, type: 3}
   spawner2D: {fileID: 271053320}
 --- !u!114 &271053320

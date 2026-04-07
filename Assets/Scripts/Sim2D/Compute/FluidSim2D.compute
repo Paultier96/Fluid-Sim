@@ -31,14 +31,17 @@ const float gravity;
 const float deltaTime;
 const float collisionDamping;
 const float smoothingRadius;
-const float targetDensity;
+StructuredBuffer<float> PhaseTargetDensities;
 const float pressureMultiplier;
 const float nearPressureMultiplier;
-const float viscosityStrength;
+StructuredBuffer<float> PhaseViscosities;
 const float2 boundsSize;
 const float2 interactionInputPoint;
 const float interactionInputStrength;
 const float interactionInputRadius;
+
+StructuredBuffer<float> PhaseInteractionMatrix;
+int NumPhases;
 
 const float2 obstacleSize;
 const float2 obstacleCentre;
@@ -108,14 +111,20 @@ float2 CalculateDensity(float2 pos)
 	return float2(density, nearDensity);
 }
 
-float PressureFromDensity(float density)
+float PressureFromDensity(float density, uint phase)
 {
-	return (density - targetDensity) * pressureMultiplier;
+	float target = PhaseTargetDensities[phase];
+	return (density - target) * pressureMultiplier;
 }
 
 float NearPressureFromDensity(float nearDensity)
 {
 	return nearPressureMultiplier * nearDensity;
+}
+
+float GetPhaseInteraction(uint a, uint b)
+{
+    return PhaseInteractionMatrix[a * NumPhases + b];
 }
 
 float2 ExternalForces(float2 pos, float2 velocity)
@@ -257,13 +266,17 @@ void CalculatePressureForce (uint3 id : SV_DispatchThreadID)
 
 	float density = Densities[id.x][0];
 	float densityNear = Densities[id.x][1];
-	float pressure = PressureFromDensity(density);
+	uint myPhase = Phases[id.x];
+	float pressure = PressureFromDensity(density, myPhase);
 	float nearPressure = NearPressureFromDensity(densityNear);
 	float2 pressureForce = 0;
 	
 	float2 pos = PredictedPositions[id.x];
 	int2 originCell = GetCell2D(pos, smoothingRadius);
 	float sqrRadius = smoothingRadius * smoothingRadius;
+
+	// Add a small epsilon to prevent division by near-zero density
+	float epsilon = 0.0001;
 
 	// Neighbour search
 	for (int i = 0; i < 9; i ++)
@@ -297,18 +310,26 @@ void CalculatePressureForce (uint3 id : SV_DispatchThreadID)
 
 			float neighbourDensity = Densities[neighbourIndex][0];
 			float neighbourNearDensity = Densities[neighbourIndex][1];
-			float neighbourPressure = PressureFromDensity(neighbourDensity);
+			uint neighbourPhase = Phases[neighbourIndex];
+			float neighbourPressure = PressureFromDensity(neighbourDensity, neighbourPhase);
 			float neighbourNearPressure = NearPressureFromDensity(neighbourNearDensity);
 
-			float sharedPressure = (pressure + neighbourPressure) * 0.5;
-			float sharedNearPressure = (nearPressure + neighbourNearPressure) * 0.5;
+			uint myPhase = Phases[id.x];
 
-			pressureForce += dirToNeighbour * DensityDerivative(dst, smoothingRadius) * sharedPressure / neighbourDensity;
-			pressureForce += dirToNeighbour * NearDensityDerivative(dst, smoothingRadius) * sharedNearPressure / neighbourNearDensity;
+			float interaction = GetPhaseInteraction(myPhase, neighbourPhase);
+
+			float sharedPressure = (pressure + neighbourPressure) * 0.5 * interaction;
+			//float sharedPressure = (pressure / (density * density) + neighbourPressure / (neighbourDensity * neighbourDensity)) * interaction;
+			float sharedNearPressure = (nearPressure + neighbourNearPressure) * 0.5 * interaction;
+
+
+
+			pressureForce += dirToNeighbour * DensityDerivative(dst, smoothingRadius) * sharedPressure /  max(neighbourDensity, epsilon);
+			pressureForce += dirToNeighbour * NearDensityDerivative(dst, smoothingRadius) * sharedNearPressure /  max(neighbourDensity, epsilon);
 		}
 	}
 
-	float2 acceleration = pressureForce / density;
+	float2 acceleration = pressureForce / max(density, epsilon);
 	Velocities[id.x] += acceleration * deltaTime;//
 }
 
@@ -326,6 +347,10 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 
 	float2 viscosityForce = 0;
 	float2 velocity = Velocities[id.x];
+
+	uint myPhase = Phases[id.x];
+	float myViscosity = PhaseViscosities[myPhase];
+
 
 	for (int i = 0; i < 9; i ++)
 	{
@@ -352,13 +377,17 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 			// Skip if not within radius
 			if (sqrDstToNeighbour > sqrRadius) continue;
 
+			uint neighbourPhase = Phases[neighbourIndex];
+			float neighbourViscosity = PhaseViscosities[neighbourPhase];
+			float blendedViscosity = (myViscosity + neighbourViscosity) * 0.5;
+
 			float dst = sqrt(sqrDstToNeighbour);
 			float2 neighbourVelocity = Velocities[neighbourIndex];
-			viscosityForce += (neighbourVelocity - velocity) * ViscosityKernel(dst, smoothingRadius);
+			viscosityForce += (neighbourVelocity - velocity) * ViscosityKernel(dst, smoothingRadius) * blendedViscosity;
 		}
 
 	}
-	Velocities[id.x] += viscosityForce * viscosityStrength * deltaTime;
+	Velocities[id.x] += viscosityForce * deltaTime;
 }
 
 [numthreads(NumThreads, 1, 1)]
