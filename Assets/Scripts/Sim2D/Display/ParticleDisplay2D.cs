@@ -1,5 +1,6 @@
 using Seb.Fluid2D.Simulation;
 using Seb.Helpers;
+using System;
 using UnityEngine;
 
 namespace Seb.Fluid2D.Rendering
@@ -24,7 +25,7 @@ namespace Seb.Fluid2D.Rendering
 		Texture2D gradientTexture;
 		bool needsUpdate;
 
-		void Start()
+		void Awake()
 		{
 			material = new Material(shader);
 		}
@@ -38,15 +39,23 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
-		void UpdateSettings()
+
+        public void SetPhaseColors(Color[] colors)
+        {
+            material.SetColor("phase0Color", colors[0]);
+            material.SetColor("phase1Color", colors[1]);
+        }
+
+        void UpdateSettings()
 		{
-			
 			material.SetBuffer("Positions2D", sim.positionBuffer);
 			material.SetBuffer("Velocities", sim.velocityBuffer);
 			material.SetBuffer("DensityData", sim.densityBuffer);
 			material.SetBuffer("Phases", sim.phaseBuffer);
+			material.SetBuffer("Temperatures", sim.temperatureBuffer);
 
-			ComputeHelper.CreateArgsBuffer(ref argsBuffer, mesh, sim.positionBuffer.count);
+
+            ComputeHelper.CreateArgsBuffer(ref argsBuffer, mesh, sim.positionBuffer.count);
 			bounds = new Bounds(Vector3.zero, Vector3.one * 10000);
 
 			if (needsUpdate)
@@ -57,11 +66,9 @@ namespace Seb.Fluid2D.Rendering
 
 				material.SetFloat("scale", scale);
 				material.SetFloat("velocityMax", velocityDisplayMax);
-
-				// Phase colours (shader must read these)
-				material.SetColor("phase0Color", phase0Color);
-				material.SetColor("phase1Color", phase1Color);
-			}
+                material.SetFloat("tempMin", sim.ambientTemperature);
+                material.SetFloat("tempMax", sim.heatSourceTemperature);
+            }
 		}
 
 		public static void TextureFromGradient(ref Texture2D texture, int width, Gradient gradient, FilterMode filterMode = FilterMode.Bilinear)
@@ -107,5 +114,5 @@ namespace Seb.Fluid2D.Rendering
 		{
 			ComputeHelper.Release(argsBuffer);
 		}
-	}
+    }
 }

@@ -6,6 +6,9 @@
 #pragma kernel CalculatePressureForce
 #pragma kernel CalculateViscosity
 #pragma kernel UpdatePositions
+#pragma kernel UpdateTemperature
+#pragma kernel ReorderTemperature
+#pragma kernel ReorderTemperatureCopyback
 
 // Includes
 #include "./FluidMaths2D.hlsl"
@@ -17,8 +20,10 @@ static const int NumThreads = 64;
 RWStructuredBuffer<float2> Positions;
 RWStructuredBuffer<float2> PredictedPositions;
 RWStructuredBuffer<float2> Velocities;
-RWStructuredBuffer<float2> Densities; // Density, Near Density
+RWStructuredBuffer<float2> Densities;
 RWStructuredBuffer<uint> Phases;
+RWStructuredBuffer<float> Temperatures;
+
 
 // Spatial hashing
 RWStructuredBuffer<uint> SpatialKeys;
@@ -39,6 +44,7 @@ const float2 boundsSize;
 const float2 interactionInputPoint;
 const float interactionInputStrength;
 const float interactionInputRadius;
+
 
 StructuredBuffer<float> PhaseInteractionMatrix;
 int NumPhases;
@@ -127,30 +133,35 @@ float GetPhaseInteraction(uint a, uint b)
     return PhaseInteractionMatrix[a * NumPhases + b];
 }
 
-float2 ExternalForces(float2 pos, float2 velocity)
+float2 ExternalForces(float2 pos, float2 velocity, float density, uint phase)
 {
-	// Gravity
-	float2 gravityAccel = float2(0, gravity);
+    float2 gravityAccel = float2(0, gravity);
+
+	// Buoyancy: push particle up/down based on how its density compares to its target
+    float targetDensity = PhaseTargetDensities[phase];
+    float buoyancy = (targetDensity - density) / targetDensity * gravity;
+    gravityAccel.y += buoyancy;
 	
 	// Input interactions modify gravity
-	if (interactionInputStrength != 0) {
-		float2 inputPointOffset = interactionInputPoint - pos;
-		float sqrDst = dot(inputPointOffset, inputPointOffset);
-		if (sqrDst < interactionInputRadius * interactionInputRadius)
-		{
-			float dst = sqrt(sqrDst);
-			float edgeT = (dst / interactionInputRadius);
-			float centreT = 1 - edgeT;
-			float2 dirToCentre = inputPointOffset / dst;
+    if (interactionInputStrength != 0)
+    {
+        float2 inputPointOffset = interactionInputPoint - pos;
+        float sqrDst = dot(inputPointOffset, inputPointOffset);
+        if (sqrDst < interactionInputRadius * interactionInputRadius)
+        {
+            float dst = sqrt(sqrDst);
+            float edgeT = (dst / interactionInputRadius);
+            float centreT = 1 - edgeT;
+            float2 dirToCentre = inputPointOffset / dst;
 
-			float gravityWeight = 1 - (centreT * saturate(interactionInputStrength / 10));
-			float2 accel = gravityAccel * gravityWeight + dirToCentre * centreT * interactionInputStrength;
-			accel -= velocity * centreT;
-			return accel;
-		}
-	}
+            float gravityWeight = 1 - (centreT * saturate(interactionInputStrength / 10));
+            float2 accel = gravityAccel * gravityWeight + dirToCentre * centreT * interactionInputStrength;
+            accel -= velocity * centreT;
+            return accel;
+        }
+    }
 
-	return gravityAccel;
+    return gravityAccel;
 }
 
 
@@ -195,17 +206,18 @@ void HandleCollisions(uint particleIndex)
 	Velocities[particleIndex] = vel;
 }
 
-[numthreads(NumThreads,1,1)]
+[numthreads(NumThreads, 1, 1)]
 void ExternalForces(uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
+    if (id.x >= numParticles)
+        return;
 
-	// External forces (gravity and input interaction)
-	Velocities[id.x] += ExternalForces(Positions[id.x], Velocities[id.x]) * deltaTime;
+    uint phase = Phases[id.x];
+    float density = Densities[id.x][0];
+    Velocities[id.x] += ExternalForces(Positions[id.x], Velocities[id.x], density, phase) * deltaTime;
 
-	// Predict
-	const float predictionFactor = 1 / 120.0;
-	PredictedPositions[id.x] = Positions[id.x] + Velocities[id.x] * predictionFactor;
+    const float predictionFactor = 1 / 120.0;
+    PredictedPositions[id.x] = Positions[id.x] + Velocities[id.x] * predictionFactor;
 }
 
 [numthreads(NumThreads,1,1)]
@@ -224,6 +236,8 @@ RWStructuredBuffer<float2> SortTarget_Positions;
 RWStructuredBuffer<float2> SortTarget_PredictedPositions;
 RWStructuredBuffer<float2> SortTarget_Velocities;
 RWStructuredBuffer<uint> SortTarget_Phases;
+RWStructuredBuffer<float> SortTarget_Temperatures;
+
 
 [numthreads(NumThreads,1,1)]
 void Reorder (uint3 id : SV_DispatchThreadID)
@@ -246,7 +260,7 @@ void ReorderCopyback (uint3 id : SV_DispatchThreadID)
 	Positions[id.x] = SortTarget_Positions[id.x];
 	PredictedPositions[id.x] = SortTarget_PredictedPositions[id.x];
 	Velocities[id.x] = SortTarget_Velocities[id.x];
-	Phases[id.x] = SortTarget_Phases[id.x];
+    Phases[id.x] = SortTarget_Phases[id.x];
 }
 
 
@@ -330,7 +344,95 @@ void CalculatePressureForce (uint3 id : SV_DispatchThreadID)
 	}
 
 	float2 acceleration = pressureForce / max(density, epsilon);
-	Velocities[id.x] += acceleration * deltaTime;//
+	Velocities[id.x] += acceleration * deltaTime;
+}
+
+const float ambientTemperature;
+const float heatDiffusionRate;
+const float heatCoolingRate;
+const float2 heatSourcePos;
+const float heatSourceRadius;
+const float heatSourceTemperature;
+const float heatSinkTemperature;
+[numthreads(NumThreads, 1, 1)]
+void UpdateTemperature(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= numParticles)
+        return;
+
+    float2 pos = PredictedPositions[id.x];
+    float myTemp = Temperatures[id.x];
+    uint myPhase = Phases[id.x];
+
+    int2 originCell = GetCell2D(pos, smoothingRadius);
+    float sqrRadius = smoothingRadius * smoothingRadius;
+
+    // Diffusion: exchange heat with neighbors
+    float diffusion = 0;
+    float totalWeight = 0;
+
+    for (int i = 0; i < 9; i++)
+    {
+        uint hash = HashCell2D(originCell + offsets2D[i]);
+        uint key = KeyFromHash(hash, numParticles);
+        uint currIndex = SpatialOffsets[key];
+
+        while (currIndex < numParticles)
+        {
+            uint neighbourIndex = currIndex;
+            currIndex++;
+
+            if (neighbourIndex == id.x)
+                continue;
+
+            uint neighbourKey = SpatialKeys[neighbourIndex];
+            if (neighbourKey != key)
+                break;
+
+            float2 neighbourPos = PredictedPositions[neighbourIndex];
+            float2 offset = neighbourPos - pos;
+            float sqrDst = dot(offset, offset);
+
+            if (sqrDst > sqrRadius)
+                continue;
+
+            float dst = sqrt(sqrDst);
+            float weight = DensityKernel(dst, smoothingRadius);
+            float neighbourTemp = Temperatures[neighbourIndex];
+
+            // Only diffuse within same phase - cross-phase heat transfer is much slower
+            uint neighbourPhase = Phases[neighbourIndex];
+            float phaseWeight = (myPhase == neighbourPhase) ? 1.0 : 0.1;
+
+            diffusion += (neighbourTemp - myTemp) * weight * phaseWeight;
+            totalWeight += weight * phaseWeight;
+        }
+    }
+
+    float newTemp = myTemp;
+
+    // Apply diffusion
+    if (totalWeight > 0)
+        newTemp += diffusion / totalWeight * heatDiffusionRate * deltaTime;
+
+    // Passive cooling toward ambient temperature
+    newTemp += (ambientTemperature - newTemp) * heatCoolingRate * deltaTime;
+
+    // Heat source at bottom - applies to wax phase only
+    float2 toSource = pos - heatSourcePos;
+    if (dot(toSource, toSource) < heatSourceRadius * heatSourceRadius)
+        newTemp = lerp(newTemp, heatSourceTemperature, 0.1 * deltaTime * 60);
+
+    // Heat sink at top boundary - cools everything near the top
+    float halfHeight = boundsSize.y * 0.5;
+    float distFromTop = halfHeight - pos.y;
+    if (distFromTop < smoothingRadius * 2)
+    {
+        float t = 1 - saturate(distFromTop / (smoothingRadius * 2));
+        newTemp = lerp(newTemp, heatSinkTemperature, t * 0.1 * deltaTime * 60);
+    }
+
+    Temperatures[id.x] = newTemp;
 }
 
 
@@ -397,4 +499,21 @@ void UpdatePositions(uint3 id : SV_DispatchThreadID)
 
 	Positions[id.x] += Velocities[id.x] * deltaTime;
 	HandleCollisions(id.x);
+}
+
+[numthreads(NumThreads, 1, 1)]
+void ReorderTemperature(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= numParticles)
+        return;
+    uint sortedIndex = SortedIndices[id.x];
+    SortTarget_Temperatures[id.x] = Temperatures[sortedIndex];
+}
+
+[numthreads(NumThreads, 1, 1)]
+void ReorderTemperatureCopyback(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= numParticles)
+        return;
+    Temperatures[id.x] = SortTarget_Temperatures[id.x];
 }
