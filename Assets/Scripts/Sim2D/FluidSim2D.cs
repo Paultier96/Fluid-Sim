@@ -35,14 +35,14 @@ namespace Seb.Fluid2D.Simulation
         public class PhaseConfig
         {
             public string name = "Water";
+            public Gradient colourMap;
             public float targetDensity = 234;
             public float viscosity = 0.03f;
-            public Color color = Color.blue;
-            public float thermalExpansion = 0.0f;       // ADDED: 0 = no expansion (water), ~0.001 for wax
-            public float referenceTemperature = 20f;    // ADDED: temperature at which base density is correct
+            public float thermalExpansion = 0.0f;
+            public float referenceTemperature = 20f;
         }
 
-        [Range(0f, 1f)]
+        [Range(0f, 10f)]
         public float phaseSeparation = 0.3f;
 
         public float[] phaseCohesionValues = new float[] { 0.5f, -0.1f, 0.5f };
@@ -77,11 +77,11 @@ namespace Seb.Fluid2D.Simulation
         ComputeBuffer phaseTargetDensityBuffer;
         ComputeBuffer phaseViscosityBuffer;
         ComputeBuffer phaseInteractionBuffer;
-        ComputeBuffer particleTargetDensityBuffer; // ADDED
-        ComputeBuffer phaseThermalExpansionBuffer; // ADDED
-        ComputeBuffer phaseReferenceTemperatureBuffer; // ADDED
+        ComputeBuffer particleTargetDensityBuffer;
+        ComputeBuffer phaseThermalExpansionBuffer;
+        ComputeBuffer phaseReferenceTemperatureBuffer;
         ComputeBuffer sortTarget_ParticleTargetDensities;
-
+        ComputeBuffer phaseCohesionBuffer;
 
         ComputeBuffer predictedPositionBuffer;
         SpatialHash spatialHash;
@@ -101,12 +101,13 @@ namespace Seb.Fluid2D.Simulation
         const int pressureKernel = 5;
         const int viscosityKernel = 6; 
         const int updatePositionKernel = 7;
-        const int updateThermalExpansionKernel = 8; // ADDED
-        const int updateTemperatureKernel = 9;      // SHIFTED from 8
-        const int reorderTemperatureKernel = 10;    // SHIFTED from 9
-        const int copybackTemperatureKernel = 11;   // SHIFTED from 10
+        const int updateThermalExpansionKernel = 8;
+        const int updateTemperatureKernel = 9;
+        const int reorderTemperatureKernel = 10;
+        const int copybackTemperatureKernel = 11;
         const int reorderParticleTargetDensitiesKernel = 12;
         const int copybackParticleTargetDensitiesKernel = 13;
+        const int cohesionKernel = 14;
 
         // State
         bool isPaused;
@@ -117,19 +118,12 @@ namespace Seb.Fluid2D.Simulation
 
         // Runtime-change tracking
         Rendering.ParticleDisplay2D particleDisplay;
-        int prevPhaseCount = -1;
-        float prevPhaseSeparation = float.NaN;
-        float[] prevPhaseTargetDensities;
-        float[] prevPhaseViscosities;
-        Color[] prevPhaseColors;
-        float[] prevThermalExpansions;
-        float[] prevReferenceTemperatures;
 
         void Start()
         {
             particleDisplay = GetComponent<Rendering.ParticleDisplay2D>();
             if (phases != null)
-                particleDisplay?.SetPhaseColors(phases.Select(p => p.color).ToArray());
+                particleDisplay?.SetPhaseColors(phases.Select(p => p.colourMap).ToArray());
 
             float deltaTime = 1 / 60f;
             Time.fixedDeltaTime = deltaTime;
@@ -144,8 +138,6 @@ namespace Seb.Fluid2D.Simulation
             velocityBuffer = ComputeHelper.CreateStructuredBuffer<float2>(numParticles);
             densityBuffer = ComputeHelper.CreateStructuredBuffer<float2>(numParticles);
             phaseBuffer = ComputeHelper.CreateStructuredBuffer<int>(numParticles);
-
-            // ADDED: create temperature buffer, initialize all particles to ambient
             temperatureBuffer = ComputeHelper.CreateStructuredBuffer<float>(numParticles);
             float[] initialTemps = new float[numParticles];
             for (int i = 0; i < numParticles; i++)
@@ -167,8 +159,17 @@ namespace Seb.Fluid2D.Simulation
             sortTarget_Phases = ComputeHelper.CreateStructuredBuffer<int>(numParticles);
             sortTarget_Temperatures = ComputeHelper.CreateStructuredBuffer<float>(numParticles);
             sortTarget_ParticleTargetDensities = ComputeHelper.CreateStructuredBuffer<float>(numParticles);
-
-
+            int triangularSize = phases.Length * (phases.Length + 1) / 2;
+            phaseCohesionBuffer = new ComputeBuffer(triangularSize, sizeof(float));
+            phaseCohesionBuffer.SetData(phaseCohesionValues);
+            
+            ComputeHelper.SetBuffer(compute, phaseCohesionBuffer, "PhaseCohesionMatrix", cohesionKernel);
+            ComputeHelper.SetBuffer(compute, predictedPositionBuffer, "PredictedPositions", externalForcesKernel, spatialHashKernel, densityKernel, pressureKernel, viscosityKernel, updateTemperatureKernel, cohesionKernel, reorderKernel, copybackKernel);
+            ComputeHelper.SetBuffer(compute, velocityBuffer, "Velocities", externalForcesKernel, pressureKernel, viscosityKernel, cohesionKernel, updatePositionKernel, reorderKernel, copybackKernel);
+            ComputeHelper.SetBuffer(compute, densityBuffer, "Densities", externalForcesKernel, densityKernel, pressureKernel, viscosityKernel, cohesionKernel);
+            ComputeHelper.SetBuffer(compute, phaseBuffer, "Phases", externalForcesKernel, densityKernel, pressureKernel, viscosityKernel, updateTemperatureKernel, updatePositionKernel, cohesionKernel, reorderKernel, copybackKernel, updateThermalExpansionKernel);
+            ComputeHelper.SetBuffer(compute, spatialHash.SpatialOffsets, "SpatialOffsets", spatialHashKernel, densityKernel, pressureKernel, viscosityKernel, updateTemperatureKernel, cohesionKernel);
+            ComputeHelper.SetBuffer(compute, spatialHash.SpatialKeys, "SpatialKeys", spatialHashKernel, densityKernel, pressureKernel, viscosityKernel, updateTemperatureKernel, cohesionKernel);
 
             CreateOrUpdatePhaseBuffers(initial: true);
 
@@ -223,130 +224,73 @@ namespace Seb.Fluid2D.Simulation
 
             HandleInput();
         }
+        bool phasesDirty = true;
+
+        void OnValidate()
+        {
+            phasesDirty = true;
+        }
 
         void CreateOrUpdatePhaseBuffers(bool initial)
         {
-            if (phases == null) return;
+            if (!phasesDirty) return;
+            phasesDirty = false;
+            EnsurePhaseBuffers();
+            UploadAndBindPhaseData();
+        }
 
+        void EnsurePhaseBuffers()
+        {
             int phaseCount = phases.Length;
 
-            float[] currentTargetDensities = phases.Select(p => p.targetDensity).ToArray();
-            float[] currentViscosities = phases.Select(p => p.viscosity).ToArray();
-            Color[] currentColors = phases.Select(p => p.color).ToArray();
-            float[] currentThermalExpansions = phases.Select(p => p.thermalExpansion).ToArray();
-            float[] currentReferenceTemperatures = phases.Select(p => p.referenceTemperature).ToArray();
-            bool densitiesChanged = !FloatArrayEquals(currentTargetDensities, prevPhaseTargetDensities);
-            bool viscositiesChanged = !FloatArrayEquals(currentViscosities, prevPhaseViscosities);
-            bool colorsChanged = !ColorArrayEquals(currentColors, prevPhaseColors);
-            bool thermalExpansionChanged = !FloatArrayEquals(currentThermalExpansions, prevThermalExpansions);
-            bool referenceTemperaturesChanged = !FloatArrayEquals(currentReferenceTemperatures, prevReferenceTemperatures);
-            bool countChanged = phaseCount != prevPhaseCount;
-            bool sepChanged = !Mathf.Approximately(prevPhaseSeparation, phaseSeparation);
-
-            if (!initial && !densitiesChanged && !viscositiesChanged && !colorsChanged && !countChanged && !sepChanged && !thermalExpansionChanged && !referenceTemperaturesChanged)
-                return;
-
-            if (colorsChanged || countChanged || initial)
-            {
-                particleDisplay?.SetPhaseColors(currentColors);
-                prevPhaseColors = currentColors;
-            }
-
-            if (countChanged && phaseTargetDensityBuffer != null)
-            {
-                phaseTargetDensityBuffer.Release();
-                phaseViscosityBuffer?.Release();
-                phaseInteractionBuffer?.Release();
-
-                phaseTargetDensityBuffer = null;
-                phaseViscosityBuffer = null;
-                phaseInteractionBuffer = null;
-            }
-
-            if (phaseTargetDensityBuffer == null)
-                phaseTargetDensityBuffer = new ComputeBuffer(phaseCount, sizeof(float));
-            if (densitiesChanged || initial || countChanged)
-                phaseTargetDensityBuffer.SetData(currentTargetDensities);
-
-            if (phaseViscosityBuffer == null)
-                phaseViscosityBuffer = new ComputeBuffer(phaseCount, sizeof(float));
-            if (viscositiesChanged || initial || countChanged)
-                phaseViscosityBuffer.SetData(currentViscosities);
-
-            float[] flat = new float[phaseCount * phaseCount];
-            for (int y = 0; y < phaseCount; y++)
-                for (int x = 0; x < phaseCount; x++)
-                    flat[y * phaseCount + x] = x == y ? 1.0f : phaseSeparation;
-
-            if (phaseInteractionBuffer == null)
-                phaseInteractionBuffer = new ComputeBuffer(flat.Length, sizeof(float));
-            phaseInteractionBuffer.SetData(flat);
-
-            if (compute != null)
-            {
-                compute.SetBuffer(externalForcesKernel, "PhaseTargetDensities", phaseTargetDensityBuffer);
-                compute.SetBuffer(densityKernel, "PhaseTargetDensities", phaseTargetDensityBuffer);
-                compute.SetBuffer(pressureKernel, "PhaseTargetDensities", phaseTargetDensityBuffer);
-                compute.SetBuffer(viscosityKernel, "PhaseTargetDensities", phaseTargetDensityBuffer);
-
-                ComputeHelper.SetBuffer(compute, phaseViscosityBuffer, "PhaseViscosities", viscosityKernel);
-                ComputeHelper.SetBuffer(compute, phaseInteractionBuffer, "PhaseInteractionMatrix", pressureKernel);
-            }
-
-
-            // Release on count change:
+            phaseTargetDensityBuffer?.Release();
+            phaseViscosityBuffer?.Release();
+            phaseInteractionBuffer?.Release();
             phaseThermalExpansionBuffer?.Release();
             phaseReferenceTemperatureBuffer?.Release();
-            phaseThermalExpansionBuffer = null;
-            phaseReferenceTemperatureBuffer = null;
+            phaseCohesionBuffer?.Release();
+            
+            phaseCohesionBuffer             = null;
+            phaseTargetDensityBuffer        = new ComputeBuffer(phaseCount, sizeof(float));
+            phaseViscosityBuffer            = new ComputeBuffer(phaseCount, sizeof(float));
+            phaseInteractionBuffer          = new ComputeBuffer(phaseCount * phaseCount, sizeof(float));
+            phaseThermalExpansionBuffer     = new ComputeBuffer(phaseCount, sizeof(float));
+            phaseReferenceTemperatureBuffer = new ComputeBuffer(phaseCount, sizeof(float));
+        }
 
-            // Create/update:
-            if (phaseThermalExpansionBuffer == null)
-                phaseThermalExpansionBuffer = new ComputeBuffer(phaseCount, sizeof(float));
+        void UploadAndBindPhaseData()
+        {
+            int phaseCount = phases.Length;
+
+            // Build interaction matrix
+            float[] interactionFlat = new float[phaseCount * phaseCount];
+            for (int y = 0; y < phaseCount; y++)
+                for (int x = 0; x < phaseCount; x++)
+                    interactionFlat[y * phaseCount + x] = x == y ? 1.0f : phaseSeparation;
+
+            phaseTargetDensityBuffer.SetData(phases.Select(p => p.targetDensity).ToArray());
+            phaseViscosityBuffer.SetData(phases.Select(p => p.viscosity).ToArray());
+            phaseInteractionBuffer.SetData(interactionFlat);
             phaseThermalExpansionBuffer.SetData(phases.Select(p => p.thermalExpansion).ToArray());
-
-            if (phaseReferenceTemperatureBuffer == null)
-                phaseReferenceTemperatureBuffer = new ComputeBuffer(phaseCount, sizeof(float));
             phaseReferenceTemperatureBuffer.SetData(phases.Select(p => p.referenceTemperature).ToArray());
 
-            // Bind:
-            ComputeHelper.SetBuffer(compute, phaseThermalExpansionBuffer, "PhaseThermalExpansion", updateThermalExpansionKernel);
+            particleDisplay?.SetPhaseColors(phases.Select(p => p.colourMap).ToArray());
+
+            ComputeHelper.SetBuffer(compute, phaseTargetDensityBuffer, "PhaseTargetDensities",externalForcesKernel, densityKernel, pressureKernel, viscosityKernel, updateThermalExpansionKernel);
+            ComputeHelper.SetBuffer(compute, phaseViscosityBuffer,            "PhaseViscosities",         viscosityKernel);
+            ComputeHelper.SetBuffer(compute, phaseInteractionBuffer,          "PhaseInteractionMatrix",    pressureKernel);
+            ComputeHelper.SetBuffer(compute, phaseThermalExpansionBuffer,     "PhaseThermalExpansion",     updateThermalExpansionKernel);
             ComputeHelper.SetBuffer(compute, phaseReferenceTemperatureBuffer, "PhaseReferenceTemperatures", updateThermalExpansionKernel);
-
-            // Add data upload conditions alongside the existing ones
-            if (thermalExpansionChanged || initial || countChanged)
-                phaseThermalExpansionBuffer.SetData(currentThermalExpansions);
-
-            if (referenceTemperaturesChanged || initial || countChanged)
-                phaseReferenceTemperatureBuffer.SetData(currentReferenceTemperatures);
-
-            prevPhaseCount = phaseCount;
-            prevPhaseSeparation = phaseSeparation;
-            prevPhaseTargetDensities = currentTargetDensities;
-            prevPhaseViscosities = currentViscosities;
-            prevThermalExpansions = currentThermalExpansions;
-            prevReferenceTemperatures = currentReferenceTemperatures;//
-        }
-
-        bool FloatArrayEquals(float[] a, float[] b)
-        {
-            if (a == null && b == null) return true;
-            if (a == null || b == null) return false;
-            if (a.Length != b.Length) return false;
-            const float eps = 1e-6f;
-            for (int i = 0; i < a.Length; i++)
-                if (Mathf.Abs(a[i] - b[i]) > eps) return false;
-            return true;
-        }
-
-        bool ColorArrayEquals(Color[] a, Color[] b)
-        {
-            if (a == null && b == null) return true;
-            if (a == null || b == null) return false;
-            if (a.Length != b.Length) return false;
-            for (int i = 0; i < a.Length; i++)
-                if (a[i] != b[i]) return false;
-            return true;
+            
+            int triangularSize = phaseCount * (phaseCount + 1) / 2;
+            if (phaseCohesionBuffer == null || phaseCohesionBuffer.count != triangularSize)
+            {
+                phaseCohesionBuffer?.Release();
+                phaseCohesionBuffer = new ComputeBuffer(triangularSize, sizeof(float));
+            }
+            if (phaseCohesionValues != null && phaseCohesionValues.Length == triangularSize)
+                phaseCohesionBuffer.SetData(phaseCohesionValues);
+            ComputeHelper.SetBuffer(compute, phaseCohesionBuffer, "PhaseCohesionMatrix", cohesionKernel);
         }
 
         void RunSimulationFrame(float frameTime)
@@ -368,9 +312,11 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: densityKernel);
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: pressureKernel);
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: viscosityKernel);
-            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: updatePositionKernel);
+            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: cohesionKernel);
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: updateTemperatureKernel);
-            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: updateThermalExpansionKernel); // ADDED: after temperature
+            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: updateThermalExpansionKernel);
+            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: updatePositionKernel);
+
         }
 
         void RunSpatial()
@@ -381,8 +327,8 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: copybackKernel);
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: reorderTemperatureKernel);
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: copybackTemperatureKernel);
-            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: reorderParticleTargetDensitiesKernel);      // ADDED
-            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: copybackParticleTargetDensitiesKernel);     // ADDED
+            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: reorderParticleTargetDensitiesKernel);
+            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: copybackParticleTargetDensitiesKernel);
         }
 
         void UpdateSettings(float deltaTime)
@@ -467,6 +413,7 @@ namespace Seb.Fluid2D.Simulation
             if (predictedPositionBuffer != null) predictedPositionBuffer.Release();
             if (velocityBuffer != null) velocityBuffer.Release();
             if (densityBuffer != null) densityBuffer.Release();
+            if (phaseBuffer != null) phaseBuffer.Release();
             if (temperatureBuffer != null) temperatureBuffer.Release();
 
             if (sortTarget_Position != null) sortTarget_Position.Release();
@@ -483,6 +430,7 @@ namespace Seb.Fluid2D.Simulation
             if (phaseThermalExpansionBuffer != null) phaseThermalExpansionBuffer.Release();
             if (phaseReferenceTemperatureBuffer != null) phaseReferenceTemperatureBuffer.Release();
             if (sortTarget_ParticleTargetDensities != null) sortTarget_ParticleTargetDensities.Release();
+            if (phaseCohesionBuffer != null) phaseCohesionBuffer.Release();
 
             spatialHash?.Release();
         }

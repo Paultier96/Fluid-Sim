@@ -11,7 +11,7 @@ namespace Seb.Fluid2D.Rendering
 		public Mesh mesh;
 		public Shader shader;
 		public float scale;
-		public Gradient colourMap;
+		private Gradient[] colourMap;
 		public int gradientResolution;
 		public float velocityDisplayMax;
 
@@ -19,6 +19,7 @@ namespace Seb.Fluid2D.Rendering
 		ComputeBuffer argsBuffer;
 		Bounds bounds;
 		Texture2D gradientTexture;
+		Texture2D gradientTexture2;
 		bool needsUpdate;
 
 		void Awake()
@@ -36,10 +37,10 @@ namespace Seb.Fluid2D.Rendering
 		}
 
 
-        public void SetPhaseColors(Color[] colors)
+        public void SetPhaseColors(Gradient[] gradients)
         {
-            material.SetColor("phase0Color", colors[0]);
-            material.SetColor("phase1Color", colors[1]);
+	        colourMap = gradients;
+	        needsUpdate = true;
         }
 
         void UpdateSettings()
@@ -57,8 +58,11 @@ namespace Seb.Fluid2D.Rendering
 			if (needsUpdate)
 			{
 				needsUpdate = false;
-				TextureFromGradient(ref gradientTexture, gradientResolution, colourMap);
+				TextureFromGradient(ref gradientTexture, gradientResolution, colourMap[0]);
+				TextureFromGradient(ref gradientTexture2, gradientResolution, colourMap[1]);
+
 				material.SetTexture("ColourMap", gradientTexture);
+				material.SetTexture("ColourMap2", gradientTexture2);
 
 				material.SetFloat("scale", scale);
 				material.SetFloat("velocityMax", velocityDisplayMax);

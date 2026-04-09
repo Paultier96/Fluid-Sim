@@ -22,20 +22,21 @@ Shader "Instanced/Particle2D" {
 			StructuredBuffer<float2> Velocities;
 			StructuredBuffer<float2> DensityData;
 			StructuredBuffer<int> Phases;
-			StructuredBuffer<float> Temperatures; // ADDED
+			StructuredBuffer<float> Temperatures;
 
 
 			float scale;
 			float4 colA;
 			Texture2D<float4> ColourMap;
+			Texture2D<float4> ColourMap2;
 			SamplerState linear_clamp_sampler;
 			float velocityMax;
 
 			// Phase colours (set from C#)
 			float4 phase0Color;
 			float4 phase1Color;
-			float tempMin; // ADDED: set from C# or just hardcode for now
-			float tempMax; // ADDED
+			float tempMin;
+			float tempMax;
 
 			struct v2f
 			{
@@ -62,13 +63,15 @@ Shader "Instanced/Particle2D" {
 				float3 phaseCol = pid == 0 ? phase0Color.rgb : phase1Color.rgb;
 				float temp = Temperatures[instanceID];
 				float tempT = saturate((temp - tempMin) / max(tempMax - tempMin, 0.001));
-				float3 coldCol = float3(0, 0.3, 1);   // blue = cold
-				float3 hotCol  = float3(1, 0.2, 0);   // red = hot
-				float3 tempCol = lerp(coldCol, hotCol, tempT);
-				// Blend: mostly phase color, tinted by temperature
-				o.colour = lerp(phaseCol, tempCol, 0.8);
-
-
+	
+				if (pid == 0)
+				{
+					o.colour = ColourMap.SampleLevel(linear_clamp_sampler, float2(tempT, 0.5), 0);
+				}
+				else
+				{
+					o.colour= ColourMap2.SampleLevel(linear_clamp_sampler, float2(tempT, 0.5), 0);
+				}
 				return o;
 			}
 
