@@ -24,6 +24,11 @@ namespace Seb.Fluid2D.Simulation
         public Vector2 obstacleSize;
         public Vector2 obstacleCentre;
 
+        [Header("Bounds Type")]
+        public bool useEllipticalBounds = false;
+        public Vector2 ellipseBoundsSize = new Vector2(10, 8);
+        public Vector2 ellipseBoundsCenter = Vector2.zero;
+
         [Header("Interaction Settings")]
         public float interactionRadius;
         public float interactionStrength;
@@ -203,6 +208,7 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.SetBuffer(compute, spatialHash.SpatialIndices, "SortedIndices", spatialHashKernel, reorderKernel, reorderTemperatureKernel, reorderParticleTargetDensitiesKernel); 
 
             compute.SetInt("numParticles", numParticles);
+            compute.SetInt("NumPhases", phases.Length);
         }
 
         void Update()
@@ -342,6 +348,9 @@ namespace Seb.Fluid2D.Simulation
             compute.SetVector("boundsSize", boundsSize);
             compute.SetVector("obstacleSize", obstacleSize);
             compute.SetVector("obstacleCentre", obstacleCentre);
+            compute.SetBool("useEllipticalBounds", useEllipticalBounds);
+            compute.SetVector("ellipseBoundsSize", ellipseBoundsSize);
+            compute.SetVector("ellipseBoundsCenter", ellipseBoundsCenter);
 
             compute.SetFloat("Poly6ScalingFactor", 4 / (Mathf.PI * Mathf.Pow(smoothingRadius, 8)));
             compute.SetFloat("SpikyPow3ScalingFactor", 10 / (Mathf.PI * Mathf.Pow(smoothingRadius, 5)));
@@ -438,7 +447,18 @@ namespace Seb.Fluid2D.Simulation
         void OnDrawGizmos()
         {
             Gizmos.color = new Color(0, 1, 0, 0.4f);
-            Gizmos.DrawWireCube(Vector2.zero, boundsSize);
+            
+            if (useEllipticalBounds)
+            {
+                // Draw ellipse bounds
+                DrawEllipseGizmo(ellipseBoundsCenter, ellipseBoundsSize, 32);
+            }
+            else
+            {
+                // Draw rectangular bounds
+                Gizmos.DrawWireCube(Vector2.zero, boundsSize);
+            }
+            
             Gizmos.DrawWireCube(obstacleCentre, obstacleSize);
 
             // ADDED: draw heat source in editor
@@ -455,6 +475,21 @@ namespace Seb.Fluid2D.Simulation
                     Gizmos.color = isPullInteraction ? Color.green : Color.red;
                     Gizmos.DrawWireSphere(mousePos, interactionRadius);
                 }
+            }
+        }
+
+        void DrawEllipseGizmo(Vector2 center, Vector2 radii, int segments)
+        {
+            float angle = 0;
+            float angleStep = 360f / segments;
+            Vector3 lastPoint = center + new Vector2(radii.x, 0);
+
+            for (int i = 1; i <= segments; i++)
+            {
+                angle = i * angleStep * Mathf.Deg2Rad;
+                Vector3 newPoint = center + new Vector2(Mathf.Cos(angle) * radii.x, Mathf.Sin(angle) * radii.y);
+                Gizmos.DrawLine(lastPoint, newPoint);
+                lastPoint = newPoint;
             }
         }
     }

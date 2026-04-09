@@ -61,6 +61,48 @@ int NumPhases;
 const float2 obstacleSize;
 const float2 obstacleCentre;
 
+// Elliptical bounds parameters (when using elliptical bounds instead of rectangular)
+const float2 ellipseBoundsSize;  // Semi-axes (radii) of the ellipse
+const float2 ellipseBoundsCenter;
+const bool useEllipticalBounds;
+
+// Calculate signed distance from point to ellipse boundary
+// Returns negative if inside, positive if outside
+float SignedDistanceToEllipse(float2 pos, float2 center, float2 radii)
+{
+	float2 p = abs(pos - center);
+	float2 ab = radii;
+	
+	// Approximate ellipse distance using iterative method
+	float tx = 0.707;  // Initial guess
+	for (int i = 0; i < 3; i++)  // 3 iterations is usually sufficient
+	{
+		float ty = sqrt(max(1.0 - tx * tx * ab.x * ab.x / (ab.y * ab.y), 0.0));
+		float x = ab.x * tx;
+		float y = ab.y * ty;
+		float ex = (ab.x * ab.x - ab.y * ab.y) * tx * tx * tx / (3.0 * ab.x);
+		float ey = (ab.y * ab.y - ab.x * ab.x) * ty * ty * ty / (3.0 * ab.y);
+		
+		float rx = x - ex;
+		float ry = y - ey;
+		float qx = p.x - ex;
+		float qy = p.y - ey;
+		
+		float r = length(float2(rx, ry));
+		float q = length(float2(qx, qy));
+		tx = qx * r / (q * r + 1e-8);
+		tx = clamp(tx, 0.0, 1.0);
+	}
+	
+	float ty = sqrt(max(1.0 - tx * tx * ab.x * ab.x / (ab.y * ab.y), 0.0));
+	float2 closest = float2(ab.x * tx, ab.y * ty);
+	float dist = length(p - closest);
+	
+	// Check if inside by testing center point
+	float innerDist = length(p / ab);
+	return (innerDist < 1.0) ? -dist : dist;
+}
+
 float DensityKernel(float dst, float radius)
 {
 	return SpikyKernelPow2(dst, radius);
@@ -177,22 +219,52 @@ void HandleCollisions(uint particleIndex)
 	float2 pos = Positions[particleIndex];
 	float2 vel = Velocities[particleIndex];
 
-	// Keep particle inside bounds
-	const float2 halfSize = boundsSize * 0.5;
-	float2 edgeDst = halfSize - abs(pos);
-
-	if (edgeDst.x <= 0)
+	if (useEllipticalBounds)
 	{
-		pos.x = halfSize.x * sign(pos.x);
-		vel.x *= -1 * collisionDamping;
+		// Elliptical bounds collision
+		float2 posRelative = pos - ellipseBoundsCenter;
+		float2 radii = ellipseBoundsSize;
+		
+		// Normalize in ellipse space (map ellipse to unit circle)
+		float2 normalizedPos = posRelative / radii;
+		float normalizedDist = length(normalizedPos);
+		
+		if (normalizedDist > 1.0)
+		{
+			// Project onto ellipse by normalizing in ellipse space, then scaling back
+			float2 projectedNormalized = normalize(normalizedPos);
+			float2 boundaryPos = projectedNormalized * radii;
+			pos = ellipseBoundsCenter + boundaryPos;
+			
+			// Calculate outward normal at the boundary point
+			// For an ellipse, the outward normal is proportional to (x/a², y/b²)
+			float2 normalVector = boundaryPos / (radii * radii);
+			float2 normal = normalize(normalVector);
+			
+			// Reflect velocity across the normal
+			vel -= 2.0 * dot(vel, normal) * normal;
+			vel *= collisionDamping;
+		}
 	}
-	if (edgeDst.y <= 0)
+	else
 	{
-		pos.y = halfSize.y * sign(pos.y);
-		vel.y *= -1 * collisionDamping;
+		// Original rectangular bounds collision
+		const float2 halfSize = boundsSize * 0.5;
+		float2 edgeDst = halfSize - abs(pos);
+
+		if (edgeDst.x <= 0)
+		{
+			pos.x = halfSize.x * sign(pos.x);
+			vel.x *= -1 * collisionDamping;
+		}
+		if (edgeDst.y <= 0)
+		{
+			pos.y = halfSize.y * sign(pos.y);
+			vel.y *= -1 * collisionDamping;
+		}
 	}
 
-	// Collide particle against the test obstacle
+	// Collide particle against the test obstacle (rectangular, always enabled)
 	const float2 obstacleHalfSize = obstacleSize * 0.5;
 	float2 obstacleEdgeDst = obstacleHalfSize - abs(pos - obstacleCentre);
 
@@ -429,13 +501,29 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
     if (dot(toSource, toSource) < heatSourceRadius * heatSourceRadius)
         newTemp = lerp(newTemp, heatSourceTemperature, 0.1 * deltaTime * 60);
 
-    // Heat sink at top boundary - cools everything near the top
-    float halfHeight = boundsSize.y * 0.5;
-    float distFromTop = halfHeight - pos.y;
-    if (distFromTop < smoothingRadius * 2)
+    // Heat sink at boundary - cools everything near the boundary
+    if (useEllipticalBounds)
     {
-        float t = 1 - saturate(distFromTop / (smoothingRadius * 2));
-        newTemp = lerp(newTemp, heatSinkTemperature, t * 0.1 * deltaTime * 60);
+        // For ellipse: distance from boundary
+        float signedDist = SignedDistanceToEllipse(pos, ellipseBoundsCenter, ellipseBoundsSize);
+        float distFromBoundary = -signedDist;  // Negative of signed dist gives distance to boundary when inside
+        
+        if (distFromBoundary < smoothingRadius * 2)
+        {
+            float t = 1.0 - saturate(distFromBoundary / (smoothingRadius * 2));
+            newTemp = lerp(newTemp, heatSinkTemperature, t * 0.1 * deltaTime * 60);
+        }
+    }
+    else
+    {
+        // Original: heat sink at top boundary only
+        float halfHeight = boundsSize.y * 0.5;
+        float distFromTop = halfHeight - pos.y;
+        if (distFromTop < smoothingRadius * 2)
+        {
+            float t = 1 - saturate(distFromTop / (smoothingRadius * 2));
+            newTemp = lerp(newTemp, heatSinkTemperature, t * 0.1 * deltaTime * 60);
+        }
     }
     Temperatures[id.x] = newTemp;
 }

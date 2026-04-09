@@ -173,9 +173,12 @@ MonoBehaviour:
   smoothingRadius: 0.175
   pressureMultiplier: 800
   nearPressureMultiplier: 30
-  boundsSize: {x: 43.1, y: 23.86}
+  boundsSize: {x: 46.22222, y: 26}
   obstacleSize: {x: 20.4, y: 1.69}
-  obstacleCentre: {x: 7.5, y: -8.16}
+  obstacleCentre: {x: 7.5, y: -25.59}
+  useEllipticalBounds: 1
+  ellipseBoundsSize: {x: 12, y: 12}
+  ellipseBoundsCenter: {x: 0, y: 0}
   interactionRadius: 2.5
   interactionStrength: 75
   phases:
@@ -259,7 +262,7 @@ MonoBehaviour:
   heatCoolingRate: 0.05
   heatSourceTemperature: 100
   heatSinkTemperature: 10
-  heatSourcePos: {x: -12.26, y: -8.43}
+  heatSourcePos: {x: 6, y: -6}
   heatSourceRadius: 2
   compute: {fileID: 7200000, guid: 1c77ce8de78fddb419ed2d15cae41af0, type: 3}
   spawner2D: {fileID: 271053320}
@@ -275,20 +278,20 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 895837b52d5fc53409ded3589d4da696, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  spawnDensity: 300
+  spawnDensity: 500
   initialVelocity: {x: 0, y: 0}
   jitterStr: 0.03
   spawnRegions:
-  - position: {x: -8.98, y: 2.95}
-    size: {x: 14.5, y: 14.9}
+  - position: {x: -5, y: 0}
+    size: {x: 10, y: 10}
     debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
     phaseID: 0
-  - position: {x: 7.65, y: 2.95}
-    size: {x: 14.7, y: 15}
+  - position: {x: 5, y: 0}
+    size: {x: 10, y: 10}
     debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
     phaseID: 1
   showSpawnBoundsGizmos: 1
-  spawnParticleCount: 131568
+  spawnParticleCount: 100352
 --- !u!114 &271053322
 MonoBehaviour:
   m_ObjectHideFlags: 0
