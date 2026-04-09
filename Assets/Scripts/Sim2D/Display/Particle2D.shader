@@ -66,7 +66,7 @@ Shader "Instanced/Particle2D" {
 				float3 hotCol  = float3(1, 0.2, 0);   // red = hot
 				float3 tempCol = lerp(coldCol, hotCol, tempT);
 				// Blend: mostly phase color, tinted by temperature
-				o.colour = lerp(phaseCol, tempCol, 1);
+				o.colour = lerp(phaseCol, tempCol, 0.8);
 
 
 				return o;

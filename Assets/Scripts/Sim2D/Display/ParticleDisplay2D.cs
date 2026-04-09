@@ -15,10 +15,6 @@ namespace Seb.Fluid2D.Rendering
 		public int gradientResolution;
 		public float velocityDisplayMax;
 
-		[Header("Phase visualization")]
-		public Color phase0Color = Color.white;
-		public Color phase1Color = Color.red;
-
 		Material material;
 		ComputeBuffer argsBuffer;
 		Bounds bounds;
