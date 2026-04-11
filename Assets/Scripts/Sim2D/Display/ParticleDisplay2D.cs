@@ -14,6 +14,10 @@ namespace Seb.Fluid2D.Rendering
 		private Gradient[] colourMap;
 		public int gradientResolution;
 		public float velocityDisplayMax;
+		
+		[Header("Debug")]
+		public bool debugMode = false;
+		public float debugGradientMax = 1.0f;
 
 		Material material;
 		ComputeBuffer argsBuffer;
@@ -69,6 +73,10 @@ namespace Seb.Fluid2D.Rendering
                 material.SetFloat("tempMin", sim.ambientTemperature);
                 material.SetFloat("tempMax", sim.heatSourceTemperature);
             }
+			
+			material.SetBuffer("CSFGradients", sim.csfGradientBuffer);
+			material.SetFloat("debugGradientMax", debugGradientMax);
+			material.SetInt("debugMode", debugMode ? 1 : 0);
 		}
 
 		public static void TextureFromGradient(ref Texture2D texture, int width, Gradient gradient, FilterMode filterMode = FilterMode.Bilinear)

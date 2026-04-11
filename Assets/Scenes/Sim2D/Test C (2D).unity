@@ -217,6 +217,7 @@ MonoBehaviour:
     viscosity: 0.03
     thermalExpansion: 0.001
     referenceTemperature: 20
+    surfaceTension: 0
   - name: Water
     colourMap:
       serializedVersion: 2
@@ -252,17 +253,19 @@ MonoBehaviour:
     viscosity: 0.03
     thermalExpansion: 0.001
     referenceTemperature: 20
+    surfaceTension: 0
   phaseSeparation: 1
   phaseCohesionValues:
   - 1
   - -0.5
   - 1
+  surfaceTensionThreshold: 0.1
   ambientTemperature: 20
   heatDiffusionRate: 0.5
   heatCoolingRate: 0.05
   heatSourceTemperature: 100
   heatSinkTemperature: 10
-  heatSourcePos: {x: 6, y: -6}
+  heatSourcePos: {x: -37.41, y: -6}
   heatSourceRadius: 2
   compute: {fileID: 7200000, guid: 1c77ce8de78fddb419ed2d15cae41af0, type: 3}
   spawner2D: {fileID: 271053320}
@@ -310,6 +313,8 @@ MonoBehaviour:
   scale: 0.07
   gradientResolution: 64
   velocityDisplayMax: 15
+  debugMode: 1
+  debugGradientMax: 1
 --- !u!1 &963194225
 GameObject:
   m_ObjectHideFlags: 0

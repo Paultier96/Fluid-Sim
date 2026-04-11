@@ -23,6 +23,9 @@ Shader "Instanced/Particle2D" {
 			StructuredBuffer<float2> DensityData;
 			StructuredBuffer<int> Phases;
 			StructuredBuffer<float> Temperatures;
+			StructuredBuffer<float2> CSFGradients;
+			float debugGradientMax;
+			int debugMode;
 
 
 			float scale;
@@ -58,19 +61,30 @@ Shader "Instanced/Particle2D" {
 				v2f o;
 				o.uv = v.texcoord;
 				o.pos = UnityObjectToClipPos(objectVertPos);
+				
+				if (debugMode)
+				{			
+					float2 gradMag = CSFGradients[instanceID]; // acceleration magnitude
+					float t = saturate(gradMag / max(debugGradientMax, 0.0001));
+				    //o.colour = lerp(float3(0, 0, 0), float3(0, 1, 0), t);
+					o.colour = float3(gradMag.x/debugGradientMax, gradMag.y/debugGradientMax, 0);
 
-				int pid = Phases[instanceID];
-				float3 phaseCol = pid == 0 ? phase0Color.rgb : phase1Color.rgb;
-				float temp = Temperatures[instanceID];
-				float tempT = saturate((temp - tempMin) / max(tempMax - tempMin, 0.001));
-	
-				if (pid == 0)
-				{
-					o.colour = ColourMap.SampleLevel(linear_clamp_sampler, float2(tempT, 0.5), 0);
 				}
 				else
 				{
-					o.colour= ColourMap2.SampleLevel(linear_clamp_sampler, float2(tempT, 0.5), 0);
+					int pid = Phases[instanceID];
+					float3 phaseCol = pid == 0 ? phase0Color.rgb : phase1Color.rgb;
+					float temp = Temperatures[instanceID];
+					float tempT = saturate((temp - tempMin) / max(tempMax - tempMin, 0.001));
+		
+					if (pid == 0)
+					{
+						o.colour = ColourMap.SampleLevel(linear_clamp_sampler, float2(tempT, 0.5), 0);
+					}
+					else
+					{
+						o.colour= ColourMap2.SampleLevel(linear_clamp_sampler, float2(tempT, 0.5), 0);
+					}
 				}
 				return o;
 			}
