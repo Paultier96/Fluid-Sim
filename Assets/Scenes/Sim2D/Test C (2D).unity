@@ -178,7 +178,7 @@ MonoBehaviour:
   obstacleCentre: {x: 7.5, y: -25.59}
   edgeForce: 2500
   edgeForceDst: 0.0875
-  useEllipticalBounds: 1
+  useEllipticalBounds: 0
   ellipseBoundsSize: {x: 12, y: 12}
   ellipseBoundsCenter: {x: 0, y: 0}
   interactionRadius: 2.5
@@ -281,7 +281,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 895837b52d5fc53409ded3589d4da696, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  spawnDensity: 500
+  spawnDensity: 2000
   initialVelocity: {x: 0, y: 0}
   jitterStr: 0.03
   spawnRegions:
@@ -294,7 +294,7 @@ MonoBehaviour:
     debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
     phaseID: 1
   showSpawnBoundsGizmos: 1
-  spawnParticleCount: 100352
+  spawnParticleCount: 401408
 --- !u!114 &271053322
 MonoBehaviour:
   m_ObjectHideFlags: 0
