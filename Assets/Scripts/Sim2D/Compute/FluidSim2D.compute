@@ -338,7 +338,7 @@ void ExternalForces(uint3 id : SV_DispatchThreadID)
     float density = Densities[id.x][0];
     Velocities[id.x] += ExternalForces(Positions[id.x], Velocities[id.x], density, phase, id.x) * deltaTime;
 
-    const float predictionFactor = 1 / 120.0;
+    //const float predictionFactor = 1 / 120.0;//idk why
     PredictedPositions[id.x] = Positions[id.x] + Velocities[id.x] * deltaTime;
 }
 
@@ -465,6 +465,13 @@ void CalculatePressureForce (uint3 id : SV_DispatchThreadID)
 	}
 
 	float2 acceleration = pressureForce / max(density, epsilon);
+
+	// Clamp acceleration magnitude to prevent explosive forces in a single step
+	// float maxAcceleration = smoothingRadius / (deltaTime * deltaTime);
+	// float accMag = length(acceleration);
+	// if (accMag > maxAcceleration)
+	//	acceleration = (acceleration / accMag) * maxAcceleration;
+
 	Velocities[id.x] += acceleration * deltaTime;
 }
 
@@ -699,6 +706,11 @@ void UpdatePositions(uint3 id : SV_DispatchThreadID)
 
 	Positions[id.x] += Velocities[id.x] * deltaTime;
 	HandleCollisions(id.x);
+	
+	//float maxSpeed = smoothingRadius / deltaTime * 0.2; // can travel 40% of smoothing radius per step
+	//float speed = length(Velocities[id.x]);
+	//if (speed > maxSpeed)
+	//	Velocities[id.x] = (Velocities[id.x] / speed) * maxSpeed;
 }
 
 [numthreads(NumThreads, 1, 1)]

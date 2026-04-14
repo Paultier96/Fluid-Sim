@@ -129,6 +129,9 @@ namespace Seb.Fluid2D.Simulation
         bool isPaused;
         Spawner2D.ParticleSpawnData spawnData;
         bool pauseNextFrame;
+        float2[] velocityReadback;
+        float2[] densityReadback;
+        float[] targetDensityReadback;
 
         public int numParticles { get; private set; }
 
@@ -232,6 +235,19 @@ namespace Seb.Fluid2D.Simulation
 
             compute.SetInt("numParticles", numParticles);
             compute.SetInt("NumPhases", phases.Length);
+            SettleSimulation();
+        }
+        
+        void SettleSimulation()
+        {
+            float settleStepSize = 1f / 1200f; // very small fixed step
+            int settleSteps = 300; // run for 0.25 simulated seconds
+
+            for (int i = 0; i < settleSteps; i++)
+            {
+                UpdateSettings(settleStepSize);
+                RunSimulationStep();
+            }
         }
 
         void Update()
