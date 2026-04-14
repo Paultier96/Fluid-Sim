@@ -309,10 +309,22 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
-  shader: {fileID: 4800000, guid: 441b7193936682446b30d2140d15792a, type: 3}
+  renderMode: 1
+  directParticleShader: {fileID: 4800000, guid: 441b7193936682446b30d2140d15792a, type: 3}
+  metaballShader: {fileID: 4800000, guid: 85b87c70f093d411791140a3aca6ced6, type: 3}
   scale: 0.07
   gradientResolution: 64
   velocityDisplayMax: 15
+  useRenderTextureMetaballs: 1
+  compositeShader: {fileID: 4800000, guid: db6a0932797cd49b1a42ac6d2c30ac61, type: 3}
+  blurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
+  renderTextureScale: 1
+  blurRadius: 5
+  densityThreshold: 0.18
+  edgeSoftness: 2
+  phaseBlendWidth: 4
+  metaballSharpness: 1
+  metaballIntensity: 20
   debugMode: 0
   debugGradientMax: 1
 --- !u!1 &963194225

@@ -26,12 +26,14 @@ Shader "Hidden/Particle2DMetaballComposite" {
 				float4 vertex : SV_POSITION;
 			};
 
-			sampler2D Phase0Tex;
-			sampler2D Phase1Tex;
+			// Single RGBA texture: RG = phase0 (weighted data, density), BA = phase1 (weighted data, density)
+			sampler2D CombinedTex;
+			sampler2D ColourMap;
+			sampler2D ColourMap2;
 			float densityThreshold;
 			float edgeSoftness;
-			float opacity;
 			float phaseBlendWidth;
+			int debugMode;
 
 			v2f vert(appdata v)
 			{
@@ -43,19 +45,31 @@ Shader "Hidden/Particle2DMetaballComposite" {
 
 			float4 frag(v2f i) : SV_Target
 			{
-				float4 phase0 = tex2D(Phase0Tex, i.uv);
-				float4 phase1 = tex2D(Phase1Tex, i.uv);
-				float density0 = phase0.a;
-				float density1 = phase1.a;
+				float4 combined = tex2D(CombinedTex, i.uv);
+				float density0 = combined.g;
+				float density1 = combined.a;
 				float density = max(density0, density1);
-				float alpha = smoothstep(densityThreshold - edgeSoftness, densityThreshold + edgeSoftness, density) * opacity;
+				float alpha = smoothstep(max(densityThreshold - edgeSoftness, 0), densityThreshold + edgeSoftness, density);
 				if (alpha <= 0.0001) discard;
 
 				float phaseT = smoothstep(-phaseBlendWidth, phaseBlendWidth, density1 - density0);
-				float3 colour0 = phase0.rgb / max(density0, 0.0001);
-				float3 colour1 = phase1.rgb / max(density1, 0.0001);
-				float3 colour = lerp(colour0, colour1, phaseT);
-				return float4(colour, alpha);
+
+				float data0 = combined.r / max(density0, 0.0001);
+				float data1 = combined.b / max(density1, 0.0001);
+
+				float3 colour0, colour1;
+				if (debugMode != 0)
+				{
+					colour0 = float3(data0, data0, data0);
+					colour1 = float3(data1, data1, data1);
+				}
+				else
+				{
+					colour0 = tex2D(ColourMap,  float2(data0, 0.5)).rgb;
+					colour1 = tex2D(ColourMap2, float2(data1, 0.5)).rgb;
+				}
+
+				return float4(lerp(colour0, colour1, phaseT), alpha);
 			}
 			ENDCG
 		}

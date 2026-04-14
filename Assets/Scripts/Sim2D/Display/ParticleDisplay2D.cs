@@ -14,32 +14,51 @@ namespace Seb.Fluid2D.Rendering
 			Metaballs
 		}
 
+		[Tooltip("The fluid simulation to visualize.")]
 		public FluidSim2D sim;
+		[Tooltip("Mesh used for each particle (typically a quad).")]
 		public Mesh mesh;
+		[Tooltip("DirectParticles renders each particle as a coloured sprite. Metaballs blends particles into a smooth fluid surface.")]
 		public RenderMode renderMode = RenderMode.DirectParticles;
+		[Tooltip("Shader used when rendering individual particles directly.")]
 		public Shader directParticleShader;
+		[Tooltip("Shader used to accumulate per-particle density and temperature into the metaball render texture.")]
 		public Shader metaballShader;
+		[Tooltip("World-space radius of each particle sprite.")]
 		public float scale;
 		private Gradient[] colourMap;
+		[Tooltip("Number of pixels in the gradient lookup texture. Higher values give smoother colour transitions.")]
 		public int gradientResolution;
+		[Tooltip("Velocity magnitude mapped to the top of the colour gradient.")]
 		public float velocityDisplayMax;
 
 		[Header("Metaball Rendering")]
+		[Tooltip("When enabled, particles are composited into a smooth fluid surface via render textures. When disabled, falls back to direct particle rendering.")]
 		public bool useRenderTextureMetaballs = true;
-		public Camera targetCamera;
+		private Camera targetCamera;
+		[Tooltip("Shader that blits the blurred accumulation texture onto the camera, applying the density threshold and colour lookup.")]
 		public Shader compositeShader;
+		[Tooltip("Shader used for the separable Gaussian blur applied to the accumulation texture.")]
 		public Shader blurShader;
+		[Tooltip("Resolution of the metaball render textures relative to the screen. Lower values improve performance at the cost of sharpness.")]
 		[Range(0.25f, 1f)] public float renderTextureScale = 0.5f;
+		[Tooltip("Radius in pixels (at render texture resolution) of the Gaussian blur. Larger values make particles merge at greater distances.")]
 		[Min(0)] public float blurRadius = 6;
+		[Tooltip("Blurred density value at which the fluid surface appears. Increase to shrink the visible fluid; decrease to expand it.")]
 		[Min(0)] public float densityThreshold = 0.18f;
+		[Tooltip("Width of the density falloff around the surface threshold. Larger values give a softer, more transparent edge. Clamped so the fade never starts below zero density.")]
 		[Min(0.0001f)] public float edgeSoftness = 0.06f;
+		[Tooltip("Width of the crossfade zone where two fluid phases blend into each other's colour.")]
 		[Min(0.0001f)] public float phaseBlendWidth = 0.02f;
-		[Min(0)] public float opacity = 1.0f;
+		[Tooltip("Steepness of each particle's density kernel (exp(-r² × sharpness)). Higher values make particles contribute a tighter, more localised density spike.")]
 		[Min(0.01f)] public float metaballSharpness = 3.5f;
+		[Tooltip("Uniform scale applied to each particle's density contribution. Increase if particles are too sparse to merge.")]
 		[Min(0)] public float metaballIntensity = 1.0f;
-		
+
 		[Header("Debug")]
+		[Tooltip("Replaces the colour ramp with a visualisation of the CSF (surface tension) gradient magnitude per particle.")]
 		public bool debugMode = false;
+		[Tooltip("CSF gradient magnitude mapped to the top of the debug colour range. Increase if the visualisation is saturating.")]
 		public float debugGradientMax = 1.0f;
 
 		Material directParticleMaterial;
@@ -50,10 +69,8 @@ namespace Seb.Fluid2D.Rendering
 		Bounds bounds;
 		Texture2D gradientTexture;
 		Texture2D gradientTexture2;
-		RenderTexture phase0AccumulationTexture;
-		RenderTexture phase1AccumulationTexture;
-		RenderTexture phase0BlurTexture;
-		RenderTexture phase1BlurTexture;
+		RenderTexture combinedAccumulationTexture;
+		RenderTexture combinedBlurTexture;
 		CommandBuffer metaballCommandBuffer;
 		Camera boundCamera;
 		bool needsUpdate;
@@ -62,6 +79,7 @@ namespace Seb.Fluid2D.Rendering
 		{
 			EnsureMaterials();
 			needsUpdate = true;
+			targetCamera = Camera.main;
 		}
 
 		void LateUpdate()
@@ -157,12 +175,6 @@ namespace Seb.Fluid2D.Rendering
 				directParticleMaterial.SetTexture("ColourMap", gradientTexture);
 				directParticleMaterial.SetTexture("ColourMap2", gradientTexture2);
 			}
-
-			if (metaballMaterial != null)
-			{
-				metaballMaterial.SetTexture("ColourMap", gradientTexture);
-				metaballMaterial.SetTexture("ColourMap2", gradientTexture2);
-			}
 		}
 
 		void EnsureGradientTextures()
@@ -195,12 +207,6 @@ namespace Seb.Fluid2D.Rendering
 
 		void UpdateMetaballRender()
 		{
-			Camera cam = targetCamera != null ? targetCamera : Camera.main;
-			if (cam == null)
-			{
-				return;
-			}
-
 			if (compositeMaterial == null || compositeMaterial.shader != compositeShader)
 			{
 				compositeMaterial = new Material(compositeShader);
@@ -211,38 +217,28 @@ namespace Seb.Fluid2D.Rendering
 				blurMaterial = new Material(blurShader);
 			}
 
-			EnsureCommandBuffer(cam);
-			EnsureRenderTextures(cam);
+			EnsureCommandBuffer(targetCamera);
+			EnsureRenderTextures(targetCamera);
 
 			compositeMaterial.SetFloat("densityThreshold", densityThreshold);
 			compositeMaterial.SetFloat("edgeSoftness", edgeSoftness);
 			compositeMaterial.SetFloat("phaseBlendWidth", phaseBlendWidth);
-			compositeMaterial.SetFloat("opacity", opacity);
-			compositeMaterial.SetTexture("Phase0Tex", phase0AccumulationTexture);
-			compositeMaterial.SetTexture("Phase1Tex", phase1AccumulationTexture);
+			compositeMaterial.SetTexture("CombinedTex", combinedAccumulationTexture);
+			compositeMaterial.SetTexture("ColourMap", gradientTexture);
+			compositeMaterial.SetTexture("ColourMap2", gradientTexture2);
+			compositeMaterial.SetInt("debugMode", debugMode ? 1 : 0);
 
 			blurMaterial.SetFloat("blurRadius", blurRadius);
 
 			metaballCommandBuffer.Clear();
-			metaballCommandBuffer.SetGlobalInt("renderPhase", 0);
-			metaballCommandBuffer.SetRenderTarget(phase0AccumulationTexture);
-			metaballCommandBuffer.ClearRenderTarget(false, true, Color.clear);
-			metaballCommandBuffer.DrawMeshInstancedIndirect(mesh, 0, metaballMaterial, 0, argsBuffer);
-
-			metaballCommandBuffer.SetGlobalInt("renderPhase", 1);
-			metaballCommandBuffer.SetRenderTarget(phase1AccumulationTexture);
+			metaballCommandBuffer.SetRenderTarget(combinedAccumulationTexture);
 			metaballCommandBuffer.ClearRenderTarget(false, true, Color.clear);
 			metaballCommandBuffer.DrawMeshInstancedIndirect(mesh, 0, metaballMaterial, 0, argsBuffer);
 
 			metaballCommandBuffer.SetGlobalVector("blurDirection", new Vector2(1, 0));
-			metaballCommandBuffer.Blit(phase0AccumulationTexture, phase0BlurTexture, blurMaterial);
+			metaballCommandBuffer.Blit(combinedAccumulationTexture, combinedBlurTexture, blurMaterial);
 			metaballCommandBuffer.SetGlobalVector("blurDirection", new Vector2(0, 1));
-			metaballCommandBuffer.Blit(phase0BlurTexture, phase0AccumulationTexture, blurMaterial);
-
-			metaballCommandBuffer.SetGlobalVector("blurDirection", new Vector2(1, 0));
-			metaballCommandBuffer.Blit(phase1AccumulationTexture, phase1BlurTexture, blurMaterial);
-			metaballCommandBuffer.SetGlobalVector("blurDirection", new Vector2(0, 1));
-			metaballCommandBuffer.Blit(phase1BlurTexture, phase1AccumulationTexture, blurMaterial);
+			metaballCommandBuffer.Blit(combinedBlurTexture, combinedAccumulationTexture, blurMaterial);
 
 			metaballCommandBuffer.Blit(null, BuiltinRenderTextureType.CameraTarget, compositeMaterial);
 		}
@@ -268,10 +264,8 @@ namespace Seb.Fluid2D.Rendering
 			int width = Mathf.Max(1, Mathf.RoundToInt(cam.pixelWidth * renderTextureScale));
 			int height = Mathf.Max(1, Mathf.RoundToInt(cam.pixelHeight * renderTextureScale));
 
-			ComputeHelper.CreateRenderTexture(ref phase0AccumulationTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Phase0 Accumulation");
-			ComputeHelper.CreateRenderTexture(ref phase1AccumulationTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Phase1 Accumulation");
-			ComputeHelper.CreateRenderTexture(ref phase0BlurTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Phase0 Blur");
-			ComputeHelper.CreateRenderTexture(ref phase1BlurTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Phase1 Blur");
+			ComputeHelper.CreateRenderTexture(ref combinedAccumulationTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Combined Accumulation");
+			ComputeHelper.CreateRenderTexture(ref combinedBlurTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Combined Blur");
 		}
 
 		void RemoveCommandBuffer()
@@ -332,7 +326,7 @@ namespace Seb.Fluid2D.Rendering
 		void OnDestroy()
 		{
 			ComputeHelper.Release(argsBuffer);
-			ComputeHelper.Release(phase0AccumulationTexture, phase1AccumulationTexture, phase0BlurTexture, phase1BlurTexture);
+			ComputeHelper.Release(combinedAccumulationTexture, combinedBlurTexture);
 			RemoveCommandBuffer();
 			if (metaballCommandBuffer != null)
 			{
