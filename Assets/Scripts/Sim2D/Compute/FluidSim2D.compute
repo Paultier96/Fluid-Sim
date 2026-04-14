@@ -48,6 +48,9 @@ const float gravity;
 const float deltaTime;
 const float collisionDamping;
 const float smoothingRadius;
+// Soft boundary repulsion parameters
+const float edgeForce;      // magnitude of repulsive acceleration at zero distance
+const float edgeForceDst;   // distance from boundary over which repulsion fades to zero
 StructuredBuffer<float> PhaseTargetDensities;
 const float pressureMultiplier;
 const float nearPressureMultiplier;
@@ -58,8 +61,6 @@ const float interactionInputStrength;
 const float interactionInputRadius;
 // Add new per-phase thermal expansion settings
 StructuredBuffer<float> PhaseThermalExpansion; // how much density changes per degree
-StructuredBuffer<float> PhaseReferenceTemperatures; // temperature at which base density is correct
-
 
 StructuredBuffer<float> PhaseInteractionMatrix;
 int NumPhases;
@@ -216,7 +217,43 @@ float2 ExternalForces(float2 pos, float2 velocity, float density, uint phase, ui
         }
     }
 
-    return gravityAccel;
+    // Soft boundary repulsion: apply a smooth inward acceleration when within edgeForceDst of a boundary
+    float2 boundaryRepel = float2(0,0);
+    if (edgeForce > 0 && edgeForceDst > 0)
+    {
+        if (useEllipticalBounds)
+        {
+            float signedDist = SignedDistanceToEllipse(pos, ellipseBoundsCenter, ellipseBoundsSize);
+            float absDist = abs(signedDist);
+            if (absDist < edgeForceDst)
+            {
+                // outward normal approximation
+                float2 dir = pos - ellipseBoundsCenter;
+                float2 normalVec = dir / (ellipseBoundsSize * ellipseBoundsSize);
+                float2 normal = normalize(normalVec);
+                float strength = edgeForce * (edgeForceDst - absDist) / edgeForceDst;
+                // push inward (towards center)
+                boundaryRepel += -normal * strength;
+            }
+        }
+        else
+        {
+            float2 halfSize = boundsSize * 0.5;
+            float2 edgeDst = halfSize - abs(pos);
+            if (edgeDst.x < edgeForceDst)
+            {
+                float strength = edgeForce * (edgeForceDst - edgeDst.x) / edgeForceDst;
+                boundaryRepel.x += -sign(pos.x) * strength; // push towards centre
+            }
+            if (edgeDst.y < edgeForceDst)
+            {
+                float strength = edgeForce * (edgeForceDst - edgeDst.y) / edgeForceDst;
+                boundaryRepel.y += -sign(pos.y) * strength;
+            }
+        }
+    }
+
+    return gravityAccel + boundaryRepel;
 }
 
 
@@ -271,20 +308,20 @@ void HandleCollisions(uint particleIndex)
 	}
 
 	// Collide particle against the test obstacle (rectangular, always enabled)
-	const float2 obstacleHalfSize = obstacleSize * 0.5;
-	float2 obstacleEdgeDst = obstacleHalfSize - abs(pos - obstacleCentre);
-
-	if (obstacleEdgeDst.x >= 0 && obstacleEdgeDst.y >= 0)
-	{
-		if (obstacleEdgeDst.x < obstacleEdgeDst.y) {
-			pos.x = obstacleHalfSize.x * sign(pos.x - obstacleCentre.x) + obstacleCentre.x;
-			vel.x *= -1 * collisionDamping;
-		}
-		else {
-			pos.y = obstacleHalfSize.y * sign(pos.y - obstacleCentre.y) + obstacleCentre.y;
-			vel.y *= -1 * collisionDamping;
-		}
-	}
+	// const float2 obstacleHalfSize = obstacleSize * 0.5;
+	// float2 obstacleEdgeDst = obstacleHalfSize - abs(pos - obstacleCentre);
+	//
+	// if (obstacleEdgeDst.x >= 0 && obstacleEdgeDst.y >= 0)
+	// {
+	// 	if (obstacleEdgeDst.x < obstacleEdgeDst.y) {
+	// 		pos.x = obstacleHalfSize.x * sign(pos.x - obstacleCentre.x) + obstacleCentre.x;
+	// 		vel.x *= -1 * collisionDamping;
+	// 	}
+	// 	else {
+	// 		pos.y = obstacleHalfSize.y * sign(pos.y - obstacleCentre.y) + obstacleCentre.y;
+	// 		vel.y *= -1 * collisionDamping;
+	// 	}
+	// }
 
 	// Update position and velocity
 	Positions[particleIndex] = pos;
@@ -302,7 +339,7 @@ void ExternalForces(uint3 id : SV_DispatchThreadID)
     Velocities[id.x] += ExternalForces(Positions[id.x], Velocities[id.x], density, phase, id.x) * deltaTime;
 
     const float predictionFactor = 1 / 120.0;
-    PredictedPositions[id.x] = Positions[id.x] + Velocities[id.x] * predictionFactor;
+    PredictedPositions[id.x] = Positions[id.x] + Velocities[id.x] * deltaTime;
 }
 
 [numthreads(NumThreads,1,1)]
@@ -502,7 +539,7 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
     // Passive cooling toward ambient temperature
     newTemp += (ambientTemperature - newTemp) * heatCoolingRate * deltaTime;
 
-    // Heat source at bottom - applies to wax phase only
+    // Heat source at bottom
     float2 toSource = pos - heatSourcePos;
     if (dot(toSource, toSource) < heatSourceRadius * heatSourceRadius)
         newTemp = lerp(newTemp, heatSourceTemperature, 0.1 * deltaTime * 60);
@@ -556,7 +593,6 @@ void CalculateCohesion(uint3 id : SV_DispatchThreadID)
 	float2 pos = PredictedPositions[id.x];
 	int2 originCell = GetCell2D(pos, smoothingRadius);
 	float sqrRadius = smoothingRadius * smoothingRadius;
-	float density = Densities[id.x][0];
 
 	float2 cohesionForce = 0;
 
@@ -674,11 +710,10 @@ void UpdateThermalExpansion(uint3 id : SV_DispatchThreadID)
     uint phase = Phases[id.x];
     float baseDensity = PhaseTargetDensities[phase];
     float expansionCoeff = PhaseThermalExpansion[phase];
-    float refTemp = PhaseReferenceTemperatures[phase];
     float temp = Temperatures[id.x];
 
     // Density decreases as temperature rises above reference
-    float thermalDensity = baseDensity * (1.0 - expansionCoeff * (temp - refTemp));
+    float thermalDensity = baseDensity * (1.0 - expansionCoeff * (temp - ambientTemperature));
     ParticleTargetDensities[id.x] = max(thermalDensity, baseDensity * 0.1); // prevent negative density
 }
 

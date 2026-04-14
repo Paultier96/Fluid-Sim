@@ -23,6 +23,10 @@ namespace Seb.Fluid2D.Simulation
         public Vector2 boundsSize;
         public Vector2 obstacleSize;
         public Vector2 obstacleCentre;
+        [Tooltip("magnitude of repulsive acceleration at zero distance")]
+        public float edgeForce;
+        [Tooltip("distance from boundary over which repulsion fades to zero")]
+        public float edgeForceDst;
 
         [Header("Bounds Type")]
         public bool useEllipticalBounds = false;
@@ -44,7 +48,6 @@ namespace Seb.Fluid2D.Simulation
             public float targetDensity = 234;
             public float viscosity = 0.03f;
             public float thermalExpansion = 0.0f;
-            public float referenceTemperature = 20f;
             public float surfaceTension = 0f;
         }
 
@@ -90,7 +93,6 @@ namespace Seb.Fluid2D.Simulation
         ComputeBuffer phaseInteractionBuffer;
         ComputeBuffer particleTargetDensityBuffer;
         ComputeBuffer phaseThermalExpansionBuffer;
-        ComputeBuffer phaseReferenceTemperatureBuffer;
         ComputeBuffer sortTarget_ParticleTargetDensities;
         ComputeBuffer phaseCohesionBuffer;
         ComputeBuffer phaseSurfaceTensionBuffer;
@@ -274,7 +276,6 @@ namespace Seb.Fluid2D.Simulation
             phaseViscosityBuffer?.Release();
             phaseInteractionBuffer?.Release();
             phaseThermalExpansionBuffer?.Release();
-            phaseReferenceTemperatureBuffer?.Release();
             phaseCohesionBuffer?.Release();
             phaseSurfaceTensionBuffer?.Release();
             phaseCohesionBuffer             = null;
@@ -282,7 +283,6 @@ namespace Seb.Fluid2D.Simulation
             phaseViscosityBuffer            = new ComputeBuffer(phaseCount, sizeof(float));
             phaseInteractionBuffer          = new ComputeBuffer(phaseCount * phaseCount, sizeof(float));
             phaseThermalExpansionBuffer     = new ComputeBuffer(phaseCount, sizeof(float));
-            phaseReferenceTemperatureBuffer = new ComputeBuffer(phaseCount, sizeof(float));
             phaseSurfaceTensionBuffer       = new ComputeBuffer(phaseCount, sizeof(float));
         }
 
@@ -300,7 +300,6 @@ namespace Seb.Fluid2D.Simulation
             phaseViscosityBuffer.SetData(phases.Select(p => p.viscosity).ToArray());
             phaseInteractionBuffer.SetData(interactionFlat);
             phaseThermalExpansionBuffer.SetData(phases.Select(p => p.thermalExpansion).ToArray());
-            phaseReferenceTemperatureBuffer.SetData(phases.Select(p => p.referenceTemperature).ToArray());
             phaseSurfaceTensionBuffer.SetData(phases.Select(p => p.surfaceTension).ToArray());
 
             particleDisplay?.SetPhaseColors(phases.Select(p => p.colourMap).ToArray());
@@ -309,7 +308,6 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.SetBuffer(compute, phaseViscosityBuffer,            "PhaseViscosities",         viscosityKernel);
             ComputeHelper.SetBuffer(compute, phaseInteractionBuffer,          "PhaseInteractionMatrix",    pressureKernel);
             ComputeHelper.SetBuffer(compute, phaseThermalExpansionBuffer,     "PhaseThermalExpansion",     updateThermalExpansionKernel);
-            ComputeHelper.SetBuffer(compute, phaseReferenceTemperatureBuffer, "PhaseReferenceTemperatures", updateThermalExpansionKernel);
             
             int triangularSize = phaseCount * (phaseCount + 1) / 2;
             if (phaseCohesionBuffer == null || phaseCohesionBuffer.count != triangularSize)
@@ -383,6 +381,8 @@ namespace Seb.Fluid2D.Simulation
             compute.SetFloat("SpikyPow2ScalingFactor", 6 / (Mathf.PI * Mathf.Pow(smoothingRadius, 4)));
             compute.SetFloat("SpikyPow3DerivativeScalingFactor", 30 / (Mathf.Pow(smoothingRadius, 5) * Mathf.PI));
             compute.SetFloat("SpikyPow2DerivativeScalingFactor", 12 / (Mathf.Pow(smoothingRadius, 4) * Mathf.PI));
+            compute.SetFloat("edgeForce", edgeForce);
+            compute.SetFloat("edgeForceDst", edgeForceDst);
 
             // ADDED: temperature settings
             compute.SetFloat("ambientTemperature", ambientTemperature);
@@ -464,7 +464,6 @@ namespace Seb.Fluid2D.Simulation
 
             if (particleTargetDensityBuffer != null) particleTargetDensityBuffer.Release();
             if (phaseThermalExpansionBuffer != null) phaseThermalExpansionBuffer.Release();
-            if (phaseReferenceTemperatureBuffer != null) phaseReferenceTemperatureBuffer.Release();
             if (sortTarget_ParticleTargetDensities != null) sortTarget_ParticleTargetDensities.Release();
             if (phaseCohesionBuffer != null) phaseCohesionBuffer.Release();
             if (phaseSurfaceTensionBuffer != null) phaseSurfaceTensionBuffer.Release();

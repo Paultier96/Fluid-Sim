@@ -166,7 +166,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   timeScale: 1
-  maxTimestepFPS: 120
+  maxTimestepFPS: 60
   iterationsPerFrame: 3
   gravity: -13
   collisionDamping: 0.5
@@ -176,10 +176,8 @@ MonoBehaviour:
   boundsSize: {x: 46.22222, y: 26}
   obstacleSize: {x: 20.4, y: 1.69}
   obstacleCentre: {x: 7.5, y: -25.59}
-  edgeForce: 2500
-  edgeForceDst: 0.0875
   useEllipticalBounds: 1
-  ellipseBoundsSize: {x: 12, y: 12}
+  ellipseBoundsSize: {x: 4.5, y: 12.5}
   ellipseBoundsCenter: {x: 0, y: 0}
   interactionRadius: 2.5
   interactionStrength: 75
@@ -217,8 +215,9 @@ MonoBehaviour:
       m_NumAlphaKeys: 2
     targetDensity: 210
     viscosity: 0.03
-    thermalExpansion: 0.003
-    surfaceTension: 30
+    thermalExpansion: 0.001
+    referenceTemperature: 20
+    surfaceTension: 0
   - name: Water
     colourMap:
       serializedVersion: 2
@@ -252,8 +251,9 @@ MonoBehaviour:
       m_NumAlphaKeys: 2
     targetDensity: 234
     viscosity: 0.03
-    thermalExpansion: 0.003
-    surfaceTension: 10
+    thermalExpansion: 0.001
+    referenceTemperature: 20
+    surfaceTension: 0
   phaseSeparation: 1
   phaseCohesionValues:
   - 1
@@ -265,7 +265,7 @@ MonoBehaviour:
   heatCoolingRate: 0.05
   heatSourceTemperature: 100
   heatSinkTemperature: 10
-  heatSourcePos: {x: -6, y: -6}
+  heatSourcePos: {x: 0, y: -10}
   heatSourceRadius: 2
   compute: {fileID: 7200000, guid: 1c77ce8de78fddb419ed2d15cae41af0, type: 3}
   spawner2D: {fileID: 271053320}
@@ -285,16 +285,16 @@ MonoBehaviour:
   initialVelocity: {x: 0, y: 0}
   jitterStr: 0.03
   spawnRegions:
-  - position: {x: -5, y: 0}
-    size: {x: 10, y: 10}
-    debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
-    phaseID: 0
-  - position: {x: 5, y: 0}
-    size: {x: 10, y: 10}
-    debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
+  - position: {x: 0, y: 2}
+    size: {x: 8, y: 7}
+    debugCol: {r: 1, g: 0.27843142, b: 0.8629417, a: 1}
     phaseID: 1
+  - position: {x: 0, y: -8}
+    size: {x: 6, y: 6}
+    debugCol: {r: 0.27843142, g: 0.40647724, b: 1, a: 1}
+    phaseID: 0
   showSpawnBoundsGizmos: 1
-  spawnParticleCount: 100352
+  spawnParticleCount: 46328
 --- !u!114 &271053322
 MonoBehaviour:
   m_ObjectHideFlags: 0
