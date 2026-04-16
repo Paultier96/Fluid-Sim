@@ -70,11 +70,22 @@ namespace Seb.Fluid2D.Rendering
 		Material compositeMaterial;
 		Material blurMaterial;
 		// Jump Flood related fields
-		public ComputeShader jumpFloodCompute;
+		public ComputeShader jumpFloodCompute; // kept for compatibility but not used when raster pass is available
 		public Shader jumpFloodDisplayShader;
+		public Shader jumpFloodSeedShader;
+		public Shader jumpFloodPassShader;
+		public bool useComputeMethod = false;
+
+		public float jFedgeWidth;
+		public float jFAAWidth;
+		
 		Material jumpFloodDisplayMaterial;
+		Material jumpFloodSeedMaterial;
+		Material jumpFloodPassMaterial;
 		RenderTexture jfaSeedA;
 		RenderTexture jfaSeedB;
+		RenderTexture jfaTemp;
+		RenderTexture jfaResult;
 		ComputeBuffer argsBuffer;
 		Bounds bounds;
 		Texture2D gradientTexture;
@@ -172,12 +183,22 @@ namespace Seb.Fluid2D.Rendering
 				jumpFloodDisplayMaterial = new Material(jumpFloodDisplayShader);
 				needsUpdate = true;
 			}
+
+			if (jumpFloodSeedShader != null && (jumpFloodSeedMaterial == null || jumpFloodSeedMaterial.shader != jumpFloodSeedShader))
+			{
+				jumpFloodSeedMaterial = new Material(jumpFloodSeedShader);
+				needsUpdate = true;
+			}
+
+			if (jumpFloodPassShader != null && (jumpFloodPassMaterial == null || jumpFloodPassMaterial.shader != jumpFloodPassShader))
+			{
+				jumpFloodPassMaterial = new Material(jumpFloodPassShader);
+				needsUpdate = true;
+			}
 		}
 
 		void UpdateJumpFloodRender()
 		{
-			if (jumpFloodCompute == null || sim == null) return;
-
 			RemoveCommandBuffer(); // avoid metaball cb
 
 			EnsureJumpFloodRenderTextures(targetCamera);
@@ -185,33 +206,71 @@ namespace Seb.Fluid2D.Rendering
 			int width = jfaSeedA.width;
 			int height = jfaSeedA.height;
 
-			int clearKernel = jumpFloodCompute.FindKernel("Clear");
-			int seedKernel = jumpFloodCompute.FindKernel("Seed");
-			int jfKernel = jumpFloodCompute.FindKernel("JumpFlood");
+			int clearKernel = -1;
+			int seedKernel = -1;
+			int jfKernel = -1;
+			if (useComputeMethod)
+			{
+				clearKernel = jumpFloodCompute.FindKernel("Clear");
+				seedKernel = jumpFloodCompute.FindKernel("Seed");
+				jfKernel = jumpFloodCompute.FindKernel("JumpFlood");
+			}
+			
+			Matrix4x4 VP = targetCamera.projectionMatrix * targetCamera.worldToCameraMatrix;
 
-			jumpFloodCompute.SetInt("_Width", width);
-			jumpFloodCompute.SetInt("_Height", height);
-			jumpFloodCompute.SetVector("_SimMin", (Vector2)(-sim.boundsSize * 0.5f));
-			jumpFloodCompute.SetVector("_SimMax", (Vector2)(sim.boundsSize * 0.5f));
-			jumpFloodCompute.SetFloat("_TempMin", sim.ambientTemperature);
-			jumpFloodCompute.SetFloat("_TempMax", sim.heatSourceTemperature);
-			jumpFloodCompute.SetInt("_ParticleCount", sim.positionBuffer.count);
+			if (useComputeMethod)
+			{
+				jumpFloodCompute.SetInt("_Width", width);
+				jumpFloodCompute.SetInt("_Height", height);
+				jumpFloodCompute.SetMatrix("_VP", VP);
+				jumpFloodCompute.SetFloat("_TempMin", sim.ambientTemperature);
+				jumpFloodCompute.SetFloat("_TempMax", sim.heatSourceTemperature);
+				jumpFloodCompute.SetInt("_ParticleCount", sim.positionBuffer.count);
 
-			// clear
-			jumpFloodCompute.SetTexture(clearKernel, "Result", jfaSeedA);
-			int gx = Mathf.CeilToInt(width / 8.0f);
-			int gy = Mathf.CeilToInt(height / 8.0f);
-			jumpFloodCompute.Dispatch(clearKernel, gx, gy, 1);
+				// clear
+				jumpFloodCompute.SetTexture(clearKernel, "Result", jfaSeedA);
+				int gx = (width + 15) / 16; 
+				int gy = (height + 15) / 16;				
+				jumpFloodCompute.Dispatch(clearKernel, gx, gy, 1);
 
-			// seed
-			jumpFloodCompute.SetBuffer(seedKernel, "Positions2D", sim.positionBuffer);
-			jumpFloodCompute.SetBuffer(seedKernel, "Temperatures", sim.temperatureBuffer);
-			jumpFloodCompute.SetBuffer(seedKernel, "Phases", sim.phaseBuffer);
-			jumpFloodCompute.SetTexture(seedKernel, "Result", jfaSeedA);
-			int sg = Mathf.CeilToInt(sim.positionBuffer.count / 64.0f);
-			jumpFloodCompute.Dispatch(seedKernel, Mathf.Max(1, sg), 1, 1);
+				// seed
+				jumpFloodCompute.SetBuffer(seedKernel, "Positions2D", sim.positionBuffer);
+				jumpFloodCompute.SetBuffer(seedKernel, "Temperatures", sim.temperatureBuffer);
+				jumpFloodCompute.SetBuffer(seedKernel, "Phases", sim.phaseBuffer);
+				jumpFloodCompute.SetTexture(seedKernel, "Result", jfaSeedA);
+				int sg = Mathf.CeilToInt(sim.positionBuffer.count / 64.0f);
+				jumpFloodCompute.Dispatch(seedKernel, Mathf.Max(1, sg), 1, 1);
+			}
+			else
+			{
+				// clear jfaSeedA to sentinel (-1,-1,0,-1)
+				RenderTexture prevRT = RenderTexture.active;
+				Graphics.SetRenderTarget(jfaSeedA);
+				GL.Clear(false, true, new Color(-1f, -1f, 0f, -1f));
+				Graphics.SetRenderTarget(prevRT);
 
-			// jump flood passes
+				// seed: raster pass using JumpFloodSeed shader. If no seed shader assigned, the texture stays cleared (no seeds).
+				if (jumpFloodSeedMaterial != null)
+				{
+					jumpFloodSeedMaterial.SetBuffer("Positions2D", sim.positionBuffer);
+					jumpFloodSeedMaterial.SetBuffer("Temperatures", sim.temperatureBuffer);
+					jumpFloodSeedMaterial.SetBuffer("Phases", sim.phaseBuffer);
+
+					jumpFloodSeedMaterial.SetInt("_ParticleCount", sim.positionBuffer.count);
+					jumpFloodSeedMaterial.SetMatrix("_VP", VP);
+					jumpFloodSeedMaterial.SetFloat("_TempMin", sim.ambientTemperature);
+					jumpFloodSeedMaterial.SetFloat("_TempMax", sim.heatSourceTemperature);
+
+					// render into jfaSeedA
+					RenderTexture prev = RenderTexture.active;
+					Graphics.SetRenderTarget(jfaSeedA);
+					GL.Viewport(new Rect(0, 0, jfaSeedA.width, jfaSeedA.height));
+					jumpFloodSeedMaterial.SetPass(0);
+					Graphics.DrawProceduralNow(MeshTopology.Points, sim.positionBuffer.count);
+					Graphics.SetRenderTarget(prev);
+				}
+			}
+			// jump flood passes implemented as raster blits using jumpFloodPassMaterial
 			RenderTexture src = jfaSeedA;
 			RenderTexture dst = jfaSeedB;
 			int maxDim = Mathf.Max(width, height);
@@ -220,10 +279,56 @@ namespace Seb.Fluid2D.Rendering
 			// start at largest power of two
 			for (int s = step; s >= 1; s >>= 1)
 			{
-				jumpFloodCompute.SetInt("_Step", s);
-				jumpFloodCompute.SetTexture(jfKernel, "_SrcTex", src);
-				jumpFloodCompute.SetTexture(jfKernel, "_DstTex", dst);
-				jumpFloodCompute.Dispatch(jfKernel, gx, gy, 1);
+				if (useComputeMethod)
+				{
+					if (src == dst)
+					{
+						Debug.LogError("READ/WRITE SAME TEXTURE!");
+					}
+					int gx = (width + 15) / 16; 
+					int gy = (height + 15) / 16;	
+					jumpFloodCompute.SetInt("_Step", s);
+					jumpFloodCompute.SetTexture(jfKernel, "_SrcTex", src);
+					jumpFloodCompute.SetTexture(jfKernel, "_DstTex", dst);
+					jumpFloodCompute.Dispatch(jfKernel, gx, gy, 1);
+				}
+				else
+				{
+					if (jumpFloodPassMaterial == null)
+					{
+						// no pass material assigned -> can't perform jump flooding; leave seed texture as-is
+						break;
+					}
+					jumpFloodPassMaterial.SetInt("_Step", s);
+					jumpFloodPassMaterial.SetInt("_Width", width);
+					jumpFloodPassMaterial.SetInt("_Height", height);
+					jumpFloodPassMaterial.SetTexture("_SrcTex", src);
+					// Graphics.Blit with identical source and destination RT is undefined on some platforms/drivers.
+	                if (src == dst)
+	                {
+	                    // ensure persistent temp RT exists and matches size
+	                    if (jfaTemp == null || jfaTemp.width != width || jfaTemp.height != height)
+	                    {
+	                        ComputeHelper.CreateRenderTexture(ref jfaTemp, width, height, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "JFA Temp");
+	                    }
+	                    RenderTexture prev = RenderTexture.active;
+	                    Graphics.SetRenderTarget(jfaTemp);
+	                    GL.Viewport(new Rect(0, 0, jfaTemp.width, jfaTemp.height));
+	                    jumpFloodPassMaterial.SetPass(0);
+	                    Graphics.DrawProceduralNow(MeshTopology.Triangles, 3);
+	                    Graphics.SetRenderTarget(prev);
+	                    Graphics.CopyTexture(jfaTemp, dst);
+	                }
+	                else
+	                {
+	                    RenderTexture prev = RenderTexture.active;
+	                    Graphics.SetRenderTarget(dst);
+	                    GL.Viewport(new Rect(0, 0, dst.width, dst.height));
+	                    jumpFloodPassMaterial.SetPass(0);
+	                    Graphics.DrawProceduralNow(MeshTopology.Triangles, 3);
+	                    Graphics.SetRenderTarget(prev);
+	                }
+				}
 
 				// swap
 				RenderTexture tmp = src;
@@ -231,8 +336,8 @@ namespace Seb.Fluid2D.Rendering
 				dst = tmp;
 			}
 
-			// final result in src
-			jfaSeedA = src;
+			// Keep A/B as stable ping-pong buffers across frames and track the current result separately.
+			jfaResult = src;
 		}
 
 		void UpdateJumpFloodCommandBuffer()
@@ -241,16 +346,18 @@ namespace Seb.Fluid2D.Rendering
 			if (mat == null) return;
 			EnsureGradientTextures();
 			EnsureCommandBuffer(targetCamera);
-			mat.SetTexture("_SeedTex", jfaSeedA);
+			mat.SetTexture("_SeedTex", jfaResult != null ? jfaResult : jfaSeedA);
 			mat.SetTexture("ColourMap", gradientTexture);
 			mat.SetTexture("ColourMap2", gradientTexture2);
 			mat.SetFloat("tempMin", sim.ambientTemperature);
 			mat.SetFloat("tempMax", sim.heatSourceTemperature);
+			mat.SetFloat("_EdgeWidth", jFedgeWidth);
+			mat.SetFloat("_AAWidth", jFAAWidth);
 
 			metaballCommandBuffer.Clear();
 			metaballCommandBuffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
 			metaballCommandBuffer.ClearRenderTarget(false, true, Color.black);
-			metaballCommandBuffer.Blit(jfaSeedA, BuiltinRenderTextureType.CameraTarget, mat);
+			metaballCommandBuffer.Blit(jfaResult != null ? jfaResult : jfaSeedA, BuiltinRenderTextureType.CameraTarget, mat);
 		}
 
 		Material GetActiveParticleMaterial()
@@ -371,8 +478,9 @@ namespace Seb.Fluid2D.Rendering
 			ComputeHelper.CreateRenderTexture(ref combinedBlurTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Combined Blur");
 
 			// Also ensure Jump Flood textures (used by compute shader)
-			ComputeHelper.CreateRenderTexture(ref jfaSeedA, width, height, FilterMode.Point, GraphicsFormat.R32G32B32A32_SFloat, "JFA Seed A");
-			ComputeHelper.CreateRenderTexture(ref jfaSeedB, width, height, FilterMode.Point, GraphicsFormat.R32G32B32A32_SFloat, "JFA Seed B");
+			ComputeHelper.CreateRenderTexture(ref jfaSeedA, width, height, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "JFA Seed A");
+			ComputeHelper.CreateRenderTexture(ref jfaSeedB, width, height, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "JFA Seed B");
+			ComputeHelper.CreateRenderTexture(ref jfaTemp, width, height, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "JFA Temp");
 		}
 
 		void EnsureJumpFloodRenderTextures(Camera cam)
@@ -380,8 +488,13 @@ namespace Seb.Fluid2D.Rendering
 			int width = Mathf.Max(1, Mathf.RoundToInt(cam.pixelWidth * renderTextureScale));
 			int height = Mathf.Max(1, Mathf.RoundToInt(cam.pixelHeight * renderTextureScale));
 
-			ComputeHelper.CreateRenderTexture(ref jfaSeedA, width, height, FilterMode.Point, GraphicsFormat.R32G32B32A32_SFloat, "JFA Seed A");
-			ComputeHelper.CreateRenderTexture(ref jfaSeedB, width, height, FilterMode.Point, GraphicsFormat.R32G32B32A32_SFloat, "JFA Seed B");
+			ComputeHelper.CreateRenderTexture(ref jfaSeedA, width, height, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "JFA Seed A");
+			ComputeHelper.CreateRenderTexture(ref jfaSeedB, width, height, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "JFA Seed B");
+			ComputeHelper.CreateRenderTexture(ref jfaTemp, width, height, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "JFA Temp");
+			if (jfaResult != null && (jfaResult.width != width || jfaResult.height != height))
+			{
+				jfaResult = null;
+			}
 		}
 
 		void RemoveCommandBuffer()
@@ -444,7 +557,7 @@ namespace Seb.Fluid2D.Rendering
 			ComputeHelper.Release(argsBuffer);
 			ComputeHelper.Release(combinedAccumulationTexture, combinedBlurTexture);
 			// Release jump flood textures
-			ComputeHelper.Release(jfaSeedA, jfaSeedB);
+			ComputeHelper.Release(jfaSeedA, jfaSeedB, jfaTemp);
 			RemoveCommandBuffer();
 			if (metaballCommandBuffer != null)
 			{
@@ -453,6 +566,14 @@ namespace Seb.Fluid2D.Rendering
 			if (jumpFloodDisplayMaterial != null)
 			{
 				DestroyImmediate(jumpFloodDisplayMaterial);
+			}
+			if (jumpFloodSeedMaterial != null)
+			{
+				DestroyImmediate(jumpFloodSeedMaterial);
+			}
+			if (jumpFloodPassMaterial != null)
+			{
+				DestroyImmediate(jumpFloodPassMaterial);
 			}
 		}
     }

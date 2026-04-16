@@ -19,7 +19,8 @@ Shader "Custom/JumpFloodDisplay"
             #pragma fragment frag
             #include "UnityCG.cginc"
 
-            sampler2D _SeedTex;
+            Texture2D _SeedTex;
+            SamplerState sampler_SeedTex;
             sampler2D ColourMap;
             sampler2D ColourMap2;
             float _EdgeWidth;
@@ -48,7 +49,11 @@ Shader "Custom/JumpFloodDisplay"
 
             float4 frag(v2f i) : SV_Target
             {
-                float4 seed = tex2D(_SeedTex, i.uv);
+                float2 seedUV = i.uv;
+                #ifdef UNITY_UV_STARTS_AT_TOP
+                    seedUV.y = 1.0 - seedUV.y;
+                #endif
+                float4 seed = _SeedTex.Sample(sampler_SeedTex, seedUV);
                 if (seed.w < 0.0)
                     return float4(0,0,0,1);
 

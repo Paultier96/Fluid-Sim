@@ -15,6 +15,7 @@ int _ParticleCount;
 // Simulation bounds -> map world pos to [0,1]
 float2 _SimMin;
 float2 _SimMax;
+matrix _VP;
 
 // Temperature mapping
 float _TempMin;
@@ -32,7 +33,7 @@ RWTexture2D<float4> Result;       // used by Clear and Seed (write)
 Texture2D<float4> _SrcTex;        // read-only source for JumpFlood
 RWTexture2D<float4> _DstTex;      // write destination for JumpFlood
 
-[numthreads(8,8,1)]
+[numthreads(16,16,1)]
 void Clear(uint3 id : SV_DispatchThreadID)
 {
     int2 pix = int2(id.xy);
@@ -49,7 +50,9 @@ void Seed(uint3 id : SV_DispatchThreadID)
     if (i >= _ParticleCount) return;
 
     float2 p = Positions2D[i];
-    float2 uv = (p - _SimMin) / (_SimMax - _SimMin);
+    float4 clip = mul(_VP, float4(p, 0, 1));
+    float2 ndc = clip.xy / clip.w;        // -1 to 1
+    float2 uv = ndc * 0.5 + 0.5;          // 0 to 1
 
     // clamp uv
     if (uv.x < 0 || uv.x > 1 || uv.y < 0 || uv.y > 1) return;
@@ -65,7 +68,7 @@ void Seed(uint3 id : SV_DispatchThreadID)
     Result[coord] = float4(uv.x, uv.y, tnorm, phase);
 }
 
-[numthreads(8,8,1)]
+[numthreads(16,16,1)]
 void JumpFlood(uint3 id : SV_DispatchThreadID)
 {
     int2 pix = int2(id.xy);
@@ -78,7 +81,8 @@ void JumpFlood(uint3 id : SV_DispatchThreadID)
     float bestDist = 1e20;
     if (best.w >= 0.0)
     {
-        bestDist = distance(uv, best.xy);
+        float2 d = uv - best.xy;
+        bestDist = dot(d, d);
     }
 
     // sample neighbours at offsets of _Step
@@ -90,10 +94,11 @@ void JumpFlood(uint3 id : SV_DispatchThreadID)
             if (n.x < 0 || n.y < 0 || n.x >= _Width || n.y >= _Height) continue;
             float4 cand = _SrcTex.Load(int3(n, 0));
             if (cand.w < 0.0) continue; // no seed here
-            float d = distance(uv, cand.xy);
-            if (d < bestDist)
+            float2 dd = uv - cand.xy;
+            float d2 = dot(dd, dd);
+            if (d2 < bestDist)
             {
-                bestDist = d;
+                bestDist = d2;
                 best = cand;
             }
         }
