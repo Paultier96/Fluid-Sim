@@ -219,6 +219,9 @@ MonoBehaviour:
     viscosity: 0.03
     thermalExpansion: 0.003
     surfaceTension: 30
+    nonCoalescenceRadius: 0.2
+    nonCoalescenceStrength: 1
+    nonCoalescenceNormalDotThreshold: 0.7
   - name: Water
     colourMap:
       serializedVersion: 2
@@ -254,6 +257,9 @@ MonoBehaviour:
     viscosity: 0.03
     thermalExpansion: 0.003
     surfaceTension: 10
+    nonCoalescenceRadius: 0.2
+    nonCoalescenceStrength: 1
+    nonCoalescenceNormalDotThreshold: 0.7
   phaseSeparation: 1
   phaseCohesionValues:
   - 1
@@ -309,7 +315,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
-  renderMode: 1
+  renderMode: 2
   directParticleShader: {fileID: 4800000, guid: 441b7193936682446b30d2140d15792a, type: 3}
   metaballShader: {fileID: 4800000, guid: 85b87c70f093d411791140a3aca6ced6, type: 3}
   scale: 0.07
@@ -319,7 +325,7 @@ MonoBehaviour:
   compositeShader: {fileID: 4800000, guid: db6a0932797cd49b1a42ac6d2c30ac61, type: 3}
   blurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
   renderTextureScale: 1
-  blurRadius: 5
+  blurRadius: 2.5
   densityThreshold: 0.18
   edgeSoftness: 2
   phaseBlendWidth: 4
@@ -327,6 +333,9 @@ MonoBehaviour:
   metaballIntensity: 20
   debugMode: 0
   debugGradientMax: 1
+  edgeWidth: 0.03
+  jumpFloodCompute: {fileID: 7200000, guid: 7349de8b8fa110249b104a7dac6f38c0, type: 3}
+  jumpFloodDisplayShader: {fileID: 4800000, guid: a3cfade596b52974f8bac4577967ca73, type: 3}
 --- !u!1 &963194225
 GameObject:
   m_ObjectHideFlags: 0

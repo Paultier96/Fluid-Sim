@@ -33,6 +33,10 @@ RWStructuredBuffer<float> ParticleTargetDensities;
 StructuredBuffer<float> PhaseCohesionMatrix;
 StructuredBuffer<float> PhaseSurfaceTensionMatrix;
 const float surfaceTensionThreshold; // min gradient magnitude to apply force
+// Non-coalescence (interface repulsion) per-phase parameters
+StructuredBuffer<float> PhaseNonCoalescenceRadius;
+StructuredBuffer<float> PhaseNonCoalescenceStrength;
+StructuredBuffer<float> PhaseNonCoalescenceNormalDotThreshold;
 RWStructuredBuffer<float2> CSFGradients; // debug output, x = curvature, y = unused
 RWStructuredBuffer<float2> ColorGradients; // per-particle color gradient
 
@@ -837,6 +841,8 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
         return;
 
     float2 normal = gradC / gradMag;
+	// short-range non-coalescence
+    float2 repulsionForce = 0;
 
 	// ----------------------------------
 	// 2. CURVATURE (divergence of normal)
@@ -872,6 +878,24 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 			float2 gradCj = ColorGradients[j];
 			float gjmag = length(gradCj);
 			float2 normal_j = (gjmag > 1e-6) ? gradCj / gjmag : normal;
+			// short-range non-coalescence repulsion accumulation
+			uint neighbourPhase = Phases[j];
+			if (neighbourPhase == myPhase && gjmag > surfaceTensionThreshold && gradMag > surfaceTensionThreshold)
+			{
+				float ndot = dot(normal, normal_j); // -1 = facing
+				if (ndot < -PhaseNonCoalescenceNormalDotThreshold[myPhase])
+				{
+					float ndist = dst; // distance to neighbor
+					float radiusParam = PhaseNonCoalescenceRadius[myPhase];
+					if (ndist < radiusParam)
+					{
+						float overlapT = 1.0 - ndist / radiusParam;
+						float facing = saturate((-ndot - PhaseNonCoalescenceNormalDotThreshold[myPhase]) / (1.0 - PhaseNonCoalescenceNormalDotThreshold[myPhase]));
+						float repulseAmount = PhaseNonCoalescenceStrength[myPhase] * PhaseSurfaceTensionMatrix[myPhase] * overlapT * facing;
+						repulsionForce += -dir * repulseAmount;
+					}
+				}
+			}
 			curvature += dot(normal_j - normal, dir) * gradW / density_j;
 		}
 	}
@@ -887,5 +911,6 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 
 	float normalizedGradMag = gradMag * smoothingRadius;
 	float2 surfaceTensionForce = -sigma * curvature * normal * normalizedGradMag;
-	Velocities[id.x] += surfaceTensionForce * deltaTime;
+	// apply both surface tension and any computed short-range repulsion
+	Velocities[id.x] += (surfaceTensionForce + repulsionForce) * deltaTime;
 }

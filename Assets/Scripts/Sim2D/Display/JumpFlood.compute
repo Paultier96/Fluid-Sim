@@ -1,0 +1,103 @@
+// Jump Flooding Algorithm (JFA) compute shader
+// Seeds a texture with per-pixel nearest-site data (pos.xy, tempNorm, phase)
+// Then performs jump-flood passes to propagate nearest-site info.
+
+#pragma kernel Clear
+#pragma kernel Seed
+#pragma kernel JumpFlood
+
+// Buffers from simulation
+StructuredBuffer<float2> Positions2D;
+StructuredBuffer<float> Temperatures;
+StructuredBuffer<int> Phases;
+int _ParticleCount;
+
+// Simulation bounds -> map world pos to [0,1]
+float2 _SimMin;
+float2 _SimMax;
+
+// Temperature mapping
+float _TempMin;
+float _TempMax;
+
+// Texture dimensions
+int _Width;
+int _Height;
+
+// Jump step
+int _Step;
+
+// Textures
+RWTexture2D<float4> Result;       // used by Clear and Seed (write)
+Texture2D<float4> _SrcTex;        // read-only source for JumpFlood
+RWTexture2D<float4> _DstTex;      // write destination for JumpFlood
+
+[numthreads(8,8,1)]
+void Clear(uint3 id : SV_DispatchThreadID)
+{
+    int2 pix = int2(id.xy);
+    if (pix.x >= _Width || pix.y >= _Height) return;
+    // sentinel: w < 0 means no site
+    Result[pix] = float4(-1.0, -1.0, 0.0, -1.0);
+}
+
+// Seed: one thread per particle. writes seed data into the pixel corresponding to the particle's position.
+[numthreads(64,1,1)]
+void Seed(uint3 id : SV_DispatchThreadID)
+{
+    int i = int(id.x);
+    if (i >= _ParticleCount) return;
+
+    float2 p = Positions2D[i];
+    float2 uv = (p - _SimMin) / (_SimMax - _SimMin);
+
+    // clamp uv
+    if (uv.x < 0 || uv.x > 1 || uv.y < 0 || uv.y > 1) return;
+
+    int2 coord = int2(uv.x * (_Width - 1), uv.y * (_Height - 1));
+
+    float tnorm = 0.0;
+    if (_TempMax > _TempMin) tnorm = saturate((Temperatures[i] - _TempMin) / (_TempMax - _TempMin));
+
+    float phase = (float)Phases[i];
+
+    // store: xy = normalized seed position, z = tempNorm, w = phase
+    Result[coord] = float4(uv.x, uv.y, tnorm, phase);
+}
+
+[numthreads(8,8,1)]
+void JumpFlood(uint3 id : SV_DispatchThreadID)
+{
+    int2 pix = int2(id.xy);
+    if (pix.x >= _Width || pix.y >= _Height) return;
+
+    float2 uv = (float2(pix) + 0.5) / float2(_Width, _Height);
+
+    // read current seed data at this pixel
+    float4 best = _SrcTex.Load(int3(pix, 0));
+    float bestDist = 1e20;
+    if (best.w >= 0.0)
+    {
+        bestDist = distance(uv, best.xy);
+    }
+
+    // sample neighbours at offsets of _Step
+    for (int oy = -1; oy <= 1; oy++)
+    {
+        for (int ox = -1; ox <= 1; ox++)
+        {
+            int2 n = pix + int2(ox * _Step, oy * _Step);
+            if (n.x < 0 || n.y < 0 || n.x >= _Width || n.y >= _Height) continue;
+            float4 cand = _SrcTex.Load(int3(n, 0));
+            if (cand.w < 0.0) continue; // no seed here
+            float d = distance(uv, cand.xy);
+            if (d < bestDist)
+            {
+                bestDist = d;
+                best = cand;
+            }
+        }
+    }
+
+    _DstTex[pix] = best;
+}

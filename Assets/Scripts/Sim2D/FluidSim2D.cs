@@ -49,6 +49,13 @@ namespace Seb.Fluid2D.Simulation
             public float viscosity = 0.03f;
             public float thermalExpansion = 0.0f;
             public float surfaceTension = 0f;
+            // Non-coalescence tuning per-phase
+            [Tooltip("Short-range radius (in world units) within which non-coalescence repulsion acts")]
+            public float nonCoalescenceRadius = 0.2f;
+            [Tooltip("Multiplier for non-coalescence repulsion (scaled by phase surface tension)")]
+            public float nonCoalescenceStrength = 1.0f;
+            [Tooltip("Require normals to be sufficiently opposing: normals dot must be < -threshold")]
+            [Range(0f, 1f)] public float nonCoalescenceNormalDotThreshold = 0.7f;
         }
 
         [Range(0f, 10f)]
@@ -96,6 +103,9 @@ namespace Seb.Fluid2D.Simulation
         ComputeBuffer sortTarget_ParticleTargetDensities;
         ComputeBuffer phaseCohesionBuffer;
         ComputeBuffer phaseSurfaceTensionBuffer;
+        ComputeBuffer phaseNonCoalescenceRadiusBuffer;
+        ComputeBuffer phaseNonCoalescenceStrengthBuffer;
+        ComputeBuffer phaseNonCoalescenceNormalDotThresholdBuffer;
 
         ComputeBuffer predictedPositionBuffer;
         SpatialHash spatialHash;
@@ -318,12 +328,26 @@ namespace Seb.Fluid2D.Simulation
             phaseThermalExpansionBuffer.SetData(phases.Select(p => p.thermalExpansion).ToArray());
             phaseSurfaceTensionBuffer.SetData(phases.Select(p => p.surfaceTension).ToArray());
 
+            // Non-coalescence per-phase parameters
+            phaseNonCoalescenceRadiusBuffer?.Release();
+            phaseNonCoalescenceStrengthBuffer?.Release();
+            phaseNonCoalescenceNormalDotThresholdBuffer?.Release();
+            phaseNonCoalescenceRadiusBuffer = new ComputeBuffer(phaseCount, sizeof(float));
+            phaseNonCoalescenceStrengthBuffer = new ComputeBuffer(phaseCount, sizeof(float));
+            phaseNonCoalescenceNormalDotThresholdBuffer = new ComputeBuffer(phaseCount, sizeof(float));
+            phaseNonCoalescenceRadiusBuffer.SetData(phases.Select(p => p.nonCoalescenceRadius).ToArray());
+            phaseNonCoalescenceStrengthBuffer.SetData(phases.Select(p => p.nonCoalescenceStrength).ToArray());
+            phaseNonCoalescenceNormalDotThresholdBuffer.SetData(phases.Select(p => p.nonCoalescenceNormalDotThreshold).ToArray());
+
             particleDisplay?.SetPhaseColors(phases.Select(p => p.colourMap).ToArray());
 
             ComputeHelper.SetBuffer(compute, phaseTargetDensityBuffer, "PhaseTargetDensities",externalForcesKernel, densityKernel, pressureKernel, viscosityKernel, updateThermalExpansionKernel);
             ComputeHelper.SetBuffer(compute, phaseViscosityBuffer,            "PhaseViscosities",         viscosityKernel);
             ComputeHelper.SetBuffer(compute, phaseInteractionBuffer,          "PhaseInteractionMatrix",    pressureKernel);
             ComputeHelper.SetBuffer(compute, phaseThermalExpansionBuffer,     "PhaseThermalExpansion",     updateThermalExpansionKernel);
+            ComputeHelper.SetBuffer(compute, phaseNonCoalescenceRadiusBuffer, "PhaseNonCoalescenceRadius", csfKernel);
+            ComputeHelper.SetBuffer(compute, phaseNonCoalescenceStrengthBuffer, "PhaseNonCoalescenceStrength", csfKernel);
+            ComputeHelper.SetBuffer(compute, phaseNonCoalescenceNormalDotThresholdBuffer, "PhaseNonCoalescenceNormalDotThreshold", csfKernel);
             
             int triangularSize = phaseCount * (phaseCount + 1) / 2;
             if (phaseCohesionBuffer == null || phaseCohesionBuffer.count != triangularSize)
@@ -335,6 +359,13 @@ namespace Seb.Fluid2D.Simulation
                 phaseCohesionBuffer.SetData(phaseCohesionValues);
             ComputeHelper.SetBuffer(compute, phaseCohesionBuffer, "PhaseCohesionMatrix", cohesionKernel);
             ComputeHelper.SetBuffer(compute, phaseSurfaceTensionBuffer, "PhaseSurfaceTensionMatrix", csfKernel);
+            // bind non-coalescence per-phase buffers (if set)
+            if (phaseNonCoalescenceRadiusBuffer != null)
+                ComputeHelper.SetBuffer(compute, phaseNonCoalescenceRadiusBuffer, "PhaseNonCoalescenceRadius", csfKernel);
+            if (phaseNonCoalescenceStrengthBuffer != null)
+                ComputeHelper.SetBuffer(compute, phaseNonCoalescenceStrengthBuffer, "PhaseNonCoalescenceStrength", csfKernel);
+            if (phaseNonCoalescenceNormalDotThresholdBuffer != null)
+                ComputeHelper.SetBuffer(compute, phaseNonCoalescenceNormalDotThresholdBuffer, "PhaseNonCoalescenceNormalDotThreshold", csfKernel);
         }
 
         void RunSimulationFrame(float frameTime)
@@ -483,6 +514,9 @@ namespace Seb.Fluid2D.Simulation
             if (sortTarget_ParticleTargetDensities != null) sortTarget_ParticleTargetDensities.Release();
             if (phaseCohesionBuffer != null) phaseCohesionBuffer.Release();
             if (phaseSurfaceTensionBuffer != null) phaseSurfaceTensionBuffer.Release();
+            if (phaseNonCoalescenceRadiusBuffer != null) phaseNonCoalescenceRadiusBuffer.Release();
+            if (phaseNonCoalescenceStrengthBuffer != null) phaseNonCoalescenceStrengthBuffer.Release();
+            if (phaseNonCoalescenceNormalDotThresholdBuffer != null) phaseNonCoalescenceNormalDotThresholdBuffer.Release();
             if (csfGradientBuffer != null) csfGradientBuffer.Release();
             if (colorGradientBuffer != null) colorGradientBuffer.Release();
 
