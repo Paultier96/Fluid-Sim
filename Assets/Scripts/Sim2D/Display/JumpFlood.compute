@@ -64,8 +64,8 @@ void Seed(uint3 id : SV_DispatchThreadID)
 
     float phase = (float)Phases[i];
 
-    // store: xy = normalized seed position, z = tempNorm, w = phase
-    Result[coord] = float4(uv.x, uv.y, tnorm, phase);
+    // store: xy = seed position in pixel space, z = tempNorm, w = phase
+    Result[coord] = float4((float)coord.x, (float)coord.y, tnorm, phase);
 }
 
 [numthreads(16,16,1)]
@@ -74,14 +74,14 @@ void JumpFlood(uint3 id : SV_DispatchThreadID)
     int2 pix = int2(id.xy);
     if (pix.x >= _Width || pix.y >= _Height) return;
 
-    float2 uv = (float2(pix) + 0.5) / float2(_Width, _Height);
+    float2 p = float2(pix);
 
     // read current seed data at this pixel
     float4 best = _SrcTex.Load(int3(pix, 0));
     float bestDist = 1e20;
     if (best.w >= 0.0)
     {
-        float2 d = uv - best.xy;
+        float2 d = p - best.xy;
         bestDist = dot(d, d);
     }
 
@@ -93,8 +93,8 @@ void JumpFlood(uint3 id : SV_DispatchThreadID)
             int2 n = pix + int2(ox * _Step, oy * _Step);
             if (n.x < 0 || n.y < 0 || n.x >= _Width || n.y >= _Height) continue;
             float4 cand = _SrcTex.Load(int3(n, 0));
-            if (cand.w < 0.0) continue; // no seed here
-            float2 dd = uv - cand.xy;
+            if (cand.w < 0.0) continue;
+            float2 dd = p - cand.xy;
             float d2 = dot(dd, dd);
             if (d2 < bestDist)
             {

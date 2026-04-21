@@ -3,7 +3,7 @@ Shader "Custom/JumpFloodDisplaySmooth_FIXED"
     Properties
     {
         _SeedTex ("Seed Texture", 2D) = "white" {}
-        _AAWidth ("AA Width (pixels)", Float) = 1.5
+        _BlurStrength ("Blur Strength", Range(0, 1)) = 1
     }
     SubShader
     {
@@ -25,7 +25,7 @@ Shader "Custom/JumpFloodDisplaySmooth_FIXED"
             sampler2D ColourMap;
             sampler2D ColourMap2;
 
-            float _AAWidth;
+            float _BlurStrength;
 
             struct appdata
             {
@@ -50,16 +50,19 @@ Shader "Custom/JumpFloodDisplaySmooth_FIXED"
             float3 PhaseColor(int phase, float t)
             {
                 return (phase == 0)
-                    ? tex2D(ColourMap,  float2(t, 0.5)).rgb
+                    ? tex2D(ColourMap, float2(t, 0.5)).rgb
                     : tex2D(ColourMap2, float2(t, 0.5)).rgb;
             }
 
-            // Correct Voronoi edge distance (UV space, stable + symmetric)
-            float VoronoiEdgeDist(float2 pos, float2 seedA, float2 seedB)
+            float3 SampleResolvedColor(float2 uv)
             {
-                float dA = length(pos - seedA);
-                float dB = length(pos - seedB);
-                return dA - dB; // signed!
+                float4 seed = _SeedTex.Sample(sampler_SeedTex, uv);
+                if (seed.w < 0.0)
+                    return float3(0, 0, 0);
+
+                int phase = (int)round(seed.w);
+                float t = seed.z;
+                return PhaseColor(phase, t);
             }
 
             float4 frag(v2f i) : SV_Target
@@ -73,76 +76,26 @@ Shader "Custom/JumpFloodDisplaySmooth_FIXED"
                 uint w, h;
                 _SeedTex.GetDimensions(w, h);
                 float2 texelSize = float2(1.0 / w, 1.0 / h);
+                float3 baseColor = SampleResolvedColor(seedUV);
 
-                // Convert AA width from pixels → UV
-                float aaUV = _AAWidth * (texelSize.x + texelSize.y) * 0.5;
+                if (_BlurStrength <= 0.0)
+                    return float4(baseColor, 1);
 
-                float4 seed = _SeedTex.Sample(sampler_SeedTex, seedUV);
-
-                if (seed.w < 0.0)
-                    return float4(0, 0, 0, 1);
-
-                int    phase  = (int)round(seed.w);
-                float  t      = seed.z;
-                float2 mySeed = seed.xy;
-
-                float3 color = PhaseColor(phase, t);
-
-                float sameEps = 0.5 * max(texelSize.x, texelSize.y);
-
-                // 8-neighbour sampling
-                float2 offsets[8] = {
-                    float2( 0,  1),
-                    float2( 0, -1),
-                    float2( 1,  0),
-                    float2(-1,  0),
-                    float2( 1,  1),
-                    float2(-1,  1),
-                    float2( 1, -1),
-                    float2(-1, -1)
-                };
-
-                float  closestEdgeDist = 1e9;
-                float3 closestOtherColor = color;
+                float3 blurColor = float3(0, 0, 0);
 
                 [unroll]
-                for (int n = 0; n < 8; n++)
+                for (int oy = -1; oy <= 1; oy++)
                 {
-                    float2 uvOffset = seedUV + offsets[n] * texelSize;
-                    float4 nb = _SeedTex.Sample(sampler_SeedTex, uvOffset);
-
-                    if (nb.w < 0.0)
-                        continue;
-
-                    float2 nbSeed = nb.xy;
-
-                    // same cell → skip
-                    if (length(nbSeed - mySeed) < sameEps)
-                        continue;
-
-                    float d = VoronoiEdgeDist(seedUV, mySeed, nbSeed);
-                    if (d < closestEdgeDist)
+                    [unroll]
+                    for (int ox = -1; ox <= 1; ox++)
                     {
-                        closestEdgeDist = d;
-
-                        int   otherPhase = (int)round(nb.w);
-                        float otherT     = nb.z;
-
-                        closestOtherColor = PhaseColor(otherPhase, otherT);
+                        float2 uvOffset = clamp(seedUV + float2(ox, oy) * texelSize, 0.0, 1.0);
+                        blurColor += SampleResolvedColor(uvOffset);
                     }
                 }
 
-                if (closestEdgeDist < 1e8)
-                {
-                    float w = max(aaUV, fwidth(closestEdgeDist));
-
-                    // symmetric transition across edge
-                    float blend = smoothstep(-w, w, closestEdgeDist);
-
-                    // IMPORTANT: order matters now
-                    color = lerp(closestOtherColor, color, blend);
-                }
-
+                blurColor *= (1.0 / 9.0);
+                float3 color = lerp(baseColor, blurColor, saturate(_BlurStrength));
                 return float4(color, 1);
             }
 

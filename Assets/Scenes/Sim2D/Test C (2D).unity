@@ -315,7 +315,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
-  renderMode: 2
+  renderMode: 1
   directParticleShader: {fileID: 4800000, guid: 441b7193936682446b30d2140d15792a, type: 3}
   metaballShader: {fileID: 4800000, guid: 85b87c70f093d411791140a3aca6ced6, type: 3}
   scale: 0.07
@@ -336,6 +336,11 @@ MonoBehaviour:
   edgeWidth: 0.03
   jumpFloodCompute: {fileID: 7200000, guid: 7349de8b8fa110249b104a7dac6f38c0, type: 3}
   jumpFloodDisplayShader: {fileID: 4800000, guid: a3cfade596b52974f8bac4577967ca73, type: 3}
+  jumpFloodSeedShader: {fileID: 4800000, guid: e73c24e1274d0fd459972e6e52ee7b27, type: 3}
+  jumpFloodPassShader: {fileID: 4800000, guid: 084df49f4e4f69a4c837186a40569e30, type: 3}
+  useComputeMethod: 1
+  jFedgeWidth: 0
+  blurstrength: 0
 --- !u!1 &963194225
 GameObject:
   m_ObjectHideFlags: 0
