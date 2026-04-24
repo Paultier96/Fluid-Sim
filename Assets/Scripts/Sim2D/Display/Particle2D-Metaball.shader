@@ -33,7 +33,7 @@ Shader "Instanced/Particle2DMetaball" {
 				float4 pos : SV_POSITION;
 				float2 uv : TEXCOORD0;
 				float tempT : TEXCOORD1;
-				float2 csfGrad : TEXCOORD2;
+				float2 csfDebug : TEXCOORD2;
 				nointerpolation float phase : TEXCOORD3;
 			};
 
@@ -45,13 +45,13 @@ Shader "Instanced/Particle2DMetaball" {
 
 				float temp = Temperatures[instanceID];
 				float tempT = saturate((temp - tempMin) / max(tempMax - tempMin, 0.001));
-				float2 gradNorm = saturate(abs(CSFGradients[instanceID]) / max(debugGradientMax, 0.0001));
+				float2 csfData = CSFGradients[instanceID];
 
 				v2f o;
 				o.pos = UnityObjectToClipPos(objectVertPos);
 				o.uv = v.texcoord;
 				o.tempT = tempT;
-				o.csfGrad = gradNorm;
+				o.csfDebug = csfData;
 				o.phase = Phases[instanceID];
 				return o;
 			}
@@ -63,13 +63,15 @@ Shader "Instanced/Particle2DMetaball" {
 				if (r2 >= 1.0) discard;
 
 				float kernel = exp(-r2 * max(metaballSharpness, 0.01)) * metaballIntensity;
-				float data = debugMode != 0 ? i.csfGrad.x : i.tempT;
-				float2 packed = float2(data * kernel, kernel);
-
-				// Phase 0 → RG, Phase 1 → BA. Debug mode writes to both so the full
-				// gradient field is visible regardless of phase.
 				if (debugMode != 0)
-					return float4(packed, packed);
+				{
+					// Debug mode packs two weighted values into one texture:
+					// R/G = debug X, B/A = debug Y (or curvature duplicated).
+					float2 debugData = debugMode == 1 ? i.csfDebug : i.csfDebug.xx;
+					return float4(debugData.x * kernel, kernel, debugData.y * kernel, kernel);
+				}
+
+				float2 packed = float2(i.tempT * kernel, kernel);
 
 				return i.phase < 0.5 ? float4(packed, 0, 0) : float4(0, 0, packed);
 			}

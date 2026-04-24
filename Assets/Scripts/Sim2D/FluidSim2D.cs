@@ -440,6 +440,7 @@ namespace Seb.Fluid2D.Simulation
             compute.SetVector("heatSourcePos", heatSourcePos);
             compute.SetFloat("heatSourceRadius", heatSourceRadius);
             compute.SetFloat("surfaceTensionThreshold", surfaceTensionThreshold);
+            compute.SetInt("debugVisualizationMode", particleDisplay != null ? (int)particleDisplay.debugMode : 0);
 
             Vector2 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
             bool isPullInteraction = Input.GetMouseButton(0);

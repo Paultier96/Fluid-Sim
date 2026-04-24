@@ -62,13 +62,20 @@ Shader "Instanced/Particle2D" {
 				o.uv = v.texcoord;
 				o.pos = UnityObjectToClipPos(objectVertPos);
 				
-				if (debugMode)
+				if (debugMode != 0)
 				{			
-					float2 gradMag = CSFGradients[instanceID]; // acceleration magnitude
-					float t = saturate(gradMag / max(debugGradientMax, 0.0001));
-				    //o.colour = lerp(float3(0, 0, 0), float3(0, 1, 0), t);
-					o.colour = float3(gradMag.x/debugGradientMax, gradMag.y/debugGradientMax, 0);
-
+					float maxAbsValue = max(debugGradientMax, 0.0001);
+					float2 debugData = CSFGradients[instanceID];
+					if (debugMode == 1)
+					{
+						float2 mapped = saturate(0.5 + debugData / (2.0 * maxAbsValue));
+						o.colour = float3(mapped.x, mapped.y, 0);
+					}
+					else
+					{
+						float t = saturate(0.5 + debugData.x / (2.0 * maxAbsValue));
+						o.colour = t.xxx;
+					}
 				}
 				else
 				{

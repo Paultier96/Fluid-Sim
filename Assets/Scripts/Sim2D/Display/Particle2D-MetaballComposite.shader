@@ -60,8 +60,16 @@ Shader "Hidden/Particle2DMetaballComposite" {
 				float3 colour0, colour1;
 				if (debugMode != 0)
 				{
-					colour0 = float3(data0, data0, data0);
-					colour1 = float3(data1, data1, data1);
+					if (debugMode == 1)
+					{
+						float2 grad = float2(data0, data1);
+						float2 mapped = saturate(0.5 + grad * 0.5);
+						return float4(mapped.x, mapped.y, 0, alpha);
+					}
+
+					float curvature = data0;
+					float c = saturate(0.5 + curvature * 0.5);
+					return float4(c, c, c, alpha);
 				}
 				else
 				{

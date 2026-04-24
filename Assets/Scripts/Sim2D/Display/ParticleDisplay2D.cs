@@ -15,6 +15,13 @@ namespace Seb.Fluid2D.Rendering
 			JumpFlood,
 		}
 
+		public enum DebugVisualization
+		{
+			None = 0,
+			Gradient = 1,
+			Curvature = 2,
+		}
+
 		[Tooltip("The fluid simulation to visualize.")]
 		public FluidSim2D sim;
 		[Tooltip("Mesh used for each particle (typically a quad).")]
@@ -57,9 +64,9 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0)] public float metaballIntensity = 1.0f;
 
 		[Header("Debug")]
-		[Tooltip("Replaces the colour ramp with a visualisation of the CSF (surface tension) gradient magnitude per particle.")]
-		public bool debugMode = false;
-		[Tooltip("CSF gradient magnitude mapped to the top of the debug colour range. Increase if the visualisation is saturating.")]
+		[Tooltip("Selects what to show in debug mode. Gradient maps X/Y to R/G, Curvature uses grayscale.")]
+		public DebugVisualization debugMode = DebugVisualization.None;
+		[Tooltip("Maximum absolute value mapped in debug visualisation. Increase if output saturates.")]
 		public float debugGradientMax = 1.0f;
 		
 		public float edgeWidth = 0.03f;
@@ -317,7 +324,7 @@ namespace Seb.Fluid2D.Rendering
 			targetMaterial.SetFloat("tempMax", sim.heatSourceTemperature);
 			targetMaterial.SetBuffer("CSFGradients", sim.csfGradientBuffer);
 			targetMaterial.SetFloat("debugGradientMax", debugGradientMax);
-			targetMaterial.SetInt("debugMode", debugMode ? 1 : 0);
+			targetMaterial.SetInt("debugMode", (int)debugMode);
 			targetMaterial.SetFloat("metaballSharpness", metaballSharpness);
 			targetMaterial.SetFloat("metaballIntensity", metaballIntensity);
 		}
@@ -372,7 +379,7 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetTexture("CombinedTex", combinedAccumulationTexture);
 			compositeMaterial.SetTexture("ColourMap", gradientTexture);
 			compositeMaterial.SetTexture("ColourMap2", gradientTexture2);
-			compositeMaterial.SetInt("debugMode", debugMode ? 1 : 0);
+			compositeMaterial.SetInt("debugMode", (int)debugMode);
 
 			blurMaterial.SetFloat("blurRadius", blurRadius);
 

@@ -37,7 +37,7 @@ const float surfaceTensionThreshold; // min gradient magnitude to apply force
 StructuredBuffer<float> PhaseNonCoalescenceRadius;
 StructuredBuffer<float> PhaseNonCoalescenceStrength;
 StructuredBuffer<float> PhaseNonCoalescenceNormalDotThreshold;
-RWStructuredBuffer<float2> CSFGradients; // debug output, x = curvature, y = unused
+RWStructuredBuffer<float2> CSFGradients; // debug output (mode-dependent): gradient.xy or curvature.xx
 RWStructuredBuffer<float2> ColorGradients; // per-particle color gradient
 
 
@@ -68,6 +68,7 @@ StructuredBuffer<float> PhaseThermalExpansion; // how much density changes per d
 
 StructuredBuffer<float> PhaseInteractionMatrix;
 int NumPhases;
+int debugVisualizationMode;
 
 const float2 obstacleSize;
 const float2 obstacleCentre;
@@ -818,9 +819,6 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= numParticles) return;
 
-    // Initialize output to zero to avoid stale data
-    CSFGradients[id.x] = float2(0.5, 0.5);
-
     uint myPhase = Phases[id.x];
     float2 pos = PredictedPositions[id.x];
     float density_i = max(Densities[id.x][0], 0.0001);
@@ -835,6 +833,15 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
     float2 gradC = ColorGradients[id.x];
 
     float gradMag = length(gradC);
+
+    if (debugVisualizationMode == 1)
+    {
+        CSFGradients[id.x] = gradC;
+    }
+    else if (debugVisualizationMode == 2)
+    {
+        CSFGradients[id.x] = 0;
+    }
 
     // Surface detection
     if (gradMag < surfaceTensionThreshold)
@@ -902,7 +909,10 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 
 	curvature = -curvature;
 
-	CSFGradients[id.x] = (curvature+1)/2;
+	if (debugVisualizationMode == 2)
+	{
+		CSFGradients[id.x] = curvature.xx;
+	}
 	
 	// Step 3: apply surface tension force along normal, scaled by curvature
 	// Look up surface tension coefficient for this particle's phase pair with each neighbor
