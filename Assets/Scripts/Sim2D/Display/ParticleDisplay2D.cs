@@ -1,8 +1,12 @@
 using Seb.Fluid2D.Simulation;
 using Seb.Helpers;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Experimental.Rendering;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 namespace Seb.Fluid2D.Rendering
 {
@@ -52,6 +56,8 @@ namespace Seb.Fluid2D.Rendering
 		[Range(0.25f, 1f)] public float renderTextureScale = 0.5f;
 		[Tooltip("Radius in pixels (at render texture resolution) of the Gaussian blur. Larger values make particles merge at greater distances.")]
 		[Min(0)] public float blurRadius = 6;
+		[Tooltip("Scales blur radius with camera zoom so metaball blending stays visually consistent while zooming.")]
+		public bool scaleBlurWithZoom = true;
 		[Tooltip("Blurred density value at which the fluid surface appears. Increase to shrink the visible fluid; decrease to expand it.")]
 		[Min(0)] public float densityThreshold = 0.18f;
 		[Tooltip("Width of the density falloff around the surface threshold. Larger values give a softer, more transparent edge. Clamped so the fade never starts below zero density.")]
@@ -101,7 +107,9 @@ namespace Seb.Fluid2D.Rendering
 		RenderTexture combinedAccumulationTexture;
 		RenderTexture combinedBlurTexture;
 		CommandBuffer metaballCommandBuffer;
-		Camera boundCamera;
+		readonly List<Camera> boundCameras = new List<Camera>(2);
+		readonly List<Camera> renderCameras = new List<Camera>(2);
+		float blurReferenceOrthoSize = -1f;
 		bool needsUpdate;
 
 		void Awake()
@@ -109,11 +117,19 @@ namespace Seb.Fluid2D.Rendering
 			EnsureMaterials();
 			needsUpdate = true;
 			targetCamera = Camera.main;
+			EnsureBlurZoomReference(targetCamera);
 		}
 
 		void LateUpdate()
 		{
 			EnsureMaterials();
+			CollectRenderCameras(renderCameras);
+			targetCamera = GetPrimaryRenderCamera(renderCameras);
+			if (targetCamera == null)
+			{
+				return;
+			}
+			EnsureBlurZoomReference(targetCamera);
 
 			if (renderMode == RenderMode.JumpFlood)
 			{
@@ -276,7 +292,7 @@ namespace Seb.Fluid2D.Rendering
 			Material mat = jumpFloodDisplayMaterial;
 			if (mat == null) return;
 			EnsureGradientTextures();
-			EnsureCommandBuffer(targetCamera);
+			EnsureCommandBuffers(renderCameras);
 			mat.SetTexture("_SeedTex", jfaResult != null ? jfaResult : jfaSeedA);
 			mat.SetTexture("ColourMap", gradientTexture);
 			mat.SetTexture("ColourMap2", gradientTexture2);
@@ -370,7 +386,7 @@ namespace Seb.Fluid2D.Rendering
 		{
 			EnsurePostProcessMaterials();
 
-			EnsureCommandBuffer(targetCamera);
+			EnsureCommandBuffers(renderCameras);
 			EnsureRenderTextures(targetCamera);
 
 			compositeMaterial.SetFloat("densityThreshold", densityThreshold);
@@ -381,7 +397,7 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetTexture("ColourMap2", gradientTexture2);
 			compositeMaterial.SetInt("debugMode", (int)debugMode);
 
-			blurMaterial.SetFloat("blurRadius", blurRadius);
+			blurMaterial.SetFloat("blurRadius", GetEffectiveBlurRadius(targetCamera));
 
 			metaballCommandBuffer.Clear();
 			metaballCommandBuffer.SetRenderTarget(combinedAccumulationTexture);
@@ -409,7 +425,7 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
-		void EnsureCommandBuffer(Camera cam)
+		void EnsureCommandBuffers(List<Camera> cameras)
 		{
 			if (metaballCommandBuffer == null)
 			{
@@ -417,11 +433,31 @@ namespace Seb.Fluid2D.Rendering
 				metaballCommandBuffer.name = "Sim2D Metaball Render";
 			}
 
-			if (boundCamera != cam)
+			for (int i = boundCameras.Count - 1; i >= 0; i--)
 			{
-				RemoveCommandBuffer();
-				cam.AddCommandBuffer(CameraEvent.AfterEverything, metaballCommandBuffer);
-				boundCamera = cam;
+				Camera bound = boundCameras[i];
+				if (bound == null || !cameras.Contains(bound))
+				{
+					if (bound != null)
+					{
+						bound.RemoveCommandBuffer(CameraEvent.BeforeImageEffects, metaballCommandBuffer);
+						bound.RemoveCommandBuffer(CameraEvent.AfterEverything, metaballCommandBuffer);
+					}
+					boundCameras.RemoveAt(i);
+				}
+			}
+
+			for (int i = 0; i < cameras.Count; i++)
+			{
+				Camera cam = cameras[i];
+				if (cam == null || boundCameras.Contains(cam))
+				{
+					continue;
+				}
+
+				CameraEvent evt = GetCommandBufferEvent(cam);
+				cam.AddCommandBuffer(evt, metaballCommandBuffer);
+				boundCameras.Add(cam);
 			}
 		}
 
@@ -455,11 +491,115 @@ namespace Seb.Fluid2D.Rendering
 
 		void RemoveCommandBuffer()
 		{
-			if (boundCamera != null && metaballCommandBuffer != null)
+			if (metaballCommandBuffer != null)
 			{
-				boundCamera.RemoveCommandBuffer(CameraEvent.AfterEverything, metaballCommandBuffer);
+				for (int i = 0; i < boundCameras.Count; i++)
+				{
+					Camera cam = boundCameras[i];
+					if (cam != null)
+					{
+						cam.RemoveCommandBuffer(CameraEvent.BeforeImageEffects, metaballCommandBuffer);
+						cam.RemoveCommandBuffer(CameraEvent.AfterEverything, metaballCommandBuffer);
+					}
+				}
 			}
-			boundCamera = null;
+			boundCameras.Clear();
+		}
+
+		void CollectRenderCameras(List<Camera> cameras)
+		{
+			cameras.Clear();
+			AddCamera(cameras, Camera.main);
+#if UNITY_EDITOR
+			if (SceneView.lastActiveSceneView != null)
+			{
+				AddCamera(cameras, SceneView.lastActiveSceneView.camera);
+			}
+#endif
+			if (cameras.Count == 0)
+			{
+				AddCamera(cameras, targetCamera);
+			}
+		}
+
+		static void AddCamera(List<Camera> cameras, Camera cam)
+		{
+			if (cam != null && !cameras.Contains(cam))
+			{
+				cameras.Add(cam);
+			}
+		}
+
+		static CameraEvent GetCommandBufferEvent(Camera cam)
+		{
+			return cam != null && cam.cameraType == CameraType.SceneView
+				? CameraEvent.BeforeImageEffects
+				: CameraEvent.AfterEverything;
+		}
+
+		void EnsureBlurZoomReference(Camera cam)
+		{
+			if (!scaleBlurWithZoom)
+			{
+				blurReferenceOrthoSize = -1f;
+				return;
+			}
+
+			if (cam != null && cam.orthographic && blurReferenceOrthoSize <= 0f)
+			{
+				blurReferenceOrthoSize = cam.orthographicSize;
+			}
+		}
+
+		float GetEffectiveBlurRadius(Camera cam)
+		{
+			float baseRadius = Mathf.Max(0f, blurRadius);
+			if (!scaleBlurWithZoom || cam == null || !cam.orthographic)
+			{
+				return baseRadius;
+			}
+
+			if (blurReferenceOrthoSize <= 0f)
+			{
+				blurReferenceOrthoSize = cam.orthographicSize;
+				return baseRadius;
+			}
+
+			float zoomScale = blurReferenceOrthoSize / Mathf.Max(cam.orthographicSize, 0.0001f);
+			return baseRadius * zoomScale;
+		}
+
+		static Camera GetPrimaryRenderCamera(List<Camera> cameras)
+		{
+			if (cameras == null || cameras.Count == 0)
+			{
+				return null;
+			}
+
+#if UNITY_EDITOR
+			if (SceneView.lastActiveSceneView != null)
+			{
+				Camera sceneCam = SceneView.lastActiveSceneView.camera;
+				if (sceneCam != null && cameras.Contains(sceneCam))
+				{
+					return sceneCam;
+				}
+			}
+#endif
+
+			Camera best = cameras[0];
+			int bestPixels = best.pixelWidth * best.pixelHeight;
+			for (int i = 1; i < cameras.Count; i++)
+			{
+				Camera cam = cameras[i];
+				int pixels = cam.pixelWidth * cam.pixelHeight;
+				if (pixels > bestPixels)
+				{
+					best = cam;
+					bestPixels = pixels;
+				}
+			}
+			return best;
 		}
 
 		public static void TextureFromGradient(ref Texture2D texture, int width, Gradient gradient, FilterMode filterMode = FilterMode.Bilinear)
@@ -555,6 +695,7 @@ namespace Seb.Fluid2D.Rendering
 		void OnValidate()
 		{
 			needsUpdate = true;
+			blurReferenceOrthoSize = -1f;
 		}
 
 		void OnDisable()

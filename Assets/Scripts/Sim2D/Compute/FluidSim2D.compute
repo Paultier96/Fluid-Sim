@@ -802,8 +802,7 @@ void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
 
             float density_j = max(Densities[j][0], 0.0001);
 
-        	float dc =(float)Phases[j] - (float)myPhase;
-            //float dc = (myPhase == Phases[j]) ? 1.0 : 0.0; //apparently better? bit leads to uglier result
+        	float dc = (Phases[j] == myPhase) ? 0.0 : -1.0;
 
             float gradW = DensityDerivative(dst, smoothingRadius);
 
@@ -884,9 +883,12 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 
 			float2 gradCj = ColorGradients[j];
 			float gjmag = length(gradCj);
-			float2 normal_j = (gjmag > 1e-6) ? gradCj / gjmag : normal;
-			// short-range non-coalescence repulsion accumulation
 			uint neighbourPhase = Phases[j];
+			float2 normal_j = (gjmag > 1e-6) ? gradCj / gjmag : normal;
+			// With per-phase color fields, opposite-side neighbors have flipped normals.
+			// Reorient to particle i's phase field before divergence/curvature accumulation.
+			float2 normal_j_for_curvature = (neighbourPhase == myPhase) ? normal_j : -normal_j;
+			// short-range non-coalescence repulsion accumulation
 			if (neighbourPhase == myPhase && gjmag > surfaceTensionThreshold && gradMag > surfaceTensionThreshold)
 			{
 				float ndot = dot(normal, normal_j); // -1 = facing
@@ -903,7 +905,7 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 					}
 				}
 			}
-			curvature += dot(normal_j - normal, dir) * gradW / density_j;
+			curvature += dot(normal_j_for_curvature - normal, dir) * gradW / density_j;
 		}
 	}
 

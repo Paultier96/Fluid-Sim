@@ -64,12 +64,16 @@ Shader "Hidden/Particle2DMetaballComposite" {
 					{
 						float2 grad = float2(data0, data1);
 						float2 mapped = saturate(0.5 + grad * 0.5);
-						return float4(mapped.x, mapped.y, 0, alpha);
+						return float4(mapped.x, mapped.y, 1, alpha);
 					}
 
 					float curvature = data0;
-					float c = saturate(0.5 + curvature * 0.5);
-					return float4(c, c, c, alpha);
+					float t = saturate(0.5 + curvature * 0.5);
+					float3 negCol = float3(1.0, 0.0, 0.0);
+					float3 zeroCol = float3(0.0, 0.0, 1.0);
+					float3 posCol = float3(0.0, 1.0, 0.0);
+					float3 curvCol = (t < 0.5) ? lerp(negCol, zeroCol, t * 2.0) : lerp(zeroCol, posCol, (t - 0.5) * 2.0);
+					return float4(curvCol, alpha);
 				}
 				else
 				{

@@ -326,6 +326,7 @@ MonoBehaviour:
   blurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
   renderTextureScale: 1
   blurRadius: 2.5
+  scaleBlurWithZoom: 1
   densityThreshold: 0.18
   edgeSoftness: 2
   phaseBlendWidth: 4

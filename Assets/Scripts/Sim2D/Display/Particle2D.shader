@@ -68,13 +68,16 @@ Shader "Instanced/Particle2D" {
 					float2 debugData = CSFGradients[instanceID];
 					if (debugMode == 1)
 					{
-						float2 mapped = saturate(0.5 + debugData / (2.0 * maxAbsValue));
-						o.colour = float3(mapped.x, mapped.y, 0);
+						float2 mapped = saturate(0.5 + debugData / 2.0);
+						o.colour = float3(mapped.x, mapped.y, 1);
 					}
 					else
 					{
 						float t = saturate(0.5 + debugData.x / (2.0 * maxAbsValue));
-						o.colour = t.xxx;
+						float3 negCol = float3(1, 0.0, 0.0);
+						float3 zeroCol = float3(0.0, 0.0, 1.0);
+						float3 posCol = float3(0.0, 1.0, 0.0);
+						o.colour = (t < 0.5) ? lerp(negCol, zeroCol, t * 2.0) : lerp(zeroCol, posCol, (t - 0.5) * 2.0);
 					}
 				}
 				else
