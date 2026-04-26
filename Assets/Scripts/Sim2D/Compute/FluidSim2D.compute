@@ -5,16 +5,17 @@
 #pragma kernel CalculateDensities    // 4
 #pragma kernel CalculatePressureForce // 5
 #pragma kernel CalculateViscosity    // 6
-#pragma kernel UpdatePositions       // 7
-#pragma kernel UpdateThermalExpansion // 8
-#pragma kernel UpdateTemperature     // 9
-#pragma kernel ReorderTemperature    // 10
-#pragma kernel ReorderTemperatureCopyback // 11
-#pragma kernel ReorderParticleTargetDensities // 12
-#pragma kernel ReorderParticleTargetDensitiesCopyback // 13
-#pragma kernel CalculateCohesion // 14
-#pragma kernel CalculateCSF // 15
-#pragma kernel ComputeColorGradients // 16
+#pragma kernel ApplyThermalBuoyancy  // 7
+#pragma kernel UpdatePositions       // 8
+#pragma kernel UpdateThermalExpansion // 9
+#pragma kernel UpdateTemperature     // 10
+#pragma kernel ReorderTemperature    // 11
+#pragma kernel ReorderTemperatureCopyback // 12
+#pragma kernel ReorderParticleTargetDensities // 13
+#pragma kernel ReorderParticleTargetDensitiesCopyback // 14
+#pragma kernel CalculateCohesion // 15
+#pragma kernel CalculateCSF // 16
+#pragma kernel ComputeColorGradients // 17
 
 // Includes
 #include "./FluidMaths2D.hlsl"
@@ -77,6 +78,8 @@ const float2 heatSourcePos;
 const float heatSourceRadius;
 const float heatSourceTemperature;
 const float heatSinkTemperature;
+const float buoyancyInversionStrength;
+const float buoyancyInversionClamp;
 
 const float2 obstacleSize;
 const float2 obstacleCentre;
@@ -223,10 +226,6 @@ float2 ExternalForces(float2 pos, float2 velocity, float density, uint phase, ui
 {
     float2 gravityAccel = float2(0, gravity);
 
-    float targetDensity = ParticleTargetDensities[particleIndex];
-    float buoyancy = (targetDensity - density) / max(targetDensity, 0.0001) * gravity;
-    gravityAccel.y += buoyancy;
-
     if (interactionInputStrength != 0)
     {
         float2 inputPointOffset = interactionInputPoint - pos;
@@ -281,7 +280,63 @@ float2 ExternalForces(float2 pos, float2 velocity, float density, uint phase, ui
         }
     }
 
-    return gravityAccel + boundaryRepel;
+	return gravityAccel + boundaryRepel;
+}
+
+[numthreads(NumThreads, 1, 1)]
+void ApplyThermalBuoyancy(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= numParticles) return;
+
+	float2 pos = PredictedPositions[id.x];
+	int2 originCell = GetCell2D(pos, smoothingRadius);
+	float sqrRadius = smoothingRadius * smoothingRadius;
+
+	float weightedEnvDensitySum = 0;
+	float weightSum = 0;
+
+	for (int i = 0; i < 9; i++)
+	{
+		uint hash = HashCell2D(originCell + offsets2D[i]);
+		uint key = KeyFromHash(hash, numParticles);
+		uint currIndex = SpatialOffsets[key];
+
+		while (currIndex < numParticles)
+		{
+			uint neighbourIndex = currIndex;
+			currIndex++;
+
+			if (neighbourIndex == id.x) continue;
+
+			uint neighbourKey = SpatialKeys[neighbourIndex];
+			if (neighbourKey != key) break;
+
+			float2 offset = PredictedPositions[neighbourIndex] - pos;
+			float sqrDst = dot(offset, offset);
+			if (sqrDst > sqrRadius || sqrDst == 0) continue;
+
+			float dst = sqrt(sqrDst);
+			float weight = DensityKernel(dst, smoothingRadius);
+			float neighbourTargetDensity = ParticleTargetDensities[neighbourIndex];
+			weightedEnvDensitySum += neighbourTargetDensity * weight;
+			weightSum += weight;
+		}
+	}
+
+	if (weightSum <= 1e-6) return;
+
+	float rho_i = ParticleTargetDensities[id.x];
+	float rho_env = weightedEnvDensitySum / weightSum;
+	float normalizedDensityContrast = (rho_env - rho_i) / max(rho_env, 1e-4);
+	normalizedDensityContrast = clamp(normalizedDensityContrast, -buoyancyInversionClamp, buoyancyInversionClamp);
+
+	float2 gravityDir = float2(0, gravity);
+	float2 buoyancyAccel = -gravityDir * (buoyancyInversionStrength * normalizedDensityContrast);
+	Velocities[id.x] += buoyancyAccel * deltaTime;
+	if (debugVisualizationMode == 3)
+	{
+		CSFGradients[id.x] += buoyancyAccel;
+	}
 }
 
 

@@ -166,7 +166,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   timeScale: 1
-  maxTimestepFPS: 60
+  maxTimestepFPS: 120
   iterationsPerFrame: 3
   gravity: -13
   collisionDamping: 0.5
@@ -176,13 +176,17 @@ MonoBehaviour:
   boundsSize: {x: 46.22222, y: 26}
   obstacleSize: {x: 20.4, y: 1.69}
   obstacleCentre: {x: 7.5, y: -25.59}
+  edgeForce: 2500
+  edgeForceDst: 0.0875
   useEllipticalBounds: 1
-  ellipseBoundsSize: {x: 4.5, y: 12.5}
+  ellipseBoundsSize: {x: 4, y: 15}
   ellipseBoundsCenter: {x: 0, y: 0}
   interactionRadius: 2.5
   interactionStrength: 75
+  buoyancyInversionStrength: 1
+  buoyancyInversionClamp: 1
   phases:
-  - name: Oil
+  - name: Wax
     colourMap:
       serializedVersion: 2
       key0: {r: 0.4, g: 0.1764706, b: 0.54901963, a: 1}
@@ -213,11 +217,14 @@ MonoBehaviour:
       m_ColorSpace: -1
       m_NumColorKeys: 2
       m_NumAlphaKeys: 2
-    targetDensity: 210
-    viscosity: 0.03
-    thermalExpansion: 0.001
-    referenceTemperature: 20
-    surfaceTension: 0
+    targetDensity: 390
+    viscosity: 0.5
+    viscosityTemperatureSensitivity: 0.04
+    thermalExpansion: 0.015
+    surfaceTension: 160
+    nonCoalescenceRadius: 0
+    nonCoalescenceStrength: 0
+    nonCoalescenceNormalDotThreshold: 0.7
   - name: Water
     colourMap:
       serializedVersion: 2
@@ -249,12 +256,15 @@ MonoBehaviour:
       m_ColorSpace: -1
       m_NumColorKeys: 2
       m_NumAlphaKeys: 2
-    targetDensity: 234
+    targetDensity: 200
     viscosity: 0.03
-    thermalExpansion: 0.001
-    referenceTemperature: 20
-    surfaceTension: 0
-  phaseSeparation: 1
+    viscosityTemperatureSensitivity: 0
+    thermalExpansion: 0
+    surfaceTension: 1
+    nonCoalescenceRadius: 0
+    nonCoalescenceStrength: 0
+    nonCoalescenceNormalDotThreshold: 0.7
+  phaseSeparation: 2
   phaseCohesionValues:
   - 1
   - -0.5
@@ -263,10 +273,8 @@ MonoBehaviour:
   ambientTemperature: 20
   heatDiffusionRate: 0.5
   heatCoolingRate: 0.05
-  heatSourceTemperature: 100
   heatSinkTemperature: 10
-  heatSourcePos: {x: 0, y: -10}
-  heatSourceRadius: 2
+  heatSource: {fileID: 2055861083}
   compute: {fileID: 7200000, guid: 1c77ce8de78fddb419ed2d15cae41af0, type: 3}
   spawner2D: {fileID: 271053320}
 --- !u!114 &271053320
@@ -285,16 +293,16 @@ MonoBehaviour:
   initialVelocity: {x: 0, y: 0}
   jitterStr: 0.03
   spawnRegions:
-  - position: {x: 0, y: 2}
-    size: {x: 8, y: 7}
-    debugCol: {r: 1, g: 0.27843142, b: 0.8629417, a: 1}
-    phaseID: 1
-  - position: {x: 0, y: -8}
-    size: {x: 6, y: 6}
-    debugCol: {r: 0.27843142, g: 0.40647724, b: 1, a: 1}
+  - position: {x: 0, y: -7.86}
+    size: {x: 5, y: 10}
+    debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
     phaseID: 0
+  - position: {x: 0, y: 5.42}
+    size: {x: 10, y: 10}
+    debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
+    phaseID: 1
   showSpawnBoundsGizmos: 1
-  spawnParticleCount: 46328
+  spawnParticleCount: 75264
 --- !u!114 &271053322
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -309,12 +317,33 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
-  shader: {fileID: 4800000, guid: 441b7193936682446b30d2140d15792a, type: 3}
+  renderMode: 1
+  directParticleShader: {fileID: 4800000, guid: 441b7193936682446b30d2140d15792a, type: 3}
+  metaballShader: {fileID: 4800000, guid: 85b87c70f093d411791140a3aca6ced6, type: 3}
   scale: 0.07
   gradientResolution: 64
   velocityDisplayMax: 15
+  useRenderTextureMetaballs: 1
+  compositeShader: {fileID: 4800000, guid: db6a0932797cd49b1a42ac6d2c30ac61, type: 3}
+  blurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
+  renderTextureScale: 1
+  blurRadius: 2.5
+  scaleBlurWithZoom: 1
+  densityThreshold: 0.18
+  edgeSoftness: 2
+  phaseBlendWidth: 4
+  metaballSharpness: 1
+  metaballIntensity: 20
   debugMode: 0
   debugGradientMax: 1
+  edgeWidth: 0.03
+  jumpFloodCompute: {fileID: 7200000, guid: 7349de8b8fa110249b104a7dac6f38c0, type: 3}
+  jumpFloodDisplayShader: {fileID: 4800000, guid: a3cfade596b52974f8bac4577967ca73, type: 3}
+  jumpFloodSeedShader: {fileID: 4800000, guid: e73c24e1274d0fd459972e6e52ee7b27, type: 3}
+  jumpFloodPassShader: {fileID: 4800000, guid: 084df49f4e4f69a4c837186a40569e30, type: 3}
+  useComputeMethod: 1
+  jFedgeWidth: 0
+  blurstrength: 0
 --- !u!1 &963194225
 GameObject:
   m_ObjectHideFlags: 0
@@ -407,9 +436,56 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &2055861082
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2055861084}
+  - component: {fileID: 2055861083}
+  m_Layer: 0
+  m_Name: HeatSource2D
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &2055861083
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2055861082}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cc55bd493d57bbf4fb5cf3f4d97d4d51, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Simulation.HeatSource2D
+  radius: 4
+  temperature: 100
+--- !u!4 &2055861084
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2055861082}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: -18, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
   - {fileID: 963194228}
   - {fileID: 271053318}
+  - {fileID: 2055861084}
