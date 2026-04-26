@@ -135,6 +135,12 @@ float NearDensityDerivative(float dst, float radius)
 	return DerivativeSpikyPow3(dst, radius);
 }
 
+float GetSurfaceTension(uint phaseA, uint phaseB)
+{
+	uint phaseCount = (uint)NumPhases;
+	return PhaseSurfaceTensionMatrix[phaseA * phaseCount + phaseB];
+}
+
 float ViscosityKernel(float dst, float radius)
 {
 	return SmoothingKernelPoly6(dst, smoothingRadius);
@@ -914,6 +920,8 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 	// ----------------------------------
 
 	float curvature = 0;
+	float sigmaWeightedSum = 0;
+	float sigmaWeightSum = 0;
 
 	for (int i = 0; i < 9; i++)
 	{
@@ -959,10 +967,17 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 					{
 						float overlapT = 1.0 - ndist / radiusParam;
 						float facing = saturate((-ndot - PhaseNonCoalescenceNormalDotThreshold[myPhase]) / (1.0 - PhaseNonCoalescenceNormalDotThreshold[myPhase]));
-						float repulseAmount = PhaseNonCoalescenceStrength[myPhase] * PhaseSurfaceTensionMatrix[myPhase] * overlapT * facing;
+						float repulseAmount = PhaseNonCoalescenceStrength[myPhase] * GetSurfaceTension(myPhase, myPhase) * overlapT * facing;
 						repulsionForce += -dir * repulseAmount;
 					}
 				}
+			}
+			if (neighbourPhase != myPhase)
+			{
+				float sigma_ij = GetSurfaceTension(myPhase, neighbourPhase);
+				float sigmaWeight = abs(gradW) / density_j;
+				sigmaWeightedSum += sigma_ij * sigmaWeight;
+				sigmaWeightSum += sigmaWeight;
 			}
 			curvature += dot(normal_j_for_curvature - normal, dir) * gradW / density_j;
 		}
@@ -975,13 +990,10 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 		CSFGradients[id.x] = curvature.xx;
 	}
 	
-	// Step 3: apply surface tension force along normal, scaled by curvature
-	// Look up surface tension coefficient for this particle's phase pair with each neighbor
-	// Use same-phase coefficient since CSF acts at the interface
-	float sigma = PhaseSurfaceTensionMatrix[myPhase];
-	
-	// Use an effective interfacial sigma based on pairwise (phase i, phase j) averages.
-	//float sigma = (sigmaWeightSum > 1e-6) ? (sigmaWeightedSum / sigmaWeightSum) : mySigma;
+	// Step 3: apply surface tension force along normal, scaled by curvature.
+	// Use the effective interfacial coefficient from cross-phase neighbors.
+	float mySigma = GetSurfaceTension(myPhase, myPhase);
+	float sigma = (sigmaWeightSum > 1e-6) ? (sigmaWeightedSum / sigmaWeightSum) : mySigma;
 
 	float normalizedGradMag = gradMag * smoothingRadius;
 	float2 surfaceTensionForce = -sigma * curvature * normal * normalizedGradMag;

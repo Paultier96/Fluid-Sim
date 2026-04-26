@@ -197,8 +197,9 @@ namespace Seb.Fluid2D.Simulation
             int triangularSize = phases.Length * (phases.Length + 1) / 2;
             phaseCohesionBuffer = new ComputeBuffer(triangularSize, sizeof(float));
             phaseCohesionBuffer.SetData(phaseCohesionValues);
-            phaseSurfaceTensionBuffer = new ComputeBuffer(phases.Length , sizeof(float));
-            phaseSurfaceTensionBuffer.SetData(phases.Select(p => p.surfaceTension).ToArray());
+            float[] initialSurfaceTensionMatrix = BuildSurfaceTensionMatrix();
+            phaseSurfaceTensionBuffer = new ComputeBuffer(phases.Length * phases.Length, sizeof(float));
+            phaseSurfaceTensionBuffer.SetData(initialSurfaceTensionMatrix);
             ComputeHelper.SetBuffer(compute, phaseSurfaceTensionBuffer, "PhaseSurfaceTensionMatrix", csfKernel);
 
             // Add csfKernel to existing buffer bindings:
@@ -310,7 +311,7 @@ namespace Seb.Fluid2D.Simulation
             phaseViscosityBuffer            = new ComputeBuffer(phaseCount, sizeof(float));
             phaseInteractionBuffer          = new ComputeBuffer(phaseCount * phaseCount, sizeof(float));
             phaseThermalExpansionBuffer     = new ComputeBuffer(phaseCount, sizeof(float));
-            phaseSurfaceTensionBuffer       = new ComputeBuffer(phaseCount, sizeof(float));
+            phaseSurfaceTensionBuffer       = new ComputeBuffer(phaseCount * phaseCount, sizeof(float));
         }
 
         void UploadAndBindPhaseData()
@@ -327,7 +328,7 @@ namespace Seb.Fluid2D.Simulation
             phaseViscosityBuffer.SetData(phases.Select(p => p.viscosity).ToArray());
             phaseInteractionBuffer.SetData(interactionFlat);
             phaseThermalExpansionBuffer.SetData(phases.Select(p => p.thermalExpansion).ToArray());
-            phaseSurfaceTensionBuffer.SetData(phases.Select(p => p.surfaceTension).ToArray());
+            phaseSurfaceTensionBuffer.SetData(BuildSurfaceTensionMatrix());
 
             // Non-coalescence per-phase parameters
             phaseNonCoalescenceRadiusBuffer?.Release();
@@ -367,6 +368,22 @@ namespace Seb.Fluid2D.Simulation
                 ComputeHelper.SetBuffer(compute, phaseNonCoalescenceStrengthBuffer, "PhaseNonCoalescenceStrength", csfKernel);
             if (phaseNonCoalescenceNormalDotThresholdBuffer != null)
                 ComputeHelper.SetBuffer(compute, phaseNonCoalescenceNormalDotThresholdBuffer, "PhaseNonCoalescenceNormalDotThreshold", csfKernel);
+        }
+
+        float[] BuildSurfaceTensionMatrix()
+        {
+            int phaseCount = phases.Length;
+            float[] matrix = new float[phaseCount * phaseCount];
+            for (int y = 0; y < phaseCount; y++)
+            {
+                float sigmaY = phases[y].surfaceTension;
+                for (int x = 0; x < phaseCount; x++)
+                {
+                    float sigmaX = phases[x].surfaceTension;
+                    matrix[y * phaseCount + x] = (x == y) ? sigmaX : 0.5f * (sigmaX + sigmaY);
+                }
+            }
+            return matrix;
         }
 
         void RunSimulationFrame(float frameTime)
