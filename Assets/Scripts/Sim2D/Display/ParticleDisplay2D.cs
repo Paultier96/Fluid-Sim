@@ -220,7 +220,7 @@ namespace Seb.Fluid2D.Rendering
 				jumpFloodCompute.SetInt("_Height", height);
 				jumpFloodCompute.SetMatrix("_VP", VP);
 				jumpFloodCompute.SetFloat("_TempMin", sim.ambientTemperature);
-				jumpFloodCompute.SetFloat("_TempMax", sim.heatSourceTemperature);
+				jumpFloodCompute.SetFloat("_TempMax", sim.HeatSourceTemperature);
 				jumpFloodCompute.SetInt("_ParticleCount", sim.positionBuffer.count);
 
 				// clear
@@ -298,7 +298,7 @@ namespace Seb.Fluid2D.Rendering
 			mat.SetTexture("ColourMap", gradientTexture);
 			mat.SetTexture("ColourMap2", gradientTexture2);
 			mat.SetFloat("tempMin", sim.ambientTemperature);
-			mat.SetFloat("tempMax", sim.heatSourceTemperature);
+			mat.SetFloat("tempMax", sim.HeatSourceTemperature);
 			mat.SetFloat("_EdgeWidth", jFedgeWidth);
 			mat.SetFloat("_BlurStrength", blurstrength);
 
@@ -338,7 +338,7 @@ namespace Seb.Fluid2D.Rendering
 			targetMaterial.SetFloat("scale", scale);
 			targetMaterial.SetFloat("velocityMax", velocityDisplayMax);
 			targetMaterial.SetFloat("tempMin", sim.ambientTemperature);
-			targetMaterial.SetFloat("tempMax", sim.heatSourceTemperature);
+			targetMaterial.SetFloat("tempMax", sim.HeatSourceTemperature);
 			targetMaterial.SetBuffer("CSFGradients", sim.csfGradientBuffer);
 			targetMaterial.SetFloat("debugGradientMax", debugGradientMax);
 			targetMaterial.SetInt("debugMode", (int)debugMode);
@@ -660,7 +660,7 @@ namespace Seb.Fluid2D.Rendering
 			jumpFloodSeedMaterial.SetInt("_ParticleCount", sim.positionBuffer.count);
 			jumpFloodSeedMaterial.SetMatrix("_VP", viewProjectionMatrix);
 			jumpFloodSeedMaterial.SetFloat("_TempMin", sim.ambientTemperature);
-			jumpFloodSeedMaterial.SetFloat("_TempMax", sim.heatSourceTemperature);
+			jumpFloodSeedMaterial.SetFloat("_TempMax", sim.HeatSourceTemperature);
 
 			DrawFullscreenPass(jfaSeedA, jumpFloodSeedMaterial, MeshTopology.Points, sim.positionBuffer.count);
 		}

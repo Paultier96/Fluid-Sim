@@ -3,7 +3,6 @@ using System;
 using System.Linq;
 using Unity.Mathematics;
 using UnityEngine;
-using UnityEngine.Serialization;
 
 namespace Seb.Fluid2D.Simulation
 {
@@ -71,10 +70,12 @@ namespace Seb.Fluid2D.Simulation
         public float ambientTemperature = 20f;
         public float heatDiffusionRate = 0.5f;
         public float heatCoolingRate = 0.1f;
-        public float heatSourceTemperature = 100f;
         public float heatSinkTemperature = 10f;
-        public Vector2 heatSourcePos = new Vector2(0, -5f);
-        public float heatSourceRadius = 2f;
+
+        [Header("Heat Source")]
+        public HeatSource2D heatSource;
+
+        public float HeatSourceTemperature => heatSource != null && heatSource.isActiveAndEnabled ? heatSource.temperature : ambientTemperature;
 
         [Header("References")]
         public ComputeShader compute;
@@ -153,6 +154,9 @@ namespace Seb.Fluid2D.Simulation
             particleDisplay = GetComponent<Rendering.ParticleDisplay2D>();
             if (phases != null)
                 particleDisplay?.SetPhaseColors(phases.Select(p => p.colourMap).ToArray());
+
+            if (heatSource == null)
+                heatSource = FindObjectOfType<HeatSource2D>();
 
             float deltaTime = 1 / 60f;
             Time.fixedDeltaTime = deltaTime;
@@ -453,10 +457,19 @@ namespace Seb.Fluid2D.Simulation
             compute.SetFloat("ambientTemperature", ambientTemperature);
             compute.SetFloat("heatDiffusionRate", heatDiffusionRate);
             compute.SetFloat("heatCoolingRate", heatCoolingRate);
-            compute.SetFloat("heatSourceTemperature", heatSourceTemperature);
             compute.SetFloat("heatSinkTemperature", heatSinkTemperature);
-            compute.SetVector("heatSourcePos", heatSourcePos);
-            compute.SetFloat("heatSourceRadius", heatSourceRadius);
+            Vector2 sourcePos = Vector2.zero;
+            float sourceRadius = 0f;
+            float sourceTemp = ambientTemperature;
+            if (heatSource != null && heatSource.isActiveAndEnabled)
+            {
+                sourcePos = heatSource.Position;
+                sourceRadius = heatSource.radius;
+                sourceTemp = heatSource.temperature;
+            }
+            compute.SetVector("heatSourcePos", sourcePos);
+            compute.SetFloat("heatSourceRadius", sourceRadius);
+            compute.SetFloat("heatSourceTemperature", sourceTemp);
             compute.SetFloat("surfaceTensionThreshold", surfaceTensionThreshold);
             compute.SetInt("debugVisualizationMode", particleDisplay != null ? (int)particleDisplay.debugMode : 0);
 
@@ -558,10 +571,6 @@ namespace Seb.Fluid2D.Simulation
             }
             
             Gizmos.DrawWireCube(obstacleCentre, obstacleSize);
-
-            // ADDED: draw heat source in editor
-            Gizmos.color = new Color(1, 0.3f, 0, 0.5f);
-            Gizmos.DrawWireSphere(heatSourcePos, heatSourceRadius);
 
             if (Application.isPlaying)
             {
