@@ -77,6 +77,7 @@ const float heatCoolingRate;
 const float2 heatSourcePos;
 const float heatSourceRadius;
 const float heatSourceTemperature;
+const float heatSourceTransferRate;
 const float heatSinkTemperature;
 const float buoyancyInversionStrength;
 const float buoyancyInversionClamp;
@@ -89,41 +90,79 @@ const float2 ellipseBoundsSize;  // Semi-axes (radii) of the ellipse
 const float2 ellipseBoundsCenter;
 const bool useEllipticalBounds;
 
+void GetEllipseSurfaceData(float2 pos, float2 center, float2 radii, out float2 closestPoint, out float2 outwardNormal, out float signedDistance)
+{
+	float2 localPos = pos - center;
+	float2 p = abs(localPos);
+	float2 ab = max(radii, 1e-6);
+	float a2 = ab.x * ab.x;
+	float b2 = ab.y * ab.y;
+	float2 signLocal = float2((localPos.x < 0) ? -1.0 : 1.0, (localPos.y < 0) ? -1.0 : 1.0);
+	
+	// Handle center explicitly (direction undefined there).
+	if (p.x < 1e-8 && p.y < 1e-8)
+	{
+		float2 closestLocalCenter = float2(0, ab.y);
+		closestPoint = center + closestLocalCenter;
+		outwardNormal = float2(0, 1);
+		signedDistance = -ab.y;
+		return;
+	}
+	
+	float ellipseValue = (p.x * p.x) / a2 + (p.y * p.y) / b2;
+	bool inside = (ellipseValue < 1.0);
+	
+	// Solve nearest-point parameter t using Newton's method:
+	// f(t) = (a^2 px^2)/(t+a^2)^2 + (b^2 py^2)/(t+b^2)^2 - 1 = 0
+	float minAxis2 = min(a2, b2);
+	float t = inside ? (-0.5 * minAxis2) : 0.0;
+	for (int i = 0; i < 8; i++)
+	{
+		float ta = max(t + a2, 1e-8);
+		float tb = max(t + b2, 1e-8);
+		float invTa2 = 1.0 / (ta * ta);
+		float invTb2 = 1.0 / (tb * tb);
+		float f = (a2 * p.x * p.x) * invTa2 + (b2 * p.y * p.y) * invTb2 - 1.0;
+		float df = -2.0 * (a2 * p.x * p.x) / (ta * ta * ta) - 2.0 * (b2 * p.y * p.y) / (tb * tb * tb);
+		float step = f / min(df, -1e-8);
+		t -= step;
+		if (inside)
+		{
+			t = clamp(t, -minAxis2 + 1e-6, -1e-7);
+		}
+		else
+		{
+			t = max(t, 0.0);
+		}
+	}
+	
+	float2 closestAbs = float2(
+		(a2 * p.x) / max(t + a2, 1e-8),
+		(b2 * p.y) / max(t + b2, 1e-8)
+	);
+	float2 closestLocal = closestAbs * signLocal;
+	closestPoint = center + closestLocal;
+	
+	float2 normalVec = float2(
+		closestLocal.x / a2,
+		closestLocal.y / b2
+	);
+	float normalLen = length(normalVec);
+	outwardNormal = (normalLen > 1e-6) ? (normalVec / normalLen) : normalize(localPos + 1e-6);
+	
+	float unsignedDist = length(localPos - closestLocal);
+	signedDistance = inside ? -unsignedDist : unsignedDist;
+}
+
 // Calculate signed distance from point to ellipse boundary
 // Returns negative if inside, positive if outside
 float SignedDistanceToEllipse(float2 pos, float2 center, float2 radii)
 {
-	float2 p = abs(pos - center);
-	float2 ab = radii;
-	
-	// Approximate ellipse distance using iterative method
-	float tx = 0.707;  // Initial guess
-	for (int i = 0; i < 3; i++)  // 3 iterations is usually sufficient
-	{
-		float ty = sqrt(max(1.0 - tx * tx * ab.x * ab.x / (ab.y * ab.y), 0.0));
-		float x = ab.x * tx;
-		float y = ab.y * ty;
-		float ex = (ab.x * ab.x - ab.y * ab.y) * tx * tx * tx / (3.0 * ab.x);
-		float ey = (ab.y * ab.y - ab.x * ab.x) * ty * ty * ty / (3.0 * ab.y);
-		
-		float rx = x - ex;
-		float ry = y - ey;
-		float qx = p.x - ex;
-		float qy = p.y - ey;
-		
-		float r = length(float2(rx, ry));
-		float q = length(float2(qx, qy));
-		tx = qx * r / (q * r + 1e-8);
-		tx = clamp(tx, 0.0, 1.0);
-	}
-	
-	float ty = sqrt(max(1.0 - tx * tx * ab.x * ab.x / (ab.y * ab.y), 0.0));
-	float2 closest = float2(ab.x * tx, ab.y * ty);
-	float dist = length(p - closest);
-	
-	// Check if inside by testing center point
-	float innerDist = length(p / ab);
-	return (innerDist < 1.0) ? -dist : dist;
+	float2 closestPoint;
+	float2 outwardNormal;
+	float signedDistance;
+	GetEllipseSurfaceData(pos, center, radii, closestPoint, outwardNormal, signedDistance);
+	return signedDistance;
 }
 
 float DensityKernel(float dst, float radius)
@@ -250,17 +289,19 @@ float2 ExternalForces(float2 pos, float2 velocity, float density, uint phase, ui
     {
         if (useEllipticalBounds)
         {
-            float signedDist = SignedDistanceToEllipse(pos, ellipseBoundsCenter, ellipseBoundsSize);
-            float absDist = abs(signedDist);
-            if (absDist < edgeForceDst)
+            float2 closestPoint;
+            float2 outwardNormal;
+            float signedDist;
+            GetEllipseSurfaceData(pos, ellipseBoundsCenter, ellipseBoundsSize, closestPoint, outwardNormal, signedDist);
+            if (signedDist < 0)
             {
-                // outward normal approximation
-                float2 dir = pos - ellipseBoundsCenter;
-                float2 normalVec = dir / (ellipseBoundsSize * ellipseBoundsSize);
-                float2 normal = normalize(normalVec);
-                float strength = edgeForce * (edgeForceDst - absDist) / edgeForceDst;
-                // push inward (towards center)
-                boundaryRepel += -normal * strength;
+                float distToBoundary = -signedDist;
+                if (distToBoundary < edgeForceDst)
+                {
+                    float strength = edgeForce * (edgeForceDst - distToBoundary) / edgeForceDst;
+                    // push inward (towards center)
+                    boundaryRepel += -outwardNormal * strength;
+                }
             }
         }
         else
@@ -631,10 +672,10 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
     // Passive cooling toward ambient temperature
     newTemp += (ambientTemperature - newTemp) * heatCoolingRate * deltaTime;
 
-    // Heat source at bottom
+    // Heat source over source area with finite transfer rate
     float2 toSource = pos - heatSourcePos;
-    if (dot(toSource, toSource) < heatSourceRadius * heatSourceRadius)
-        newTemp = lerp(newTemp, heatSourceTemperature, 0.1 * deltaTime * 60);
+    if (dot(toSource, toSource) < heatSourceRadius * heatSourceRadius && heatSourceTransferRate > 0)
+        newTemp += (heatSourceTemperature - newTemp) * heatSourceTransferRate * deltaTime;
 
     // Heat sink at boundary - cools everything near the boundary
     if (useEllipticalBounds)

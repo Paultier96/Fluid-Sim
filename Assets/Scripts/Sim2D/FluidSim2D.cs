@@ -82,6 +82,8 @@ namespace Seb.Fluid2D.Simulation
 
         [Header("Heat Source")]
         public HeatSource2D heatSource;
+        [Tooltip("Heat transfer rate from the heat source area (Newton cooling/heating coefficient).")]
+        [Min(0f)] public float heatSourceTransferRate = 2.0f;
 
         public float HeatSourceTemperature => heatSource != null && heatSource.isActiveAndEnabled ? heatSource.temperature : ambientTemperature;
 
@@ -504,6 +506,7 @@ namespace Seb.Fluid2D.Simulation
             compute.SetVector("heatSourcePos", sourcePos);
             compute.SetFloat("heatSourceRadius", sourceRadius);
             compute.SetFloat("heatSourceTemperature", sourceTemp);
+            compute.SetFloat("heatSourceTransferRate", Mathf.Max(0f, heatSourceTransferRate));
             compute.SetFloat("buoyancyInversionStrength", buoyancyInversionStrength);
             compute.SetFloat("buoyancyInversionClamp", Mathf.Max(0f, buoyancyInversionClamp));
             compute.SetFloat("surfaceTensionThreshold", surfaceTensionThreshold);
