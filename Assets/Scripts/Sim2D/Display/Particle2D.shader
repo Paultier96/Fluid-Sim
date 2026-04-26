@@ -79,6 +79,13 @@ Shader "Instanced/Particle2D" {
 						float3 posCol = float3(0.0, 1.0, 0.0);
 						o.colour = (t < 0.5) ? lerp(negCol, zeroCol, t * 2.0) : lerp(zeroCol, posCol, (t - 0.5) * 2.0);
 					}
+					else if (debugMode == 4)
+					{
+						float t = saturate(debugData.x / maxAbsValue);
+						float3 lowCol = float3(0.0, 0.0, 1.0);
+						float3 highCol = float3(1.0, 0.0, 0.0);
+						o.colour = lerp(lowCol, highCol, t);
+					}
 					else
 					{
 						float2 mapped = saturate(0.5 + debugData / (2.0 * maxAbsValue));

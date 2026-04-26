@@ -71,7 +71,7 @@ Shader "Instanced/Particle2DMetaball" {
 					float2 debugData;
 					if (debugMode == 1)
 						debugData = i.csfDebug;
-					else if (debugMode == 2)
+					else if (debugMode == 2 || debugMode == 4)
 						debugData = i.csfDebug.xx / maxAbsValue;
 					else
 						debugData = i.csfDebug / maxAbsValue;

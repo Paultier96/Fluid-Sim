@@ -217,6 +217,7 @@ MonoBehaviour:
       m_NumAlphaKeys: 2
     targetDensity: 210
     viscosity: 0.03
+    viscosityTemperatureSensitivity: 0
     thermalExpansion: 0.003
     surfaceTension: 30
     nonCoalescenceRadius: 0.2
@@ -255,6 +256,7 @@ MonoBehaviour:
       m_NumAlphaKeys: 2
     targetDensity: 234
     viscosity: 0.03
+    viscosityTemperatureSensitivity: 0
     thermalExpansion: 0.003
     surfaceTension: 10
     nonCoalescenceRadius: 0.2
@@ -269,10 +271,8 @@ MonoBehaviour:
   ambientTemperature: 20
   heatDiffusionRate: 0.5
   heatCoolingRate: 0.05
-  heatSourceTemperature: 100
   heatSinkTemperature: 10
-  heatSourcePos: {x: -6, y: -6}
-  heatSourceRadius: 2
+  heatSource: {fileID: 0}
   compute: {fileID: 7200000, guid: 1c77ce8de78fddb419ed2d15cae41af0, type: 3}
   spawner2D: {fileID: 271053320}
 --- !u!114 &271053320
@@ -434,9 +434,56 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &2055861082
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2055861084}
+  - component: {fileID: 2055861083}
+  m_Layer: 0
+  m_Name: HeatSource2D
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &2055861083
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2055861082}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cc55bd493d57bbf4fb5cf3f4d97d4d51, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Simulation.HeatSource2D
+  radius: 2
+  temperature: 100
+--- !u!4 &2055861084
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2055861082}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -3.93, y: -6.03, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
   - {fileID: 963194228}
   - {fileID: 271053318}
+  - {fileID: 2055861084}

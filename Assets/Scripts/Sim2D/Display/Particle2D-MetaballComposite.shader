@@ -78,6 +78,15 @@ Shader "Hidden/Particle2DMetaballComposite" {
 						return float4(curvCol, alpha);
 					}
 
+					if (debugMode == 4)
+					{
+						float viscosity = lerp(data0, data1, phaseT);
+						float t = saturate(viscosity);
+						float3 lowCol = float3(0.0, 0.0, 1.0);
+						float3 highCol = float3(1.0, 0.0, 0.0);
+						return float4(lerp(lowCol, highCol, t), alpha);
+					}
+
 					float2 force = float2(data0, data1);
 					float2 mappedForce = saturate(0.5 + force * 0.5);
 					float mag = saturate(length(force));

@@ -37,7 +37,7 @@ const float surfaceTensionThreshold; // min gradient magnitude to apply force
 StructuredBuffer<float> PhaseNonCoalescenceRadius;
 StructuredBuffer<float> PhaseNonCoalescenceStrength;
 StructuredBuffer<float> PhaseNonCoalescenceNormalDotThreshold;
-RWStructuredBuffer<float2> CSFGradients; // debug output (mode-dependent): gradient.xy or curvature.xx
+RWStructuredBuffer<float2> CSFGradients; // debug output (mode-dependent): gradient.xy, curvature.xx, force.xy, or viscosity.xx
 RWStructuredBuffer<float2> ColorGradients; // per-particle color gradient
 
 
@@ -59,6 +59,7 @@ StructuredBuffer<float> PhaseTargetDensities;
 const float pressureMultiplier;
 const float nearPressureMultiplier;
 StructuredBuffer<float> PhaseViscosities;
+StructuredBuffer<float> PhaseViscosityTemperatureSensitivity;
 const float2 boundsSize;
 const float2 interactionInputPoint;
 const float interactionInputStrength;
@@ -69,6 +70,13 @@ StructuredBuffer<float> PhaseThermalExpansion; // how much density changes per d
 StructuredBuffer<float> PhaseInteractionMatrix;
 int NumPhases;
 int debugVisualizationMode;
+const float ambientTemperature;
+const float heatDiffusionRate;
+const float heatCoolingRate;
+const float2 heatSourcePos;
+const float heatSourceRadius;
+const float heatSourceTemperature;
+const float heatSinkTemperature;
 
 const float2 obstacleSize;
 const float2 obstacleCentre;
@@ -139,6 +147,15 @@ float GetSurfaceTension(uint phaseA, uint phaseB)
 {
 	uint phaseCount = (uint)NumPhases;
 	return PhaseSurfaceTensionMatrix[phaseA * phaseCount + phaseB];
+}
+
+float GetTemperatureAdjustedViscosity(uint phase, float temperature)
+{
+	float baseViscosity = PhaseViscosities[phase];
+	float sensitivity = PhaseViscosityTemperatureSensitivity[phase];
+	float deltaT = temperature - ambientTemperature;
+	float scale = clamp(1.0 - sensitivity * deltaT, 0.05, 10.0);
+	return baseViscosity * scale;
 }
 
 float ViscosityKernel(float dst, float radius)
@@ -495,13 +512,6 @@ void CalculatePressureForce (uint3 id : SV_DispatchThreadID)
 	Velocities[id.x] += acceleration * deltaTime;
 }
 
-const float ambientTemperature;
-const float heatDiffusionRate;
-const float heatCoolingRate;
-const float2 heatSourcePos;
-const float heatSourceRadius;
-const float heatSourceTemperature;
-const float heatSinkTemperature;
 [numthreads(NumThreads, 1, 1)]
 void UpdateTemperature(uint3 id : SV_DispatchThreadID)
 {
@@ -682,7 +692,12 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 	float2 velocity = Velocities[id.x];
 
 	uint myPhase = Phases[id.x];
-	float myViscosity = PhaseViscosities[myPhase];
+	float myTemp = Temperatures[id.x];
+	float myViscosity = GetTemperatureAdjustedViscosity(myPhase, myTemp);
+	if (debugVisualizationMode == 4)
+	{
+		CSFGradients[id.x] = myViscosity.xx;
+	}
 
 
 	for (int i = 0; i < 9; i ++)
@@ -711,7 +726,8 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 			if (sqrDstToNeighbour > sqrRadius) continue;
 
 			uint neighbourPhase = Phases[neighbourIndex];
-			float neighbourViscosity = PhaseViscosities[neighbourPhase];
+			float neighbourTemp = Temperatures[neighbourIndex];
+			float neighbourViscosity = GetTemperatureAdjustedViscosity(neighbourPhase, neighbourTemp);
 			float blendedViscosity = (myViscosity + neighbourViscosity) * 0.5;
 
 			float dst = sqrt(sqrDstToNeighbour);

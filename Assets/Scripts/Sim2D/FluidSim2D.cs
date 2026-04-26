@@ -46,6 +46,8 @@ namespace Seb.Fluid2D.Simulation
             public Gradient colourMap;
             public float targetDensity = 234;
             public float viscosity = 0.03f;
+            [Tooltip("Fractional viscosity change per degree relative to ambient temperature. Positive values make hot fluid less viscous and cold fluid more viscous.")]
+            public float viscosityTemperatureSensitivity = 0.0f;
             public float thermalExpansion = 0.0f;
             public float surfaceTension = 0f;
             // Non-coalescence tuning per-phase
@@ -98,6 +100,7 @@ namespace Seb.Fluid2D.Simulation
 
         ComputeBuffer phaseTargetDensityBuffer;
         ComputeBuffer phaseViscosityBuffer;
+        ComputeBuffer phaseViscosityTemperatureSensitivityBuffer;
         ComputeBuffer phaseInteractionBuffer;
         ComputeBuffer particleTargetDensityBuffer;
         ComputeBuffer phaseThermalExpansionBuffer;
@@ -117,24 +120,24 @@ namespace Seb.Fluid2D.Simulation
             { 0.3f, 1.0f }
         };
 
-        // Kernel IDs
-        const int externalForcesKernel = 0;
-        const int spatialHashKernel = 1;
-        const int reorderKernel = 2;
-        const int copybackKernel = 3;
-        const int densityKernel = 4;
-        const int pressureKernel = 5;
-        const int viscosityKernel = 6; 
-        const int updatePositionKernel = 7;
-        const int updateThermalExpansionKernel = 8;
-        const int updateTemperatureKernel = 9;
-        const int reorderTemperatureKernel = 10;
-        const int copybackTemperatureKernel = 11;
-        const int reorderParticleTargetDensitiesKernel = 12;
-        const int copybackParticleTargetDensitiesKernel = 13;
-        const int cohesionKernel = 14;
-        const int csfKernel = 15;
-        const int computeColorGradKernel = 16;
+        // Kernel IDs (resolved at runtime via FindKernel)
+        int externalForcesKernel;
+        int spatialHashKernel;
+        int reorderKernel;
+        int copybackKernel;
+        int densityKernel;
+        int pressureKernel;
+        int viscosityKernel;
+        int updatePositionKernel;
+        int updateThermalExpansionKernel;
+        int updateTemperatureKernel;
+        int reorderTemperatureKernel;
+        int copybackTemperatureKernel;
+        int reorderParticleTargetDensitiesKernel;
+        int copybackParticleTargetDensitiesKernel;
+        int cohesionKernel;
+        int csfKernel;
+        int computeColorGradKernel;
 
         // State
         bool isPaused;
@@ -151,6 +154,24 @@ namespace Seb.Fluid2D.Simulation
 
         void Start()
         {
+            externalForcesKernel = compute.FindKernel("ExternalForces");
+            spatialHashKernel = compute.FindKernel("UpdateSpatialHash");
+            reorderKernel = compute.FindKernel("Reorder");
+            copybackKernel = compute.FindKernel("ReorderCopyback");
+            densityKernel = compute.FindKernel("CalculateDensities");
+            pressureKernel = compute.FindKernel("CalculatePressureForce");
+            viscosityKernel = compute.FindKernel("CalculateViscosity");
+            updatePositionKernel = compute.FindKernel("UpdatePositions");
+            updateThermalExpansionKernel = compute.FindKernel("UpdateThermalExpansion");
+            updateTemperatureKernel = compute.FindKernel("UpdateTemperature");
+            reorderTemperatureKernel = compute.FindKernel("ReorderTemperature");
+            copybackTemperatureKernel = compute.FindKernel("ReorderTemperatureCopyback");
+            reorderParticleTargetDensitiesKernel = compute.FindKernel("ReorderParticleTargetDensities");
+            copybackParticleTargetDensitiesKernel = compute.FindKernel("ReorderParticleTargetDensitiesCopyback");
+            cohesionKernel = compute.FindKernel("CalculateCohesion");
+            csfKernel = compute.FindKernel("CalculateCSF");
+            computeColorGradKernel = compute.FindKernel("ComputeColorGradients");
+
             particleDisplay = GetComponent<Rendering.ParticleDisplay2D>();
             if (phases != null)
                 particleDisplay?.SetPhaseColors(phases.Select(p => p.colourMap).ToArray());
@@ -227,7 +248,7 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.SetBuffer(compute, densityBuffer, "Densities", externalForcesKernel, densityKernel, pressureKernel, viscosityKernel);
             ComputeHelper.SetBuffer(compute, phaseBuffer, "Phases", externalForcesKernel, densityKernel, pressureKernel, viscosityKernel, updateTemperatureKernel, updatePositionKernel, reorderKernel, copybackKernel, updateThermalExpansionKernel);
 
-            ComputeHelper.SetBuffer(compute, temperatureBuffer, "Temperatures", updateTemperatureKernel, reorderTemperatureKernel, copybackTemperatureKernel, updateThermalExpansionKernel);
+            ComputeHelper.SetBuffer(compute, temperatureBuffer, "Temperatures", viscosityKernel, updateTemperatureKernel, reorderTemperatureKernel, copybackTemperatureKernel, updateThermalExpansionKernel);
             ComputeHelper.SetBuffer(compute, sortTarget_Temperatures, "SortTarget_Temperatures", reorderTemperatureKernel, copybackTemperatureKernel);
             ComputeHelper.SetBuffer(compute, spatialHash.SpatialIndices, "SortedIndices", spatialHashKernel, reorderKernel, reorderTemperatureKernel);
 
@@ -306,6 +327,7 @@ namespace Seb.Fluid2D.Simulation
 
             phaseTargetDensityBuffer?.Release();
             phaseViscosityBuffer?.Release();
+            phaseViscosityTemperatureSensitivityBuffer?.Release();
             phaseInteractionBuffer?.Release();
             phaseThermalExpansionBuffer?.Release();
             phaseCohesionBuffer?.Release();
@@ -313,6 +335,7 @@ namespace Seb.Fluid2D.Simulation
             phaseCohesionBuffer             = null;
             phaseTargetDensityBuffer        = new ComputeBuffer(phaseCount, sizeof(float));
             phaseViscosityBuffer            = new ComputeBuffer(phaseCount, sizeof(float));
+            phaseViscosityTemperatureSensitivityBuffer = new ComputeBuffer(phaseCount, sizeof(float));
             phaseInteractionBuffer          = new ComputeBuffer(phaseCount * phaseCount, sizeof(float));
             phaseThermalExpansionBuffer     = new ComputeBuffer(phaseCount, sizeof(float));
             phaseSurfaceTensionBuffer       = new ComputeBuffer(phaseCount * phaseCount, sizeof(float));
@@ -330,6 +353,7 @@ namespace Seb.Fluid2D.Simulation
 
             phaseTargetDensityBuffer.SetData(phases.Select(p => p.targetDensity).ToArray());
             phaseViscosityBuffer.SetData(phases.Select(p => p.viscosity).ToArray());
+            phaseViscosityTemperatureSensitivityBuffer.SetData(phases.Select(p => p.viscosityTemperatureSensitivity).ToArray());
             phaseInteractionBuffer.SetData(interactionFlat);
             phaseThermalExpansionBuffer.SetData(phases.Select(p => p.thermalExpansion).ToArray());
             phaseSurfaceTensionBuffer.SetData(BuildSurfaceTensionMatrix());
@@ -349,6 +373,7 @@ namespace Seb.Fluid2D.Simulation
 
             ComputeHelper.SetBuffer(compute, phaseTargetDensityBuffer, "PhaseTargetDensities",externalForcesKernel, densityKernel, pressureKernel, viscosityKernel, updateThermalExpansionKernel);
             ComputeHelper.SetBuffer(compute, phaseViscosityBuffer,            "PhaseViscosities",         viscosityKernel);
+            ComputeHelper.SetBuffer(compute, phaseViscosityTemperatureSensitivityBuffer, "PhaseViscosityTemperatureSensitivity", viscosityKernel);
             ComputeHelper.SetBuffer(compute, phaseInteractionBuffer,          "PhaseInteractionMatrix",    pressureKernel);
             ComputeHelper.SetBuffer(compute, phaseThermalExpansionBuffer,     "PhaseThermalExpansion",     updateThermalExpansionKernel);
             ComputeHelper.SetBuffer(compute, phaseNonCoalescenceRadiusBuffer, "PhaseNonCoalescenceRadius", csfKernel);
@@ -539,6 +564,7 @@ namespace Seb.Fluid2D.Simulation
 
             if (phaseInteractionBuffer != null) phaseInteractionBuffer.Release();
             if (phaseViscosityBuffer != null) phaseViscosityBuffer.Release();
+            if (phaseViscosityTemperatureSensitivityBuffer != null) phaseViscosityTemperatureSensitivityBuffer.Release();
             if (phaseTargetDensityBuffer != null) phaseTargetDensityBuffer.Release();
 
             if (particleTargetDensityBuffer != null) particleTargetDensityBuffer.Release();
