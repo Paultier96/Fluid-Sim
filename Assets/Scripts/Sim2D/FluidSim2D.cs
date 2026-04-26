@@ -242,6 +242,7 @@ namespace Seb.Fluid2D.Simulation
 
             ComputeHelper.SetBuffer(compute, spatialHash.SpatialIndices, "SortedIndices", spatialHashKernel, reorderKernel, reorderTemperatureKernel, reorderParticleTargetDensitiesKernel); 
             ComputeHelper.SetBuffer(compute, csfGradientBuffer, "CSFGradients", computeColorGradKernel);
+            ComputeHelper.SetBuffer(compute, csfGradientBuffer, "CSFGradients", externalForcesKernel, pressureKernel, viscosityKernel, cohesionKernel, csfKernel);
 
             compute.SetInt("numParticles", numParticles);
             compute.SetInt("NumPhases", phases.Length);

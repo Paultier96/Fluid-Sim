@@ -68,7 +68,13 @@ Shader "Instanced/Particle2DMetaball" {
 					// Debug mode packs two weighted values into one texture:
 					// R/G = debug X, B/A = debug Y (or curvature duplicated).
 					float maxAbsValue = max(debugGradientMax, 0.0001);
-					float2 debugData = debugMode == 1 ? i.csfDebug : (i.csfDebug.xx / maxAbsValue);
+					float2 debugData;
+					if (debugMode == 1)
+						debugData = i.csfDebug;
+					else if (debugMode == 2)
+						debugData = i.csfDebug.xx / maxAbsValue;
+					else
+						debugData = i.csfDebug / maxAbsValue;
 					return float4(debugData.x * kernel, kernel, debugData.y * kernel, kernel);
 				}
 

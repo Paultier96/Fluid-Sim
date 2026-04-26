@@ -24,6 +24,7 @@ namespace Seb.Fluid2D.Rendering
 			None = 0,
 			Gradient = 1,
 			Curvature = 2,
+			Force = 3,
 		}
 
 		[Tooltip("The fluid simulation to visualize.")]
@@ -70,9 +71,9 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0)] public float metaballIntensity = 1.0f;
 
 		[Header("Debug")]
-		[Tooltip("Selects what to show in debug mode. Gradient maps X/Y to R/G, Curvature uses grayscale.")]
+		[Tooltip("Selects what to show in debug mode. Gradient: X/Y in R/G. Curvature: signed scalar. Force: X/Y direction + magnitude.")]
 		public DebugVisualization debugMode = DebugVisualization.None;
-		[Tooltip("Maximum absolute value mapped in debug visualisation. Increase if output saturates.")]
+		[Tooltip("Maximum absolute value mapped in debug visualisation (used by curvature/force views).")]
 		public float debugGradientMax = 1.0f;
 		
 		public float edgeWidth = 0.03f;

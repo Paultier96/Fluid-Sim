@@ -341,7 +341,12 @@ void ExternalForces(uint3 id : SV_DispatchThreadID)
 
     uint phase = Phases[id.x];
     float density = Densities[id.x][0];
-    Velocities[id.x] += ExternalForces(Positions[id.x], Velocities[id.x], density, phase, id.x) * deltaTime;
+    float2 externalAcceleration = ExternalForces(Positions[id.x], Velocities[id.x], density, phase, id.x);
+    if (debugVisualizationMode == 3)
+    {
+        CSFGradients[id.x] = externalAcceleration;
+    }
+    Velocities[id.x] += externalAcceleration * deltaTime;
 
     //const float predictionFactor = 1 / 120.0;//idk why
     PredictedPositions[id.x] = Positions[id.x] + Velocities[id.x] * deltaTime;
@@ -470,6 +475,10 @@ void CalculatePressureForce (uint3 id : SV_DispatchThreadID)
 	}
 
 	float2 acceleration = pressureForce / max(density, epsilon);
+    if (debugVisualizationMode == 3)
+    {
+        CSFGradients[id.x] += acceleration;
+    }
 
 	// Clamp acceleration magnitude to prevent explosive forces in a single step
 	// float maxAcceleration = smoothingRadius / (deltaTime * deltaTime);
@@ -647,6 +656,10 @@ void CalculateCohesion(uint3 id : SV_DispatchThreadID)
 	}
 
 	Velocities[id.x] += cohesionForce * deltaTime;
+    if (debugVisualizationMode == 3)
+    {
+        CSFGradients[id.x] += cohesionForce;
+    }
 }
 
 [numthreads(NumThreads,1,1)]
@@ -702,6 +715,10 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 
 	}
 	Velocities[id.x] += viscosityForce * deltaTime;
+    if (debugVisualizationMode == 3)
+    {
+        CSFGradients[id.x] += viscosityForce;
+    }
 }
 
 [numthreads(NumThreads, 1, 1)]
@@ -774,6 +791,7 @@ void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
 
     uint myPhase = Phases[id.x];
     float2 pos = PredictedPositions[id.x];
+    float density_i = max(Densities[id.x][0], 0.0001);
     int2 originCell = GetCell2D(pos, smoothingRadius);
     float sqrRadius = smoothingRadius * smoothingRadius;
 
@@ -809,6 +827,47 @@ void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
             gradC += (dc / density_j) * gradW * dir;
         }
     }
+
+    // Treat the outside of the simulation bounds as an implicit non-matching phase
+    // so surface normals also exist near container walls.
+    float wallDist = 1e9;
+    float2 wallNormal = 0;
+
+    if (useEllipticalBounds)
+    {
+        float2 rel = pos - ellipseBoundsCenter;
+        float2 normalVec = rel / (ellipseBoundsSize * ellipseBoundsSize);
+        float normalLen = length(normalVec);
+        if (normalLen > 1e-6)
+        {
+            wallNormal = normalVec / normalLen; // outward
+            float signedDist = SignedDistanceToEllipse(pos, ellipseBoundsCenter, ellipseBoundsSize);
+            wallDist = max(-signedDist, 0.0); // distance to boundary while inside
+        }
+    }
+    else
+    {
+        float2 halfSize = boundsSize * 0.5;
+        float2 edgeDst = halfSize - abs(pos);
+        if (edgeDst.x < edgeDst.y)
+        {
+            wallDist = edgeDst.x;
+            wallNormal = float2(sign(pos.x), 0); // outward
+        }
+        else
+        {
+            wallDist = edgeDst.y;
+            wallNormal = float2(0, sign(pos.y)); // outward
+        }
+    }
+
+    if (wallDist > 0 && wallDist < smoothingRadius && dot(wallNormal, wallNormal) > 0)
+    {
+        float dcWall = -1.0; // outside is treated as a different phase
+        float gradWWall = DensityDerivative(wallDist, smoothingRadius);
+        gradC += (dcWall / density_i) * gradWWall * wallNormal;
+    }
+
     ColorGradients[id.x] = gradC;
 	//CSFGradients[id.x] = (gradC+1)/2;
 }
@@ -920,9 +979,16 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 	// Look up surface tension coefficient for this particle's phase pair with each neighbor
 	// Use same-phase coefficient since CSF acts at the interface
 	float sigma = PhaseSurfaceTensionMatrix[myPhase];
+	
+	// Use an effective interfacial sigma based on pairwise (phase i, phase j) averages.
+	//float sigma = (sigmaWeightSum > 1e-6) ? (sigmaWeightedSum / sigmaWeightSum) : mySigma;
 
 	float normalizedGradMag = gradMag * smoothingRadius;
 	float2 surfaceTensionForce = -sigma * curvature * normal * normalizedGradMag;
 	// apply both surface tension and any computed short-range repulsion
+	if (debugVisualizationMode == 3)
+	{
+		CSFGradients[id.x] += surfaceTensionForce + repulsionForce;
+	}
 	Velocities[id.x] += (surfaceTensionForce + repulsionForce) * deltaTime;
 }
