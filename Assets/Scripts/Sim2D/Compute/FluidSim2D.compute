@@ -16,6 +16,11 @@
 #pragma kernel CalculateCohesion // 15
 #pragma kernel CalculateCSF // 16
 #pragma kernel ComputeColorGradients // 17
+#pragma kernel InitializeBlobIDs // 18
+#pragma kernel PropagateBlobIDs // 19
+#pragma kernel CopyBlobIDs // 20
+#pragma kernel ReorderBlobIDs // 21
+#pragma kernel ReorderBlobIDsCopyback // 22
 
 // Includes
 #include "./FluidMaths2D.hlsl"
@@ -29,6 +34,8 @@ RWStructuredBuffer<float2> PredictedPositions;
 RWStructuredBuffer<float2> Velocities;
 RWStructuredBuffer<float2> Densities;
 RWStructuredBuffer<uint> Phases;
+RWStructuredBuffer<uint> BlobIDs;
+RWStructuredBuffer<uint> BlobIDsScratch;
 RWStructuredBuffer<float> Temperatures;
 RWStructuredBuffer<float> ParticleTargetDensities;
 StructuredBuffer<float> PhaseCohesionMatrix;
@@ -45,6 +52,8 @@ RWStructuredBuffer<float2> ColorGradients; // per-particle color gradient
 // Spatial hashing
 RWStructuredBuffer<uint> SpatialKeys;
 RWStructuredBuffer<uint> SpatialOffsets;
+StructuredBuffer<uint> SpatialKeysRO;
+StructuredBuffer<uint> SpatialOffsetsRO;
 StructuredBuffer<uint> SortedIndices;
 
 // Settings
@@ -487,6 +496,7 @@ RWStructuredBuffer<float2> SortTarget_Positions;
 RWStructuredBuffer<float2> SortTarget_PredictedPositions;
 RWStructuredBuffer<float2> SortTarget_Velocities;
 RWStructuredBuffer<uint> SortTarget_Phases;
+RWStructuredBuffer<uint> SortTarget_BlobIDs;
 RWStructuredBuffer<float> SortTarget_Temperatures;
 RWStructuredBuffer<float> SortTarget_ParticleTargetDensities;
 
@@ -514,6 +524,72 @@ void ReorderCopyback (uint3 id : SV_DispatchThreadID)
 	PredictedPositions[id.x] = SortTarget_PredictedPositions[id.x];
 	Velocities[id.x] = SortTarget_Velocities[id.x];
     Phases[id.x] = SortTarget_Phases[id.x];
+}
+
+[numthreads(NumThreads,1,1)]
+void ReorderBlobIDs (uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= numParticles) return;
+	uint sortedIndex = SortedIndices[id.x];
+	SortTarget_BlobIDs[id.x] = BlobIDs[sortedIndex];
+}
+
+[numthreads(NumThreads,1,1)]
+void ReorderBlobIDsCopyback (uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= numParticles) return;
+	BlobIDs[id.x] = SortTarget_BlobIDs[id.x];
+}
+
+[numthreads(NumThreads, 1, 1)]
+void InitializeBlobIDs(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= numParticles) return;
+	BlobIDs[id.x] = SortedIndices[id.x];
+}
+
+[numthreads(NumThreads, 1, 1)]
+void PropagateBlobIDs(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= numParticles) return;
+
+	uint myPhase = Phases[id.x];
+	float2 pos = PredictedPositions[id.x];
+	int2 originCell = GetCell2D(pos, smoothingRadius);
+	float sqrRadius = smoothingRadius * smoothingRadius;
+
+	uint minBlob = BlobIDs[id.x];
+
+	for (int i = 0; i < 9; i++)
+	{
+		uint hash = HashCell2D(originCell + offsets2D[i]);
+		uint key = KeyFromHash(hash, numParticles);
+		uint currIndex = SpatialOffsets[key];
+
+		while (currIndex < numParticles)
+		{
+			uint neighbourIndex = currIndex++;
+			if (neighbourIndex == id.x) continue;
+			if (SpatialKeys[neighbourIndex] != key) break;
+
+			if (Phases[neighbourIndex] != myPhase) continue;
+
+			float2 offset = PredictedPositions[neighbourIndex] - pos;
+			float sqrDst = dot(offset, offset);
+			if (sqrDst > sqrRadius) continue;
+
+			minBlob = min(minBlob, BlobIDs[neighbourIndex]);
+		}
+	}
+
+	BlobIDsScratch[id.x] = minBlob;
+}
+
+[numthreads(NumThreads, 1, 1)]
+void CopyBlobIDs(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= numParticles) return;
+	BlobIDs[id.x] = BlobIDsScratch[id.x];
 }
 
 

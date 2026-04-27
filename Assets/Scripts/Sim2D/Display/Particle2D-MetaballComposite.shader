@@ -60,6 +60,12 @@ Shader "Hidden/Particle2DMetaballComposite" {
 				float3 colour0, colour1;
 				if (debugMode != 0)
 				{
+					if (debugMode == 5)
+					{
+						float3 blobCol = combined.rgb / max(combined.a, 0.0001);
+						return float4(saturate(blobCol), alpha);
+					}
+
 					if (debugMode == 1)
 					{
 						float2 grad = float2(data0, data1);

@@ -221,7 +221,7 @@ MonoBehaviour:
     viscosity: 0.5
     viscosityTemperatureSensitivity: 0.04
     thermalExpansion: 0.035
-    surfaceTension: 70
+    surfaceTension: 115
     nonCoalescenceRadius: 0
     nonCoalescenceStrength: 0
     nonCoalescenceNormalDotThreshold: 0.7
@@ -264,18 +264,20 @@ MonoBehaviour:
     nonCoalescenceRadius: 0
     nonCoalescenceStrength: 0
     nonCoalescenceNormalDotThreshold: 0.7
-  phaseSeparation: 1.3
+  phaseSeparation: 1.1
   phaseCohesionValues:
   - 1
   - -0.5
   - 1
+  blobIdUpdateInterval: 1000
+  blobPropagationIterations: 120
   surfaceTensionThreshold: 0.1
   ambientTemperature: 20
   heatDiffusionRate: 0.5
   heatCoolingRate: 0.005
   heatSinkTemperature: 10
   heatSource: {fileID: 2055861083}
-  heatSourceTransferRate: 0.5
+  heatSourceTransferRate: 0.6
   compute: {fileID: 7200000, guid: 1c77ce8de78fddb419ed2d15cae41af0, type: 3}
   spawner2D: {fileID: 271053320}
 --- !u!114 &271053320
@@ -335,7 +337,7 @@ MonoBehaviour:
   phaseBlendWidth: 4
   metaballSharpness: 1
   metaballIntensity: 20
-  debugMode: 0
+  debugMode: 5
   debugGradientMax: 1
   edgeWidth: 0.03
   jumpFloodCompute: {fileID: 7200000, guid: 7349de8b8fa110249b104a7dac6f38c0, type: 3}

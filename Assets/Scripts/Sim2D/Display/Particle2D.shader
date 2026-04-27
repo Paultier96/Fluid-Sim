@@ -22,6 +22,7 @@ Shader "Instanced/Particle2D" {
 			StructuredBuffer<float2> Velocities;
 			StructuredBuffer<float2> DensityData;
 			StructuredBuffer<int> Phases;
+			StructuredBuffer<uint> BlobIDs;
 			StructuredBuffer<float> Temperatures;
 			StructuredBuffer<float2> CSFGradients;
 			float debugGradientMax;
@@ -47,6 +48,16 @@ Shader "Instanced/Particle2D" {
 				float2 uv : TEXCOORD0;
 				float3 colour : TEXCOORD1;
 			};
+
+			float3 HashBlobColor(uint blobId)
+			{
+				uint n = blobId * 1664525u + 1013904223u;
+				n ^= (n >> 16);
+				uint r = n * 2246822519u;
+				uint g = (n ^ 3266489917u) * 668265263u;
+				uint b = (n ^ 374761393u) * 2246822519u;
+				return 0.25 + 0.75 * frac(float3(r, g, b) / 65535.0);
+			}
 
 			v2f vert (appdata_full v, uint instanceID : SV_InstanceID)
 			{
@@ -85,6 +96,10 @@ Shader "Instanced/Particle2D" {
 						float3 lowCol = float3(0.0, 0.0, 1.0);
 						float3 highCol = float3(1.0, 0.0, 0.0);
 						o.colour = lerp(lowCol, highCol, t);
+					}
+					else if (debugMode == 5)
+					{
+						o.colour = HashBlobColor(BlobIDs[instanceID]);
 					}
 					else
 					{

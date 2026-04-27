@@ -26,6 +26,7 @@ namespace Seb.Fluid2D.Rendering
 			Curvature = 2,
 			Force = 3,
 			Viscosity = 4,
+			BlobIds = 5,
 		}
 
 		[Tooltip("The fluid simulation to visualize.")]
@@ -72,7 +73,7 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0)] public float metaballIntensity = 1.0f;
 
 		[Header("Debug")]
-		[Tooltip("Selects what to show in debug mode. Gradient: X/Y in R/G. Curvature: signed scalar. Force: X/Y direction + magnitude. Viscosity: effective temperature-adjusted viscosity.")]
+		[Tooltip("Selects what to show in debug mode. Gradient: X/Y in R/G. Curvature: signed scalar. Force: X/Y direction + magnitude. Viscosity: effective temperature-adjusted viscosity. BlobIds: per-connected-component pseudo-random color.")]
 		public DebugVisualization debugMode = DebugVisualization.None;
 		[Tooltip("Maximum absolute value mapped in debug visualisation (used by curvature/force views).")]
 		public float debugGradientMax = 1.0f;
@@ -331,6 +332,7 @@ namespace Seb.Fluid2D.Rendering
 			targetMaterial.SetBuffer("Velocities", sim.velocityBuffer);
 			targetMaterial.SetBuffer("DensityData", sim.densityBuffer);
 			targetMaterial.SetBuffer("Phases", sim.phaseBuffer);
+			targetMaterial.SetBuffer("BlobIDs", sim.blobIdBuffer);
 			targetMaterial.SetBuffer("Temperatures", sim.temperatureBuffer);
 		}
 
