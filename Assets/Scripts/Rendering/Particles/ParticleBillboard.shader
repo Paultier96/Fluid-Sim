@@ -18,9 +18,13 @@ Shader "Fluid/ParticleBillboard" {
 			
 			StructuredBuffer<float3> Positions;
 			StructuredBuffer<float3> Velocities;
+			StructuredBuffer<uint> Phases;
+			StructuredBuffer<uint> ParticleIDs;
 			Texture2D<float4> ColourMap;
 			SamplerState linear_clamp_sampler;
 			float velocityMax;
+			int usePhaseColoring;
+			int numPhaseRows;
 
 			float scale;
 			float3 colour;
@@ -50,7 +54,14 @@ Shader "Fluid/ParticleBillboard" {
 				float speed = length(Velocities[instanceID]);
 				float speedT = saturate(speed / velocityMax);
 				float colT = speedT;
-				o.colour = ColourMap.SampleLevel(linear_clamp_sampler, float2(colT, 0.5), 0);
+				float phaseT = 0.5;
+				if (usePhaseColoring != 0)
+				{
+					uint originalIndex = ParticleIDs[instanceID];
+					uint phase = Phases[originalIndex];
+					phaseT = (phase + 0.5) / max((float)numPhaseRows, 1.0);
+				}
+				o.colour = ColourMap.SampleLevel(linear_clamp_sampler, float2(colT, phaseT), 0);
 
 				return o;
 			}

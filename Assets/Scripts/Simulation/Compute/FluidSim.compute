@@ -22,6 +22,11 @@ RWStructuredBuffer<float3> Positions;
 RWStructuredBuffer<float3> PredictedPositions;
 RWStructuredBuffer<float3> Velocities;
 RWStructuredBuffer<float2> Densities; // Density, Near Density
+RWStructuredBuffer<uint> ParticleIDs;
+StructuredBuffer<uint> Phases;
+StructuredBuffer<float> ParticleTargetDensities;
+StructuredBuffer<float> PhaseTargetDensities;
+StructuredBuffer<float> PhaseInteractionMatrix;
 
 // Spatial hashing
 RWStructuredBuffer<uint> SpatialKeys;
@@ -37,7 +42,7 @@ const float deltaTime;
 const float simTime;
 const float collisionDamping;
 const float smoothingRadius;
-const float targetDensity;
+const int NumPhases;
 const float pressureMultiplier;
 const float nearPressureMultiplier;
 const float viscosityStrength;
@@ -82,9 +87,16 @@ const int sprayClassifyMaxNeighbours;
 const float bubbleScale;
 const float bubbleScaleChangeSpeed;
 
-float PressureFromDensity(float density)
+float GetPhaseInteraction(uint a, uint b)
 {
-    return (density - targetDensity) * pressureMultiplier;
+    uint phaseCount = (uint)max(NumPhases, 1);
+    return PhaseInteractionMatrix[a * phaseCount + b];
+}
+
+float PressureFromDensity(float density, uint particleIndex)
+{
+    float target = ParticleTargetDensities[particleIndex];
+    return (density - target) * pressureMultiplier;
 }
 
 float NearPressureFromDensity(float nearDensity)
@@ -161,6 +173,7 @@ void UpdateSpatialHash(uint3 id : SV_DispatchThreadID)
 RWStructuredBuffer<float3> SortTarget_Positions;
 RWStructuredBuffer<float3> SortTarget_PredictedPositions;
 RWStructuredBuffer<float3> SortTarget_Velocities;
+RWStructuredBuffer<uint> SortTarget_ParticleIDs;
 
 [numthreads(ThreadGroupSize, 1, 1)]
 void Reorder(uint3 id : SV_DispatchThreadID)
@@ -171,6 +184,7 @@ void Reorder(uint3 id : SV_DispatchThreadID)
     SortTarget_Positions[id.x] = Positions[sortedIndex];
     SortTarget_PredictedPositions[id.x] = PredictedPositions[sortedIndex];
     SortTarget_Velocities[id.x] = Velocities[sortedIndex];
+    SortTarget_ParticleIDs[id.x] = ParticleIDs[sortedIndex];
 }
 
 [numthreads(ThreadGroupSize, 1, 1)]
@@ -182,6 +196,7 @@ void ReorderCopyBack(uint3 id : SV_DispatchThreadID)
     Positions[id.x] = SortTarget_Positions[id.x];
     PredictedPositions[id.x] = SortTarget_PredictedPositions[id.x];
     Velocities[id.x] = SortTarget_Velocities[id.x];
+    ParticleIDs[id.x] = SortTarget_ParticleIDs[id.x];
 }
 
 float2 CalculateDensitiesAtPoint(float3 pos)
@@ -273,7 +288,9 @@ void CalculatePressureForce(uint3 id : SV_DispatchThreadID)
     // Calculate pressure
     float density = Densities[id.x][0];
     float densityNear = Densities[id.x][1];
-    float pressure = PressureFromDensity(density);
+    uint originalIndex = ParticleIDs[id.x];
+    uint myPhase = Phases[originalIndex];
+    float pressure = PressureFromDensity(density, originalIndex);
     float nearPressure = NearPressureFromDensity(densityNear);
     float3 pressureForce = 0;
     float3 velocity = Velocities[id.x];
@@ -316,11 +333,14 @@ void CalculatePressureForce(uint3 id : SV_DispatchThreadID)
             // Calculate pressure force
             float densityNeighbour = Densities[neighbourIndex][0];
             float nearDensityNeighbour = Densities[neighbourIndex][1];
-            float neighbourPressure = PressureFromDensity(densityNeighbour);
+            uint neighbourOriginalIndex = ParticleIDs[neighbourIndex];
+            uint neighbourPhase = Phases[neighbourOriginalIndex];
+            float neighbourPressure = PressureFromDensity(densityNeighbour, neighbourOriginalIndex);
             float neighbourPressureNear = NearPressureFromDensity(nearDensityNeighbour);
 
-            float sharedPressure = (pressure + neighbourPressure) / 2;
-            float sharedNearPressure = (nearPressure + neighbourPressureNear) / 2;
+            float interaction = GetPhaseInteraction(myPhase, neighbourPhase);
+            float sharedPressure = (pressure + neighbourPressure) * 0.5 * interaction;
+            float sharedNearPressure = (nearPressure + neighbourPressureNear) * 0.5 * interaction;
 
             float dstToNeighbour = sqrt(sqrDstToNeighbour);
             float3 dirToNeighbour = dstToNeighbour > 0 ? offsetToNeighbour / dstToNeighbour : float3(0, 1, 0);

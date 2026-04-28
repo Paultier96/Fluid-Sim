@@ -32,11 +32,15 @@ Shader "Fluid/Particle3DSurf"
         #ifdef UNITY_PROCEDURAL_INSTANCING_ENABLED
 			StructuredBuffer<float3> Positions;
 			StructuredBuffer<float3> Velocities;
+      StructuredBuffer<uint> Phases;
+      StructuredBuffer<uint> ParticleIDs;
         #endif
 
 
         SamplerState linear_clamp_sampler;
         float velocityMax;
+        int usePhaseColoring;
+        int numPhaseRows;
 
         float scale;
 
@@ -51,7 +55,14 @@ Shader "Fluid/Particle3DSurf"
 				float speed = length(Velocities[unity_InstanceID]);
 				float speedT = saturate(speed / velocityMax);
 				float colT = speedT;
-				o.colour = tex2Dlod(ColourMap, float4(colT, 0.5,0,0));
+        float phaseT = 0.5;
+        if (usePhaseColoring != 0)
+        {
+          uint originalIndex = ParticleIDs[unity_InstanceID];
+          uint phase = Phases[originalIndex];
+          phaseT = (phase + 0.5) / max((float)numPhaseRows, 1.0);
+        }
+        o.colour = tex2Dlod(ColourMap, float4(colT, phaseT, 0, 0));
             #endif
         }
 

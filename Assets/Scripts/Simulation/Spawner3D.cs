@@ -22,6 +22,7 @@ namespace Seb.Fluid.Simulation
 		{
 			List<float3> allPoints = new();
 			List<float3> allVelocities = new();
+			List<int> allPhases = new();
 
 			foreach (SpawnRegion region in spawnRegions)
 			{
@@ -29,9 +30,11 @@ namespace Seb.Fluid.Simulation
 				(float3[] points, float3[] velocities) = SpawnCube(particlesPerAxis, region.centre, Vector3.one * region.size);
 				allPoints.AddRange(points);
 				allVelocities.AddRange(velocities);
+				for (int i = 0; i < points.Length; i++)
+					allPhases.Add(region.phaseID);
 			}
 
-			return new SpawnData() { points = allPoints.ToArray(), velocities = allVelocities.ToArray() };
+			return new SpawnData() { points = allPoints.ToArray(), velocities = allVelocities.ToArray(), phases = allPhases.ToArray() };
 		}
 
 		(float3[] p, float3[] v) SpawnCube(int numPerAxis, Vector3 centre, Vector3 size)
@@ -102,6 +105,7 @@ namespace Seb.Fluid.Simulation
 			public Vector3 centre;
 			public float size;
 			public Color debugDisplayCol;
+			public int phaseID;
 
 			public float Volume => size * size * size;
 
@@ -117,6 +121,7 @@ namespace Seb.Fluid.Simulation
 		{
 			public float3[] points;
 			public float3[] velocities;
+			public int[] phases;
 		}
 	}
 }

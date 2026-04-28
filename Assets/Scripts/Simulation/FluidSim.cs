@@ -19,11 +19,20 @@ namespace Seb.Fluid.Simulation
 
 		[Header("Simulation Settings")] public float gravity = -10;
 		public float smoothingRadius = 0.2f;
-		public float targetDensity = 630;
 		public float pressureMultiplier = 288;
 		public float nearPressureMultiplier = 2.15f;
 		public float viscosityStrength = 0;
 		[Range(0, 1)] public float collisionDamping = 0.95f;
+
+		[Header("Phases")] public PhaseConfig[] phases = new PhaseConfig[] { new PhaseConfig() };
+		[Range(0f, 1f)] public float phaseSeparation = 0.3f;
+
+		[Serializable]
+		public class PhaseConfig
+		{
+			public string name = "Water";
+			public float targetDensity = 630f;
+		}
 
 		[Header("Foam Settings")] public bool foamActive;
 		public int maxFoamParticleCount = 1000;
@@ -46,6 +55,8 @@ namespace Seb.Fluid.Simulation
 
 		[HideInInspector] public RenderTexture DensityMap;
 		public Vector3 Scale => transform.localScale;
+		public ComputeBuffer sortedIndicesBuffer => spatialHash?.SpatialIndices;
+		public ComputeBuffer particleIdBuffer { get; private set; }
 
 		// Buffers
 		public ComputeBuffer foamBuffer { get; private set; }
@@ -55,11 +66,16 @@ namespace Seb.Fluid.Simulation
 		public ComputeBuffer velocityBuffer { get; private set; }
 		public ComputeBuffer densityBuffer { get; private set; }
 		public ComputeBuffer predictedPositionsBuffer;
+		public ComputeBuffer phaseBuffer { get; private set; }
+		public ComputeBuffer particleTargetDensityBuffer { get; private set; }
 		public ComputeBuffer debugBuffer { get; private set; }
 
 		ComputeBuffer sortTarget_positionBuffer;
 		ComputeBuffer sortTarget_velocityBuffer;
 		ComputeBuffer sortTarget_predictedPositionsBuffer;
+		ComputeBuffer sortTarget_particleIdBuffer;
+		ComputeBuffer phaseTargetDensityBuffer;
+		ComputeBuffer phaseInteractionBuffer;
 
 		// Kernel IDs
 		const int externalForcesKernel = 0;
@@ -83,6 +99,7 @@ namespace Seb.Fluid.Simulation
 		float simTimer;
 		bool inSlowMode;
 		Spawner3D.SpawnData spawnData;
+		int numParticles;
 		Dictionary<ComputeBuffer, string> bufferNameLookup;
 
 		void Start()
@@ -96,7 +113,8 @@ namespace Seb.Fluid.Simulation
 		void Initialize()
 		{
 			spawnData = spawner.GetSpawnData();
-			int numParticles = spawnData.points.Length;
+			numParticles = spawnData.points.Length;
+			int phaseCount = GetPhaseCount();
 
 			spatialHash = new SpatialHash(numParticles);
 			
@@ -105,6 +123,9 @@ namespace Seb.Fluid.Simulation
 			predictedPositionsBuffer = CreateStructuredBuffer<float3>(numParticles);
 			velocityBuffer = CreateStructuredBuffer<float3>(numParticles);
 			densityBuffer = CreateStructuredBuffer<float2>(numParticles);
+			particleIdBuffer = CreateStructuredBuffer<uint>(numParticles);
+			phaseBuffer = CreateStructuredBuffer<uint>(numParticles);
+			particleTargetDensityBuffer = CreateStructuredBuffer<float>(numParticles);
 			foamBuffer = CreateStructuredBuffer<FoamParticle>(maxFoamParticleCount);
 			foamSortTargetBuffer = CreateStructuredBuffer<FoamParticle>(maxFoamParticleCount);
 			foamCountBuffer = CreateStructuredBuffer<uint>(4096);
@@ -113,6 +134,9 @@ namespace Seb.Fluid.Simulation
 			sortTarget_positionBuffer = CreateStructuredBuffer<float3>(numParticles);
 			sortTarget_predictedPositionsBuffer = CreateStructuredBuffer<float3>(numParticles);
 			sortTarget_velocityBuffer = CreateStructuredBuffer<float3>(numParticles);
+			sortTarget_particleIdBuffer = CreateStructuredBuffer<uint>(numParticles);
+			phaseTargetDensityBuffer = CreateStructuredBuffer<float>(phaseCount);
+			phaseInteractionBuffer = CreateStructuredBuffer<float>(phaseCount * phaseCount);
 
 			bufferNameLookup = new Dictionary<ComputeBuffer, string>
 			{
@@ -120,12 +144,18 @@ namespace Seb.Fluid.Simulation
 				{ predictedPositionsBuffer, "PredictedPositions" },
 				{ velocityBuffer, "Velocities" },
 				{ densityBuffer, "Densities" },
+				{ particleIdBuffer, "ParticleIDs" },
+				{ phaseBuffer, "Phases" },
+				{ particleTargetDensityBuffer, "ParticleTargetDensities" },
 				{ spatialHash.SpatialKeys, "SpatialKeys" },
 				{ spatialHash.SpatialOffsets, "SpatialOffsets" },
 				{ spatialHash.SpatialIndices, "SortedIndices" },
 				{ sortTarget_positionBuffer, "SortTarget_Positions" },
 				{ sortTarget_predictedPositionsBuffer, "SortTarget_PredictedPositions" },
 				{ sortTarget_velocityBuffer, "SortTarget_Velocities" },
+				{ sortTarget_particleIdBuffer, "SortTarget_ParticleIDs" },
+				{ phaseTargetDensityBuffer, "PhaseTargetDensities" },
+				{ phaseInteractionBuffer, "PhaseInteractionMatrix" },
 				{ foamCountBuffer, "WhiteParticleCounters" },
 				{ foamBuffer, "WhiteParticles" },
 				{ foamSortTargetBuffer, "WhiteParticlesCompacted" },
@@ -161,6 +191,8 @@ namespace Seb.Fluid.Simulation
 				sortTarget_predictedPositionsBuffer,
 				velocityBuffer,
 				sortTarget_velocityBuffer,
+				particleIdBuffer,
+				sortTarget_particleIdBuffer,
 				spatialHash.SpatialIndices
 			});
 
@@ -173,6 +205,8 @@ namespace Seb.Fluid.Simulation
 				sortTarget_predictedPositionsBuffer,
 				velocityBuffer,
 				sortTarget_velocityBuffer,
+				particleIdBuffer,
+				sortTarget_particleIdBuffer,
 				spatialHash.SpatialIndices
 			});
 
@@ -191,6 +225,11 @@ namespace Seb.Fluid.Simulation
 				predictedPositionsBuffer,
 				densityBuffer,
 				velocityBuffer,
+				particleIdBuffer,
+				phaseBuffer,
+				particleTargetDensityBuffer,
+				phaseTargetDensityBuffer,
+				phaseInteractionBuffer,
 				spatialHash.SpatialKeys,
 				spatialHash.SpatialOffsets,
 				foamBuffer,
@@ -247,7 +286,7 @@ namespace Seb.Fluid.Simulation
 				foamCountBuffer,
 			});
 
-			compute.SetInt("numParticles", positionBuffer.count);
+			compute.SetInt("numParticles", numParticles);
 			compute.SetInt("MaxWhiteParticleCount", maxFoamParticleCount);
 
 			UpdateSmoothingConstants();
@@ -367,12 +406,30 @@ namespace Seb.Fluid.Simulation
 			compute.SetFloat("gravity", gravity);
 			compute.SetFloat("collisionDamping", collisionDamping);
 			compute.SetFloat("smoothingRadius", smoothingRadius);
-			compute.SetFloat("targetDensity", targetDensity);
 			compute.SetFloat("pressureMultiplier", pressureMultiplier);
 			compute.SetFloat("nearPressureMultiplier", nearPressureMultiplier);
 			compute.SetFloat("viscosityStrength", viscosityStrength);
 			compute.SetVector("boundsSize", simBoundsSize);
 			compute.SetVector("centre", simBoundsCentre);
+			compute.SetInt("NumPhases", GetPhaseCount());
+
+			float[] phaseTargetDensities = new float[GetPhaseCount()];
+			float[] phaseInteractions = BuildPhaseInteractionMatrix();
+			for (int i = 0; i < phaseTargetDensities.Length; i++)
+			{
+				phaseTargetDensities[i] = GetPhaseTargetDensity(i);
+			}
+			phaseTargetDensityBuffer.SetData(phaseTargetDensities);
+			phaseInteractionBuffer.SetData(phaseInteractions);
+
+			float[] particleTargetDensities = new float[numParticles];
+			for (int i = 0; i < numParticles; i++)
+			{
+				int phase = (spawnData.phases != null && i < spawnData.phases.Length) ? spawnData.phases[i] : 0;
+				phase = Mathf.Clamp(phase, 0, phaseTargetDensities.Length - 1);
+				particleTargetDensities[i] = phaseTargetDensities[phase];
+			}
+			particleTargetDensityBuffer.SetData(particleTargetDensities);
 
 			compute.SetMatrix("localToWorld", transform.localToWorldMatrix);
 			compute.SetMatrix("worldToLocal", transform.worldToLocalMatrix);
@@ -393,6 +450,21 @@ namespace Seb.Fluid.Simulation
 			positionBuffer.SetData(spawnData.points);
 			predictedPositionsBuffer.SetData(spawnData.points);
 			velocityBuffer.SetData(spawnData.velocities);
+
+			uint[] phaseIds = new uint[numParticles];
+			uint[] particleIds = new uint[numParticles];
+			float[] targetDensities = new float[numParticles];
+			for (int i = 0; i < numParticles; i++)
+			{
+				particleIds[i] = (uint)i;
+				int phase = (spawnData.phases != null && i < spawnData.phases.Length) ? spawnData.phases[i] : 0;
+				phase = Mathf.Clamp(phase, 0, GetPhaseCount() - 1);
+				phaseIds[i] = (uint)phase;
+				targetDensities[i] = GetPhaseTargetDensity(phase);
+			}
+			particleIdBuffer.SetData(particleIds);
+			phaseBuffer.SetData(phaseIds);
+			particleTargetDensityBuffer.SetData(targetDensities);
 
 			foamBuffer.SetData(new FoamParticle[foamBuffer.count]);
 
@@ -442,6 +514,28 @@ namespace Seb.Fluid.Simulation
 			}
 
 			spatialHash.Release();
+		}
+
+		int GetPhaseCount() => Mathf.Max(1, phases != null ? phases.Length : 0);
+
+		float GetPhaseTargetDensity(int phaseIndex)
+		{
+			phaseIndex = Mathf.Clamp(phaseIndex, 0, phases.Length - 1);
+			return phases[phaseIndex].targetDensity;
+		}
+
+		float[] BuildPhaseInteractionMatrix()
+		{
+			int phaseCount = GetPhaseCount();
+			float[] matrix = new float[phaseCount * phaseCount];
+			for (int y = 0; y < phaseCount; y++)
+			{
+				for (int x = 0; x < phaseCount; x++)
+				{
+					matrix[y * phaseCount + x] = x == y ? 1f : phaseSeparation;
+				}
+			}
+			return matrix;
 		}
 
 
