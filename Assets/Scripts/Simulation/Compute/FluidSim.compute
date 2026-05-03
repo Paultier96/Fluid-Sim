@@ -9,6 +9,7 @@
 #pragma kernel UpdateDensityTexture
 #pragma kernel UpdateWhiteParticles
 #pragma kernel WhiteParticlePrepareNextFrame;
+#pragma kernel CalculateCohesion
 
 // Includes
 #include "./FluidMaths3D.hlsl"
@@ -27,6 +28,7 @@ StructuredBuffer<uint> Phases;
 StructuredBuffer<float> ParticleTargetDensities;
 StructuredBuffer<float> PhaseTargetDensities;
 StructuredBuffer<float> PhaseInteractionMatrix;
+StructuredBuffer<float> PhaseCohesionMatrix;
 
 // Spatial hashing
 RWStructuredBuffer<uint> SpatialKeys;
@@ -91,6 +93,12 @@ float GetPhaseInteraction(uint a, uint b)
 {
     uint phaseCount = (uint)max(NumPhases, 1);
     return PhaseInteractionMatrix[a * phaseCount + b];
+}
+
+float GetPhaseCohesion(uint a, uint b)
+{
+    uint phaseCount = (uint)max(NumPhases, 1);
+    return PhaseCohesionMatrix[a * phaseCount + b];
 }
 
 float PressureFromDensity(float density, uint particleIndex)
@@ -476,6 +484,59 @@ void CalculateViscosity(uint3 id : SV_DispatchThreadID)
         }
     }
     Velocities[id.x] += viscosityForce * viscosityStrength * deltaTime;
+}
+
+[numthreads(ThreadGroupSize, 1, 1)]
+void CalculateCohesion(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= numParticles)
+        return;
+
+    uint myPhase = Phases[id.x];
+    float3 pos = PredictedPositions[id.x];
+    int3 originCell = GetCell3D(pos, smoothingRadius);
+    float sqrRadius = smoothingRadius * smoothingRadius;
+
+    float3 cohesionForce = 0;
+
+    for (int i = 0; i < 27; i++)
+    {
+        uint hash = HashCell3D(originCell + offsets3D[i]);
+        uint key = KeyFromHash(hash, numParticles);
+        uint currIndex = SpatialOffsets[key];
+
+        while (currIndex < numParticles)
+        {
+            uint neighbourIndex = currIndex;
+            currIndex++;
+
+            if (neighbourIndex == id.x)
+                continue;
+
+            uint neighbourKey = SpatialKeys[neighbourIndex];
+            if (neighbourKey != key)
+                break;
+
+            uint neighbourPhase = Phases[neighbourIndex];
+            float cohesionStrength = GetPhaseCohesion(myPhase, neighbourPhase);
+            if (cohesionStrength == 0)
+                continue;
+
+            float3 neighbourPos = PredictedPositions[neighbourIndex];
+            float3 offsetToNeighbour = neighbourPos - pos;
+            float sqrDst = dot(offsetToNeighbour, offsetToNeighbour);
+            if (sqrDst > sqrRadius || sqrDst == 0)
+                continue;
+
+            float dst = sqrt(sqrDst);
+            float3 dirToNeighbour = offsetToNeighbour / dst;
+            float cohesionKernel = SpikyKernelPow2(dst, smoothingRadius);
+
+            cohesionForce += dirToNeighbour * cohesionKernel * cohesionStrength;
+        }
+    }
+
+    Velocities[id.x] += cohesionForce * deltaTime;
 }
 
 [numthreads(ThreadGroupSize, 1, 1)]

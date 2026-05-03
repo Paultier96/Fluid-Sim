@@ -284,9 +284,11 @@ MonoBehaviour:
   phases:
   - name: Water
     targetDensity: 530
+    cohesion: 0.35
   - name: Oil
-    targetDensity: 630
-  phaseSeparation: 0.3
+    targetDensity: 530
+    cohesion: 0.35
+  phaseSeparation: 2
   foamActive: 0
   maxFoamParticleCount: 1280000
   trappedAirSpawnRate: 70
@@ -568,6 +570,7 @@ MonoBehaviour:
     m_ColorSpace: -1
     m_NumColorKeys: 2
     m_NumAlphaKeys: 2
+  debugVisiblePhase: -1
   gradientResolution: 50
   velocityDisplayMax: 8
   meshResolution: 3

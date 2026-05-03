@@ -25,13 +25,14 @@ namespace Seb.Fluid.Simulation
 		[Range(0, 1)] public float collisionDamping = 0.95f;
 
 		[Header("Phases")] public PhaseConfig[] phases = new PhaseConfig[] { new PhaseConfig() };
-		[Range(0f, 1f)] public float phaseSeparation = 0.3f;
+		[Min(1f)] public float phaseSeparation = 2f;
 
 		[Serializable]
 		public class PhaseConfig
 		{
 			public string name = "Water";
 			public float targetDensity = 630f;
+			public float cohesion = 0.35f;
 		}
 
 		[Header("Foam Settings")] public bool foamActive;
@@ -76,6 +77,7 @@ namespace Seb.Fluid.Simulation
 		ComputeBuffer sortTarget_particleIdBuffer;
 		ComputeBuffer phaseTargetDensityBuffer;
 		ComputeBuffer phaseInteractionBuffer;
+		ComputeBuffer phaseCohesionBuffer;
 
 		// Kernel IDs
 		const int externalForcesKernel = 0;
@@ -89,6 +91,7 @@ namespace Seb.Fluid.Simulation
 		const int renderKernel = 8;
 		const int foamUpdateKernel = 9;
 		const int foamReorderCopyBackKernel = 10;
+		const int cohesionKernel = 11;
 
 		SpatialHash spatialHash;
 
@@ -137,6 +140,7 @@ namespace Seb.Fluid.Simulation
 			sortTarget_particleIdBuffer = CreateStructuredBuffer<uint>(numParticles);
 			phaseTargetDensityBuffer = CreateStructuredBuffer<float>(phaseCount);
 			phaseInteractionBuffer = CreateStructuredBuffer<float>(phaseCount * phaseCount);
+			phaseCohesionBuffer = CreateStructuredBuffer<float>(phaseCount * phaseCount);
 
 			bufferNameLookup = new Dictionary<ComputeBuffer, string>
 			{
@@ -156,6 +160,7 @@ namespace Seb.Fluid.Simulation
 				{ sortTarget_particleIdBuffer, "SortTarget_ParticleIDs" },
 				{ phaseTargetDensityBuffer, "PhaseTargetDensities" },
 				{ phaseInteractionBuffer, "PhaseInteractionMatrix" },
+				{ phaseCohesionBuffer, "PhaseCohesionMatrix" },
 				{ foamCountBuffer, "WhiteParticleCounters" },
 				{ foamBuffer, "WhiteParticles" },
 				{ foamSortTargetBuffer, "WhiteParticlesCompacted" },
@@ -247,6 +252,17 @@ namespace Seb.Fluid.Simulation
 				spatialHash.SpatialOffsets
 			});
 
+			// Cohesion kernel
+			SetBuffers(compute, cohesionKernel, bufferNameLookup, new ComputeBuffer[]
+			{
+				predictedPositionsBuffer,
+				velocityBuffer,
+				phaseBuffer,
+				phaseCohesionBuffer,
+				spatialHash.SpatialKeys,
+				spatialHash.SpatialOffsets
+			});
+
 			// Update positions kernel
 			SetBuffers(compute, updatePositionsKernel, bufferNameLookup, new ComputeBuffer[]
 			{
@@ -288,6 +304,12 @@ namespace Seb.Fluid.Simulation
 
 			compute.SetInt("numParticles", numParticles);
 			compute.SetInt("MaxWhiteParticleCount", maxFoamParticleCount);
+			compute.SetInt("NumPhases", GetPhaseCount());
+
+			float[] phaseCohesionMatrix = BuildPhaseCohesionMatrix();
+			phaseCohesionBuffer.SetData(phaseCohesionMatrix);
+			phaseTargetDensityBuffer.SetData(BuildPhaseTargetDensityArray());
+			phaseInteractionBuffer.SetData(BuildPhaseInteractionMatrix());
 
 			UpdateSmoothingConstants();
 
@@ -372,6 +394,7 @@ namespace Seb.Fluid.Simulation
 			Dispatch(compute, positionBuffer.count, kernelIndex: densityKernel);
 			Dispatch(compute, positionBuffer.count, kernelIndex: pressureKernel);
 			if (viscosityStrength != 0) Dispatch(compute, positionBuffer.count, kernelIndex: viscosityKernel);
+			Dispatch(compute, positionBuffer.count, kernelIndex: cohesionKernel);
 			Dispatch(compute, positionBuffer.count, kernelIndex: updatePositionsKernel);
 		}
 
@@ -413,23 +436,9 @@ namespace Seb.Fluid.Simulation
 			compute.SetVector("centre", simBoundsCentre);
 			compute.SetInt("NumPhases", GetPhaseCount());
 
-			float[] phaseTargetDensities = new float[GetPhaseCount()];
-			float[] phaseInteractions = BuildPhaseInteractionMatrix();
-			for (int i = 0; i < phaseTargetDensities.Length; i++)
-			{
-				phaseTargetDensities[i] = GetPhaseTargetDensity(i);
-			}
-			phaseTargetDensityBuffer.SetData(phaseTargetDensities);
-			phaseInteractionBuffer.SetData(phaseInteractions);
-
-			float[] particleTargetDensities = new float[numParticles];
-			for (int i = 0; i < numParticles; i++)
-			{
-				int phase = (spawnData.phases != null && i < spawnData.phases.Length) ? spawnData.phases[i] : 0;
-				phase = Mathf.Clamp(phase, 0, phaseTargetDensities.Length - 1);
-				particleTargetDensities[i] = phaseTargetDensities[phase];
-			}
-			particleTargetDensityBuffer.SetData(particleTargetDensities);
+			phaseTargetDensityBuffer.SetData(BuildPhaseTargetDensityArray());
+			phaseInteractionBuffer.SetData(BuildPhaseInteractionMatrix());
+			phaseCohesionBuffer.SetData(BuildPhaseCohesionMatrix());
 
 			compute.SetMatrix("localToWorld", transform.localToWorldMatrix);
 			compute.SetMatrix("worldToLocal", transform.worldToLocalMatrix);
@@ -524,15 +533,45 @@ namespace Seb.Fluid.Simulation
 			return phases[phaseIndex].targetDensity;
 		}
 
+		float[] BuildPhaseTargetDensityArray()
+		{
+			int phaseCount = GetPhaseCount();
+			float[] phaseTargetDensities = new float[phaseCount];
+			for (int i = 0; i < phaseCount; i++)
+				phaseTargetDensities[i] = GetPhaseTargetDensity(i);
+			return phaseTargetDensities;
+		}
+
 		float[] BuildPhaseInteractionMatrix()
 		{
+			if (phases == null || phases.Length == 0)
+				return new float[] { 1f };
+
+			int phaseCount = GetPhaseCount();
+			float crossPhaseInteraction = Mathf.Max(1f, phaseSeparation);
+			float[] matrix = new float[phaseCount * phaseCount];
+			for (int y = 0; y < phaseCount; y++)
+			{
+				for (int x = 0; x < phaseCount; x++)
+				{
+					matrix[y * phaseCount + x] = x == y ? 1f : crossPhaseInteraction;
+				}
+			}
+			return matrix;
+		}
+
+		float[] BuildPhaseCohesionMatrix()
+		{
+			if (phases == null || phases.Length == 0)
+				return new float[] { 0f };
+
 			int phaseCount = GetPhaseCount();
 			float[] matrix = new float[phaseCount * phaseCount];
 			for (int y = 0; y < phaseCount; y++)
 			{
 				for (int x = 0; x < phaseCount; x++)
 				{
-					matrix[y * phaseCount + x] = x == y ? 1f : phaseSeparation;
+					matrix[y * phaseCount + x] = (x == y) ? phases[x].cohesion : 0f;
 				}
 			}
 			return matrix;
