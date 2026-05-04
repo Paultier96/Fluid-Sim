@@ -22,6 +22,7 @@ Shader "Instanced/Particle2D" {
 			StructuredBuffer<float2> Velocities;
 			StructuredBuffer<float2> DensityData;
 			StructuredBuffer<int> Phases;
+			StructuredBuffer<uint> IsGhost;
 			StructuredBuffer<float> Temperatures;
 			StructuredBuffer<float2> CSFGradients;
 			float debugGradientMax;
@@ -61,8 +62,35 @@ Shader "Instanced/Particle2D" {
 				v2f o;
 				o.uv = v.texcoord;
 				o.pos = UnityObjectToClipPos(objectVertPos);
-				
-				if (debugMode != 0)
+
+				if (debugMode == 5)
+				{
+					// Show density for all particles (including ghosts) in density debug mode
+					float density = DensityData[instanceID].x;
+					float maxAbsValue = max(debugGradientMax, 0.0001);
+					float t = saturate(density / maxAbsValue);
+					float3 lowCol = float3(0.0, 0.0, 1.0);   // blue for low density
+					float3 midCol = float3(0.0, 1.0, 0.0);   // green for mid density
+					float3 highCol = float3(1.0, 0.0, 0.0);  // red for high density
+					if (t < 0.5)
+						o.colour = lerp(lowCol, midCol, t * 2.0);
+					else
+						o.colour = lerp(midCol, highCol, (t - 0.5) * 2.0);
+				}
+				else if (debugMode == 6)
+				{
+					// Show temperature for all particles (including ghosts) in temperature debug mode
+					float temp = Temperatures[instanceID];
+					float tempT = saturate((temp - tempMin) / max(tempMax - tempMin, 0.001));
+					float3 coldCol = float3(0.0, 0.0, 1.0);   // blue
+					float3 hotCol = float3(1.0, 0.0, 0.0);    // red
+					o.colour = lerp(coldCol, hotCol, tempT);
+				}
+				else if (IsGhost[instanceID] != 0)
+				{
+					o.colour = float3(0.1, 0.1, 0.1);
+				}
+				else if (debugMode != 0)
 				{			
 					float maxAbsValue = max(debugGradientMax, 0.0001);
 					float2 debugData = CSFGradients[instanceID];

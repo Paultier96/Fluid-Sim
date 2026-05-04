@@ -87,6 +87,29 @@ Shader "Hidden/Particle2DMetaballComposite" {
 						return float4(lerp(lowCol, highCol, t), alpha);
 					}
 
+					if (debugMode == 5)
+					{
+						// Density visualization: blue (low) -> green (mid) -> red (high)
+						float densityVal = lerp(data0, data1, phaseT);
+						float t = saturate(densityVal);
+						float3 lowCol = float3(0.0, 0.0, 1.0);   // blue
+						float3 midCol = float3(0.0, 1.0, 0.0);   // green
+						float3 highCol = float3(1.0, 0.0, 0.0);  // red
+						float3 densityCol = (t < 0.5) ? lerp(lowCol, midCol, t * 2.0) : lerp(midCol, highCol, (t - 0.5) * 2.0);
+						return float4(densityCol, alpha);
+					}
+
+					if (debugMode == 6)
+					{
+						// Temperature visualization: blue (cold) -> red (hot)
+						float tempVal = lerp(data0, data1, phaseT);
+						float t = saturate(tempVal);
+						float3 coldCol = float3(0.0, 0.0, 1.0);   // blue
+						float3 hotCol = float3(1.0, 0.0, 0.0);    // red
+						float3 tempCol = lerp(coldCol, hotCol, t);
+						return float4(tempCol, alpha);
+					}
+
 					float2 force = float2(data0, data1);
 					float2 mappedForce = saturate(0.5 + force * 0.5);
 					float mag = saturate(length(force));

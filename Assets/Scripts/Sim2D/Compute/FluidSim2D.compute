@@ -13,9 +13,12 @@
 #pragma kernel ReorderTemperatureCopyback // 12
 #pragma kernel ReorderParticleTargetDensities // 13
 #pragma kernel ReorderParticleTargetDensitiesCopyback // 14
-#pragma kernel CalculateCohesion // 15
-#pragma kernel CalculateCSF // 16
-#pragma kernel ComputeColorGradients // 17
+#pragma kernel ReorderGhostFlags // 15
+#pragma kernel ReorderGhostFlagsCopyback // 16
+#pragma kernel CalculateCohesion // 17
+#pragma kernel CalculateCSF // 18
+#pragma kernel ComputeColorGradients // 19
+#pragma kernel ResetGhostTemperatures // 20
 
 // Includes
 #include "./FluidMaths2D.hlsl"
@@ -29,6 +32,7 @@ RWStructuredBuffer<float2> PredictedPositions;
 RWStructuredBuffer<float2> Velocities;
 RWStructuredBuffer<float2> Densities;
 RWStructuredBuffer<uint> Phases;
+RWStructuredBuffer<uint> IsGhost;
 RWStructuredBuffer<float> Temperatures;
 RWStructuredBuffer<float> ParticleTargetDensities;
 StructuredBuffer<float> PhaseCohesionMatrix;
@@ -49,6 +53,8 @@ StructuredBuffer<uint> SortedIndices;
 
 // Settings
 const uint numParticles;
+const int numFluidParticles;  // Only first numFluidParticles are actual fluid
+const int numSpatialParticles; // Number of particles represented in spatial hash buffers
 const float gravity;
 const float deltaTime;
 const float collisionDamping;
@@ -56,6 +62,8 @@ const float smoothingRadius;
 // Soft boundary repulsion parameters
 const float edgeForce;      // magnitude of repulsive acceleration at zero distance
 const float edgeForceDst;   // distance from boundary over which repulsion fades to zero
+const float wallPressureStrength; // pressure-support contribution near walls
+const float wallPressureRadius;   // support distance from wall (0 => smoothingRadius)
 StructuredBuffer<float> PhaseTargetDensities;
 const float pressureMultiplier;
 const float nearPressureMultiplier;
@@ -72,13 +80,14 @@ StructuredBuffer<float> PhaseInteractionMatrix;
 int NumPhases;
 int debugVisualizationMode;
 const float ambientTemperature;
-const float heatDiffusionRate;
+StructuredBuffer<float> PhaseThermalConductivity;
+StructuredBuffer<float> PhaseSpecificHeatCapacity;
 const float heatCoolingRate;
+const float ghostCoolingMultiplier;
+const float heatSourceTransferRate;
 const float2 heatSourcePos;
 const float heatSourceRadius;
 const float heatSourceTemperature;
-const float heatSourceTransferRate;
-const float heatSinkTemperature;
 const float buoyancyInversionStrength;
 const float buoyancyInversionClamp;
 
@@ -216,10 +225,10 @@ float2 CalculateDensity(float2 pos)
 	for (int i = 0; i < 9; i++)
 	{
 		uint hash = HashCell2D(originCell + offsets2D[i]);
-		uint key = KeyFromHash(hash, numParticles);
+		uint key = KeyFromHash(hash, numSpatialParticles);
 		uint currIndex = SpatialOffsets[key];
 
-		while (currIndex < numParticles)
+		while (currIndex < numSpatialParticles)
 		{
 			uint neighbourIndex = currIndex;
 			currIndex ++;
@@ -324,10 +333,62 @@ float2 ExternalForces(float2 pos, float2 velocity, float density, uint phase, ui
 	return gravityAccel + boundaryRepel;
 }
 
+float2 CalculateWallPressureSupportForce(float2 pos, float density, float pressure, float nearPressure, uint particleIndex, float epsilon)
+{
+    if (wallPressureStrength <= 0) return 0;
+
+    float supportRadius = (wallPressureRadius > 0) ? wallPressureRadius : smoothingRadius;
+    if (supportRadius <= 0) return 0;
+
+    float wallDist = 1e9;
+    float2 inwardNormal = 0;
+
+    if (useEllipticalBounds)
+    {
+        float2 closestPoint;
+        float2 outwardNormal;
+        float signedDist;
+        GetEllipseSurfaceData(pos, ellipseBoundsCenter, ellipseBoundsSize, closestPoint, outwardNormal, signedDist);
+        if (signedDist >= 0) return 0; // outside boundary: collision handling will resolve this case
+        wallDist = -signedDist;
+        inwardNormal = -outwardNormal;
+    }
+    else
+    {
+        float2 halfSize = boundsSize * 0.5;
+        float2 edgeDst = halfSize - abs(pos);
+        if (edgeDst.x <= edgeDst.y)
+        {
+            wallDist = edgeDst.x;
+            inwardNormal = float2(-sign(pos.x), 0);
+        }
+        else
+        {
+            wallDist = edgeDst.y;
+            inwardNormal = float2(0, -sign(pos.y));
+        }
+
+        if (wallDist <= 0) return 0;
+    }
+
+    if (wallDist >= supportRadius || dot(inwardNormal, inwardNormal) <= 0) return 0;
+
+    float targetDensity = max(ParticleTargetDensities[particleIndex], epsilon);
+    float densityDeficit = max(targetDensity - density, 0);
+    float boundaryPressure = (max(pressure, 0) + nearPressure + densityDeficit * pressureMultiplier) * wallPressureStrength;
+    if (boundaryPressure <= 0) return 0;
+
+    float boundaryKernel = 1.0 - saturate(wallDist / supportRadius);
+    return inwardNormal * boundaryKernel * boundaryPressure / targetDensity;
+}
+
 [numthreads(NumThreads, 1, 1)]
 void ApplyThermalBuoyancy(uint3 id : SV_DispatchThreadID)
 {
 	if (id.x >= numParticles) return;
+
+	// Skip ghost particles
+	if (IsGhost[id.x] != 0) return;
 
 	float2 pos = PredictedPositions[id.x];
 	int2 originCell = GetCell2D(pos, smoothingRadius);
@@ -339,15 +400,16 @@ void ApplyThermalBuoyancy(uint3 id : SV_DispatchThreadID)
 	for (int i = 0; i < 9; i++)
 	{
 		uint hash = HashCell2D(originCell + offsets2D[i]);
-		uint key = KeyFromHash(hash, numParticles);
+		uint key = KeyFromHash(hash, numSpatialParticles);
 		uint currIndex = SpatialOffsets[key];
 
-		while (currIndex < numParticles)
+		while (currIndex < numSpatialParticles)
 		{
 			uint neighbourIndex = currIndex;
 			currIndex++;
 
-			if (neighbourIndex == id.x) continue;
+            if (neighbourIndex == id.x) continue;
+            if (IsGhost[neighbourIndex] != 0) continue;
 
 			uint neighbourKey = SpatialKeys[neighbourIndex];
 			if (neighbourKey != key) break;
@@ -431,21 +493,21 @@ void HandleCollisions(uint particleIndex)
 		}
 	}
 
-	// Collide particle against the test obstacle (rectangular, always enabled)
-	// const float2 obstacleHalfSize = obstacleSize * 0.5;
-	// float2 obstacleEdgeDst = obstacleHalfSize - abs(pos - obstacleCentre);
-	//
-	// if (obstacleEdgeDst.x >= 0 && obstacleEdgeDst.y >= 0)
-	// {
-	// 	if (obstacleEdgeDst.x < obstacleEdgeDst.y) {
-	// 		pos.x = obstacleHalfSize.x * sign(pos.x - obstacleCentre.x) + obstacleCentre.x;
-	// 		vel.x *= -1 * collisionDamping;
-	// 	}
-	// 	else {
-	// 		pos.y = obstacleHalfSize.y * sign(pos.y - obstacleCentre.y) + obstacleCentre.y;
-	// 		vel.y *= -1 * collisionDamping;
-	// 	}
-	// }
+	//Collide particle against the test obstacle (rectangular, always enabled)
+	const float2 obstacleHalfSize = obstacleSize * 0.5;
+	float2 obstacleEdgeDst = obstacleHalfSize - abs(pos - obstacleCentre);
+	
+	if (obstacleEdgeDst.x >= 0 && obstacleEdgeDst.y >= 0)
+	{
+		if (obstacleEdgeDst.x < obstacleEdgeDst.y) {
+			pos.x = obstacleHalfSize.x * sign(pos.x - obstacleCentre.x) + obstacleCentre.x;
+			vel.x *= -1 * collisionDamping;
+		}
+		else {
+			pos.y = obstacleHalfSize.y * sign(pos.y - obstacleCentre.y) + obstacleCentre.y;
+			vel.y *= -1 * collisionDamping;
+		}
+	}
 
 	// Update position and velocity
 	Positions[particleIndex] = pos;
@@ -456,6 +518,10 @@ void HandleCollisions(uint particleIndex)
 void ExternalForces(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= numParticles)
+        return;
+
+    // Skip ghost particles
+    if (IsGhost[id.x] != 0)
         return;
 
     uint phase = Phases[id.x];
@@ -474,12 +540,12 @@ void ExternalForces(uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads,1,1)]
 void UpdateSpatialHash (uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
+	if (id.x >= numSpatialParticles) return;
 	
 	uint index = id.x;
 	int2 cell = GetCell2D(PredictedPositions[index], smoothingRadius);
 	uint hash = HashCell2D(cell);
-	uint key = KeyFromHash(hash, numParticles);
+	uint key = KeyFromHash(hash, numSpatialParticles);
 	SpatialKeys[id.x] = key;
 }
 
@@ -487,6 +553,7 @@ RWStructuredBuffer<float2> SortTarget_Positions;
 RWStructuredBuffer<float2> SortTarget_PredictedPositions;
 RWStructuredBuffer<float2> SortTarget_Velocities;
 RWStructuredBuffer<uint> SortTarget_Phases;
+RWStructuredBuffer<uint> SortTarget_IsGhost;
 RWStructuredBuffer<float> SortTarget_Temperatures;
 RWStructuredBuffer<float> SortTarget_ParticleTargetDensities;
 
@@ -495,7 +562,7 @@ RWStructuredBuffer<float> SortTarget_ParticleTargetDensities;
 [numthreads(NumThreads,1,1)]
 void Reorder (uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
+	if (id.x >= numSpatialParticles) return;
 
 	uint sortedIndex = SortedIndices[id.x];
 	SortTarget_Positions[id.x] = Positions[sortedIndex];
@@ -508,7 +575,7 @@ void Reorder (uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads,1,1)]
 void ReorderCopyback (uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
+	if (id.x >= numSpatialParticles) return;
 	
 	Positions[id.x] = SortTarget_Positions[id.x];
 	PredictedPositions[id.x] = SortTarget_PredictedPositions[id.x];
@@ -531,6 +598,9 @@ void CalculatePressureForce (uint3 id : SV_DispatchThreadID)
 {
 	if (id.x >= numParticles) return;
 
+	// Skip ghost particles - they don't get forces
+	if (IsGhost[id.x] != 0) return;
+
 	float density = Densities[id.x][0];
 	float densityNear = Densities[id.x][1];
 	uint myPhase = Phases[id.x];
@@ -549,10 +619,10 @@ void CalculatePressureForce (uint3 id : SV_DispatchThreadID)
 	for (int i = 0; i < 9; i ++)
 	{
 		uint hash = HashCell2D(originCell + offsets2D[i]);
-		uint key = KeyFromHash(hash, numParticles);
+		uint key = KeyFromHash(hash, numSpatialParticles);
 		uint currIndex = SpatialOffsets[key];
 
-		while (currIndex < numParticles)
+		while (currIndex < numSpatialParticles)
 		{
 			uint neighbourIndex = currIndex;
 			currIndex ++;
@@ -593,11 +663,9 @@ void CalculatePressureForce (uint3 id : SV_DispatchThreadID)
 		}
 	}
 
+    pressureForce += CalculateWallPressureSupportForce(pos, density, pressure, nearPressure, id.x, epsilon);
+
 	float2 acceleration = pressureForce / max(density, epsilon);
-    if (debugVisualizationMode == 3)
-    {
-        CSFGradients[id.x] += acceleration;
-    }
 
 	// Clamp acceleration magnitude to prevent explosive forces in a single step
 	// float maxAcceleration = smoothingRadius / (deltaTime * deltaTime);
@@ -614,6 +682,10 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
     if (id.x >= numParticles)
         return;
 
+    // Skip ghost particles
+    if (IsGhost[id.x] != 0)
+        return;
+
     float2 pos = PredictedPositions[id.x];
     float myTemp = Temperatures[id.x];
     uint myPhase = Phases[id.x];
@@ -628,10 +700,10 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
     for (int i = 0; i < 9; i++)
     {
         uint hash = HashCell2D(originCell + offsets2D[i]);
-        uint key = KeyFromHash(hash, numParticles);
+        uint key = KeyFromHash(hash, numSpatialParticles);
         uint currIndex = SpatialOffsets[key];
 
-        while (currIndex < numParticles)
+        while (currIndex < numSpatialParticles)
         {
             uint neighbourIndex = currIndex;
             currIndex++;
@@ -654,11 +726,14 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
             float weight = DensityKernel(dst, smoothingRadius);
             float neighbourTemp = Temperatures[neighbourIndex];
 
-            // Only diffuse within same phase - cross-phase heat transfer is much slower
+            // Only diffuse within same phase - cross-phase heat transfer is slower
             uint neighbourPhase = Phases[neighbourIndex];
-            float phaseWeight = (myPhase == neighbourPhase) ? 1.0 : 0.1;
+            float phaseWeight = (myPhase == neighbourPhase) ? 1.0 : 0.999;
+            
+            // Boost cooling to ghost particles at boundaries
+            float ghostMultiplier = (IsGhost[neighbourIndex] != 0) ? ghostCoolingMultiplier : 1.0;
 
-            diffusion += (neighbourTemp - myTemp) * weight * phaseWeight;
+            diffusion += (neighbourTemp - myTemp) * weight * phaseWeight * ghostMultiplier;
             totalWeight += weight * phaseWeight;
         }
     }
@@ -667,40 +742,13 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
 
     // Apply diffusion
     if (totalWeight > 0)
-        newTemp += diffusion / totalWeight * heatDiffusionRate * deltaTime;
-
-    // Passive cooling toward ambient temperature
-    newTemp += (ambientTemperature - newTemp) * heatCoolingRate * deltaTime;
+        newTemp += diffusion / totalWeight * PhaseThermalConductivity[myPhase] * deltaTime / PhaseSpecificHeatCapacity[myPhase];
 
     // Heat source over source area with finite transfer rate
     float2 toSource = pos - heatSourcePos;
-    if (dot(toSource, toSource) < heatSourceRadius * heatSourceRadius && heatSourceTransferRate > 0)
-        newTemp += (heatSourceTemperature - newTemp) * heatSourceTransferRate * deltaTime;
+    if (dot(toSource, toSource) < heatSourceRadius * heatSourceRadius)
+        newTemp += (heatSourceTemperature - newTemp) * deltaTime / PhaseSpecificHeatCapacity[myPhase];
 
-    // Heat sink at boundary - cools everything near the boundary
-    if (useEllipticalBounds)
-    {
-        // For ellipse: distance from boundary
-        float signedDist = SignedDistanceToEllipse(pos, ellipseBoundsCenter, ellipseBoundsSize);
-        float distFromBoundary = -signedDist;  // Negative of signed dist gives distance to boundary when inside
-        
-        if (distFromBoundary < smoothingRadius * 2)
-        {
-            float t = 1.0 - saturate(distFromBoundary / (smoothingRadius * 2));
-            newTemp = lerp(newTemp, heatSinkTemperature, t * 0.1 * deltaTime * 60);
-        }
-    }
-    else
-    {
-        // Original: heat sink at top boundary only
-        float halfHeight = boundsSize.y * 0.5;
-        float distFromTop = halfHeight - pos.y;
-        if (distFromTop < smoothingRadius * 2)
-        {
-            float t = 1 - saturate(distFromTop / (smoothingRadius * 2));
-            newTemp = lerp(newTemp, heatSinkTemperature, t * 0.1 * deltaTime * 60);
-        }
-    }
     Temperatures[id.x] = newTemp;
 }
 
@@ -722,6 +770,9 @@ void CalculateCohesion(uint3 id : SV_DispatchThreadID)
 {
 	if (id.x >= numParticles) return;
 
+	// Skip ghost particles
+	if (IsGhost[id.x] != 0) return;
+
 	uint myPhase = Phases[id.x];
 	float2 pos = PredictedPositions[id.x];
 	int2 originCell = GetCell2D(pos, smoothingRadius);
@@ -732,15 +783,16 @@ void CalculateCohesion(uint3 id : SV_DispatchThreadID)
 	for (int i = 0; i < 9; i++)
 	{
 		uint hash = HashCell2D(originCell + offsets2D[i]);
-		uint key = KeyFromHash(hash, numParticles);
+		uint key = KeyFromHash(hash, numSpatialParticles);
 		uint currIndex = SpatialOffsets[key];
 
-		while (currIndex < numParticles)
+		while (currIndex < numSpatialParticles)
 		{
 			uint neighbourIndex = currIndex;
 			currIndex++;
 
 			if (neighbourIndex == id.x) continue;
+            if (IsGhost[neighbourIndex] != 0) continue;
 
 			uint neighbourKey = SpatialKeys[neighbourIndex];
 			if (neighbourKey != key) break;
@@ -778,8 +830,10 @@ void CalculateCohesion(uint3 id : SV_DispatchThreadID)
 void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 {
 	if (id.x >= numParticles) return;
+
+	// Skip ghost particles - they don't get forces
+	if (IsGhost[id.x] != 0) return;
 	
-		
 	float2 pos = PredictedPositions[id.x];
 	int2 originCell = GetCell2D(pos, smoothingRadius);
 	float sqrRadius = smoothingRadius * smoothingRadius;
@@ -799,16 +853,17 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 	for (int i = 0; i < 9; i ++)
 	{
 		uint hash = HashCell2D(originCell + offsets2D[i]);
-		uint key = KeyFromHash(hash, numParticles);
+		uint key = KeyFromHash(hash, numSpatialParticles);
 		uint currIndex = SpatialOffsets[key];
 
-		while (currIndex < numParticles)
+		while (currIndex < numSpatialParticles)
 		{
 			uint neighbourIndex = currIndex;
 			currIndex ++;
 
 			// Skip if looking at self
 			if (neighbourIndex == id.x) continue;
+            if (IsGhost[neighbourIndex] != 0) continue;
 			
 			uint neighbourKey = SpatialKeys[neighbourIndex];
 			// Exit if no longer looking at correct bin
@@ -844,19 +899,21 @@ void UpdatePositions(uint3 id : SV_DispatchThreadID)
 {
 	if (id.x >= numParticles) return;
 
+	// Skip ghost particles
+	if (IsGhost[id.x] != 0) return;
+
 	Positions[id.x] += Velocities[id.x] * deltaTime;
 	HandleCollisions(id.x);
-	
-	//float maxSpeed = smoothingRadius / deltaTime * 0.2; // can travel 40% of smoothing radius per step
-	//float speed = length(Velocities[id.x]);
-	//if (speed > maxSpeed)
-	//	Velocities[id.x] = (Velocities[id.x] / speed) * maxSpeed;
 }
 
 [numthreads(NumThreads, 1, 1)]
 void UpdateThermalExpansion(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= numParticles)
+        return;
+
+    // Skip ghost particles
+    if (IsGhost[id.x] != 0)
         return;
 
     uint phase = Phases[id.x];
@@ -872,7 +929,7 @@ void UpdateThermalExpansion(uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads, 1, 1)]
 void ReorderTemperature(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= numParticles)
+    if (id.x >= numSpatialParticles)
         return;
     uint sortedIndex = SortedIndices[id.x];
     SortTarget_Temperatures[id.x] = Temperatures[sortedIndex];
@@ -881,7 +938,7 @@ void ReorderTemperature(uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads, 1, 1)]
 void ReorderTemperatureCopyback(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= numParticles)
+    if (id.x >= numSpatialParticles)
         return;
     Temperatures[id.x] = SortTarget_Temperatures[id.x];
 }
@@ -889,7 +946,7 @@ void ReorderTemperatureCopyback(uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads, 1, 1)]
 void ReorderParticleTargetDensities(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= numParticles)
+    if (id.x >= numSpatialParticles)
         return;
     uint sortedIndex = SortedIndices[id.x];
     SortTarget_ParticleTargetDensities[id.x] = ParticleTargetDensities[sortedIndex];
@@ -898,9 +955,26 @@ void ReorderParticleTargetDensities(uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads, 1, 1)]
 void ReorderParticleTargetDensitiesCopyback(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= numParticles)
+    if (id.x >= numSpatialParticles)
         return;
     ParticleTargetDensities[id.x] = SortTarget_ParticleTargetDensities[id.x];
+}
+
+[numthreads(NumThreads, 1, 1)]
+void ReorderGhostFlags(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= numSpatialParticles)
+        return;
+    uint sortedIndex = SortedIndices[id.x];
+    SortTarget_IsGhost[id.x] = IsGhost[sortedIndex];
+}
+
+[numthreads(NumThreads, 1, 1)]
+void ReorderGhostFlagsCopyback(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= numSpatialParticles)
+        return;
+    IsGhost[id.x] = SortTarget_IsGhost[id.x];
 }
 [numthreads(NumThreads, 1, 1)]
 void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
@@ -918,10 +992,10 @@ void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
     for (int i = 0; i < 9; i++)
     {
         uint hash = HashCell2D(originCell + offsets2D[i]);
-        uint key = KeyFromHash(hash, numParticles);
+        uint key = KeyFromHash(hash, numSpatialParticles);
         uint currIndex = SpatialOffsets[key];
 
-        while (currIndex < numParticles)
+        while (currIndex < numSpatialParticles)
         {
             uint j = currIndex++;
             if (j == id.x) continue;
@@ -944,46 +1018,6 @@ void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
 
             gradC += (dc / density_j) * gradW * dir;
         }
-    }
-
-    // Treat the outside of the simulation bounds as an implicit non-matching phase
-    // so surface normals also exist near container walls.
-    float wallDist = 1e9;
-    float2 wallNormal = 0;
-
-    if (useEllipticalBounds)
-    {
-        float2 rel = pos - ellipseBoundsCenter;
-        float2 normalVec = rel / (ellipseBoundsSize * ellipseBoundsSize);
-        float normalLen = length(normalVec);
-        if (normalLen > 1e-6)
-        {
-            wallNormal = normalVec / normalLen; // outward
-            float signedDist = SignedDistanceToEllipse(pos, ellipseBoundsCenter, ellipseBoundsSize);
-            wallDist = max(-signedDist, 0.0); // distance to boundary while inside
-        }
-    }
-    else
-    {
-        float2 halfSize = boundsSize * 0.5;
-        float2 edgeDst = halfSize - abs(pos);
-        if (edgeDst.x < edgeDst.y)
-        {
-            wallDist = edgeDst.x;
-            wallNormal = float2(sign(pos.x), 0); // outward
-        }
-        else
-        {
-            wallDist = edgeDst.y;
-            wallNormal = float2(0, sign(pos.y)); // outward
-        }
-    }
-
-    if (wallDist > 0 && wallDist < smoothingRadius && dot(wallNormal, wallNormal) > 0)
-    {
-        float dcWall = -1.0; // outside is treated as a different phase
-        float gradWWall = DensityDerivative(wallDist, smoothingRadius);
-        gradC += (dcWall / density_i) * gradWWall * wallNormal;
     }
 
     ColorGradients[id.x] = gradC;
@@ -1038,10 +1072,10 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 	for (int i = 0; i < 9; i++)
 	{
 		uint hash = HashCell2D(originCell + offsets2D[i]);
-		uint key = KeyFromHash(hash, numParticles);
+		uint key = KeyFromHash(hash, numSpatialParticles);
 		uint currIndex = SpatialOffsets[key];
 
-		while (currIndex < numParticles)
+		while (currIndex < numSpatialParticles)
 		{
 			uint j = currIndex++;
 			if (j == id.x) continue;
@@ -1115,4 +1149,26 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 		CSFGradients[id.x] += surfaceTensionForce + repulsionForce;
 	}
 	Velocities[id.x] += (surfaceTensionForce + repulsionForce) * deltaTime;
+}
+
+[numthreads(NumThreads, 1, 1)]
+void ResetGhostTemperatures(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= numParticles) return;
+    
+    if (IsGhost[id.x] != 0)
+    {
+        float2 pos = PredictedPositions[id.x];
+        
+        // Check if ghost is inside heat source
+        float2 toSource = pos - heatSourcePos;
+        if (dot(toSource, toSource) < heatSourceRadius * heatSourceRadius)
+        {
+            Temperatures[id.x] = heatSourceTemperature;
+        }
+        else
+        {
+            Temperatures[id.x] = ambientTemperature;
+        }
+    }
 }

@@ -26,6 +26,8 @@ namespace Seb.Fluid2D.Rendering
 			Curvature = 2,
 			Force = 3,
 			Viscosity = 4,
+			Density = 5,
+			Temperature = 6,
 		}
 
 		[Tooltip("The fluid simulation to visualize.")]
@@ -72,7 +74,7 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0)] public float metaballIntensity = 1.0f;
 
 		[Header("Debug")]
-		[Tooltip("Selects what to show in debug mode. Gradient: X/Y in R/G. Curvature: signed scalar. Force: X/Y direction + magnitude. Viscosity: effective temperature-adjusted viscosity.")]
+		[Tooltip("Selects what to show in debug mode. Gradient: X/Y in R/G. Curvature: signed scalar. Force: X/Y direction + magnitude. Viscosity: effective temperature-adjusted viscosity. Density: particle density. Temperature: particle temperature (blue=cold, red=hot).")]
 		public DebugVisualization debugMode = DebugVisualization.None;
 		[Tooltip("Maximum absolute value mapped in debug visualisation (used by curvature/force views).")]
 		public float debugGradientMax = 1.0f;
@@ -331,6 +333,7 @@ namespace Seb.Fluid2D.Rendering
 			targetMaterial.SetBuffer("Velocities", sim.velocityBuffer);
 			targetMaterial.SetBuffer("DensityData", sim.densityBuffer);
 			targetMaterial.SetBuffer("Phases", sim.phaseBuffer);
+			targetMaterial.SetBuffer("IsGhost", sim.ghostFlagBuffer);
 			targetMaterial.SetBuffer("Temperatures", sim.temperatureBuffer);
 		}
 
