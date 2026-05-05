@@ -78,7 +78,7 @@ public class Spawner2D : MonoBehaviour
 		return Mathf.CeilToInt(perimeter / spacing);
 	}
 
-	public void GenerateGhostParticles(Vector2 boundsSize, Vector2 ellipseBoundsCenter, Vector2 ellipseBoundsSize, bool useEllipticalBounds, float spacing, int numLayers, int ghostPhase, List<float2> outPositions, List<float2> outVelocities, List<int> outPhases)
+	public void GenerateGhostParticles(Vector2 boundsSize, Vector2 ellipseBoundsCenter, Vector2 ellipseBoundsSize, bool useEllipticalBounds, float spacing, int numLayers, int ghostPhase, List<float2> outPositions, List<float2> outVelocities, List<int> outPhases, Vector2 obstacleSize = default, Vector2 obstacleCentre = default)
 	{
 		outPositions.Clear();
 		outVelocities.Clear();
@@ -86,7 +86,7 @@ public class Spawner2D : MonoBehaviour
 
 		if (useEllipticalBounds)
 		{
-			GenerateEllipseGhostParticles(ellipseBoundsCenter, ellipseBoundsSize, spacing, numLayers, ghostPhase, outPositions, outVelocities, outPhases);
+			GenerateEllipseGhostParticles(ellipseBoundsCenter, ellipseBoundsSize, spacing, numLayers, ghostPhase, outPositions, outVelocities, outPhases, obstacleSize, obstacleCentre);
 		}
 		else
 		{
@@ -129,7 +129,7 @@ public class Spawner2D : MonoBehaviour
 	}
 
 void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing, int numLayers, int ghostPhase, 
-    List<float2> outPositions, List<float2> outVelocities, List<int> outPhases)
+    List<float2> outPositions, List<float2> outVelocities, List<int> outPhases, Vector2 obstacleSize = default, Vector2 obstacleCentre = default)
 {
     float a = radii.x;
     float b = radii.y;
@@ -182,9 +182,89 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
             float2 normal = Unity.Mathematics.math.normalize(new float2(b * b * cosT, a * a * sinT));
             float2 ghostPos = (float2)center + ellipsePoint + normal * layerDist;
 
+            // Skip if inside obstacle (if obstacle size is valid)
+            if (obstacleSize.x > 0 && obstacleSize.y > 0)
+            {
+                Vector2 relPos = (Vector2)ghostPos - obstacleCentre;
+                if (Mathf.Abs(relPos.x) < obstacleSize.x * 0.5f && Mathf.Abs(relPos.y) < obstacleSize.y * 0.5f)
+                {
+                    continue; // Skip this ghost, it's inside the obstacle
+                }
+            }
+
             outPositions.Add(ghostPos);
             outVelocities.Add(float2.zero);
             outPhases.Add(ghostPhase);
+        }
+    }
+    
+    // Also spawn ghosts around the obstacle boundary (if obstacle exists)
+    // Place them inside the obstacle so they act as boundary conditions
+    if (obstacleSize.x > 0 && obstacleSize.y > 0)
+    {
+        float obsHalfX = obstacleSize.x * 0.5f;
+        float obsHalfY = obstacleSize.y * 0.5f;
+        
+        // Generate ghost layers around obstacle (inside, at the boundary)
+        for (int layer = 1; layer <= numLayers; layer++)
+        {
+            float layerDist = layer * spacing;
+            
+            // Top edge (inside obstacle, at top boundary)
+            for (float x = obstacleCentre.x - obsHalfX; x <= obstacleCentre.x + obsHalfX; x += spacing)
+            {
+                float2 ghostPos = new float2(x, obstacleCentre.y + obsHalfY - layerDist);
+                float2 rel = ghostPos - (float2)center;
+                float normalized = (rel.x * rel.x) / (a * a) + (rel.y * rel.y) / (b * b);
+                if (normalized < 1.0f)
+                {
+                    outPositions.Add(ghostPos);
+                    outVelocities.Add(float2.zero);
+                    outPhases.Add(ghostPhase);
+                }
+            }
+            
+            // Bottom edge (inside obstacle, at bottom boundary)
+            for (float x = obstacleCentre.x - obsHalfX; x <= obstacleCentre.x + obsHalfX; x += spacing)
+            {
+                float2 ghostPos = new float2(x, obstacleCentre.y - obsHalfY + layerDist);
+                float2 rel = ghostPos - (float2)center;
+                float normalized = (rel.x * rel.x) / (a * a) + (rel.y * rel.y) / (b * b);
+                if (normalized < 1.0f)
+                {
+                    outPositions.Add(ghostPos);
+                    outVelocities.Add(float2.zero);
+                    outPhases.Add(ghostPhase);
+                }
+            }
+            
+            // Left edge (inside obstacle, at left boundary)
+            for (float y = obstacleCentre.y - obsHalfY + spacing; y < obstacleCentre.y + obsHalfY; y += spacing)
+            {
+                float2 ghostPos = new float2(obstacleCentre.x - obsHalfX + layerDist, y);
+                float2 rel = ghostPos - (float2)center;
+                float normalized = (rel.x * rel.x) / (a * a) + (rel.y * rel.y) / (b * b);
+                if (normalized < 1.0f)
+                {
+                    outPositions.Add(ghostPos);
+                    outVelocities.Add(float2.zero);
+                    outPhases.Add(ghostPhase);
+                }
+            }
+            
+            // Right edge (inside obstacle, at right boundary)
+            for (float y = obstacleCentre.y - obsHalfY + spacing; y < obstacleCentre.y + obsHalfY; y += spacing)
+            {
+                float2 ghostPos = new float2(obstacleCentre.x + obsHalfX - layerDist, y);
+                float2 rel = ghostPos - (float2)center;
+                float normalized = (rel.x * rel.x) / (a * a) + (rel.y * rel.y) / (b * b);
+                if (normalized < 1.0f)
+                {
+                    outPositions.Add(ghostPos);
+                    outVelocities.Add(float2.zero);
+                    outPhases.Add(ghostPhase);
+                }
+            }
         }
     }
 }

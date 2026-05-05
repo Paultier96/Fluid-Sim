@@ -87,6 +87,8 @@ const float ghostCoolingMultiplier;
 const float heatSourceTransferRate;
 const float2 heatSourcePos;
 const float heatSourceRadius;
+const float2 heatSourceSize;
+const int heatSourceShape; // 0 = circular, 1 = rectangular
 const float heatSourceTemperature;
 const float buoyancyInversionStrength;
 const float buoyancyInversionClamp;
@@ -745,8 +747,20 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
         newTemp += diffusion / totalWeight * PhaseThermalConductivity[myPhase] * deltaTime / PhaseSpecificHeatCapacity[myPhase];
 
     // Heat source over source area with finite transfer rate
-    float2 toSource = pos - heatSourcePos;
-    if (dot(toSource, toSource) < heatSourceRadius * heatSourceRadius)
+    bool inHeatSource = false;
+    if (heatSourceShape == 0) // Circular
+    {
+        float2 toSource = pos - heatSourcePos;
+        inHeatSource = dot(toSource, toSource) < heatSourceRadius * heatSourceRadius;
+    }
+    else if (heatSourceShape == 1) // Rectangular
+    {
+        float2 relPos = pos - heatSourcePos;
+        float2 halfSize = heatSourceSize * 0.5;
+        inHeatSource = abs(relPos.x) < halfSize.x && abs(relPos.y) < halfSize.y;
+    }
+    
+    if (inHeatSource)
         newTemp += (heatSourceTemperature - newTemp) * deltaTime / PhaseSpecificHeatCapacity[myPhase];
 
     Temperatures[id.x] = newTemp;
@@ -1052,6 +1066,11 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
     {
         CSFGradients[id.x] = 0;
     }
+    else if (debugVisualizationMode == 7 || debugVisualizationMode == 8)
+    {
+        // Lubrication/repulsion debug views are produced in this kernel; clear stale data first.
+        CSFGradients[id.x] = 0;
+    }
 
     // Surface detection
     if (gradMag < surfaceTensionThreshold)
@@ -1148,6 +1167,12 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 	{
 		CSFGradients[id.x] += surfaceTensionForce + repulsionForce;
 	}
+	else if (debugVisualizationMode == 8)
+	{
+		// Debug mode 8: show repulsion force vector (lubrication + contact)
+		CSFGradients[id.x] = repulsionForce;
+	}
+	
 	Velocities[id.x] += (surfaceTensionForce + repulsionForce) * deltaTime;
 }
 
@@ -1161,8 +1186,20 @@ void ResetGhostTemperatures(uint3 id : SV_DispatchThreadID)
         float2 pos = PredictedPositions[id.x];
         
         // Check if ghost is inside heat source
-        float2 toSource = pos - heatSourcePos;
-        if (dot(toSource, toSource) < heatSourceRadius * heatSourceRadius)
+        bool inHeatSource = false;
+        if (heatSourceShape == 0) // Circular
+        {
+            float2 toSource = pos - heatSourcePos;
+            inHeatSource = dot(toSource, toSource) < heatSourceRadius * heatSourceRadius;
+        }
+        else if (heatSourceShape == 1) // Rectangular
+        {
+            float2 relPos = pos - heatSourcePos;
+            float2 halfSize = heatSourceSize * 0.5;
+            inHeatSource = abs(relPos.x) < halfSize.x && abs(relPos.y) < halfSize.y;
+        }
+        
+        if (inHeatSource)
         {
             Temperatures[id.x] = heatSourceTemperature;
         }

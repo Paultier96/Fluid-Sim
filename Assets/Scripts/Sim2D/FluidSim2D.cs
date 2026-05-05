@@ -72,13 +72,14 @@ namespace Seb.Fluid2D.Simulation
             [Tooltip("Specific heat capacity: how much energy is required to raise temperature by one degree. Higher values = more thermal inertia (slower heating).")]
             [Min(0.01f)] public float specificHeatCapacity = 1.0f;
             // Non-coalescence tuning per-phase
-            [HideInInspector]
+            //[HideInInspector]
             [Tooltip("Short-range radius (in world units) within which non-coalescence repulsion acts")]
             public float nonCoalescenceRadius = 0.2f;
 
-            [HideInInspector] [Tooltip("Multiplier for non-coalescence repulsion (scaled by phase surface tension)")]
+            //[HideInInspector]
+            [Tooltip("Multiplier for non-coalescence repulsion (scaled by phase surface tension)")]
             public float nonCoalescenceStrength = 1.0f;
-            [HideInInspector]
+            //[HideInInspector]
             [Tooltip("Require normals to be sufficiently opposing: normals dot must be < -threshold")]
             [Range(0f, 1f)] public float nonCoalescenceNormalDotThreshold = 0.7f;
         }
@@ -240,7 +241,7 @@ namespace Seb.Fluid2D.Simulation
             ghostVelocities = new List<float2>();
             ghostPhases = new List<int>();
             resolvedGhostPhase = Mathf.Clamp(ghostPhase, 0, phases.Length - 1);
-            spawner2D.GenerateGhostParticles(boundsSize, ellipseBoundsCenter, ellipseBoundsSize, useEllipticalBounds, fluidSpacing, numGhostLayers, resolvedGhostPhase, ghostPositions, ghostVelocities, ghostPhases);
+            spawner2D.GenerateGhostParticles(boundsSize, ellipseBoundsCenter, ellipseBoundsSize, useEllipticalBounds, fluidSpacing, numGhostLayers, resolvedGhostPhase, ghostPositions, ghostVelocities, ghostPhases, obstacleSize, obstacleCentre);
             numGhostParticles = ghostPositions.Count;
             numParticles = numFluidParticles + numGhostParticles;
 
@@ -573,15 +574,28 @@ namespace Seb.Fluid2D.Simulation
             compute.SetFloat("ghostCoolingMultiplier", ghostCoolingMultiplier);
             Vector2 sourcePos = Vector2.zero;
             float sourceRadius = 0f;
+            Vector2 sourceSize = Vector2.zero;
+            int heatSourceShape = 0; // 0 = circular, 1 = rectangular
             float sourceTemp = ambientTemperature;
             if (heatSource != null && heatSource.isActiveAndEnabled)
             {
                 sourcePos = heatSource.Position;
-                sourceRadius = heatSource.radius;
+                if (heatSource.shape == HeatSource2D.HeatSourceShape.Circular)
+                {
+                    sourceRadius = heatSource.radius;
+                    heatSourceShape = 0;
+                }
+                else
+                {
+                    sourceSize = heatSource.size;
+                    heatSourceShape = 1;
+                }
                 sourceTemp = heatSource.temperature;
             }
             compute.SetVector("heatSourcePos", sourcePos);
             compute.SetFloat("heatSourceRadius", sourceRadius);
+            compute.SetVector("heatSourceSize", sourceSize);
+            compute.SetInt("heatSourceShape", heatSourceShape);
             compute.SetFloat("heatSourceTemperature", sourceTemp);
             compute.SetFloat("buoyancyInversionStrength", buoyancyInversionStrength);
             compute.SetFloat("buoyancyInversionClamp", Mathf.Max(0f, buoyancyInversionClamp));

@@ -174,15 +174,15 @@ MonoBehaviour:
   pressureMultiplier: 800
   nearPressureMultiplier: 30
   boundsSize: {x: 46.22222, y: 26}
-  obstacleSize: {x: 20.4, y: 1.69}
-  obstacleCentre: {x: 7.5, y: -25.59}
+  obstacleSize: {x: 14, y: 30.28}
+  obstacleCentre: {x: 0, y: -25}
   edgeForce: 0
   edgeForceDst: 0.0875
   wallPressureStrength: 1.5
   wallPressureRadius: 0
   useEllipticalBounds: 1
-  ellipseBoundsSize: {x: 4, y: 15}
-  ellipseBoundsCenter: {x: 0, y: 0}
+  ellipseBoundsSize: {x: 5, y: 30}
+  ellipseBoundsCenter: {x: 0, y: -5.55}
   interactionRadius: 2.5
   interactionStrength: 75
   buoyancyInversionStrength: 7.5
@@ -219,16 +219,16 @@ MonoBehaviour:
       m_ColorSpace: -1
       m_NumColorKeys: 2
       m_NumAlphaKeys: 2
-    targetDensity: 400
+    targetDensity: 500
     viscosity: 0.5
     viscosityTemperatureSensitivity: 0.04
     thermalExpansion: 0.035
-    surfaceTension: 90
+    surfaceTension: 120
     thermalConductivity: 1
-    specificHeatCapacity: 5
-    nonCoalescenceRadius: 0
-    nonCoalescenceStrength: 0
-    nonCoalescenceNormalDotThreshold: 0.7
+    specificHeatCapacity: 10
+    nonCoalescenceRadius: 2
+    nonCoalescenceStrength: 10
+    nonCoalescenceNormalDotThreshold: 0.234
   - name: Water
     colourMap:
       serializedVersion: 2
@@ -266,7 +266,7 @@ MonoBehaviour:
     thermalExpansion: 0.003
     surfaceTension: 10
     thermalConductivity: 50
-    specificHeatCapacity: 10
+    specificHeatCapacity: 20
     nonCoalescenceRadius: 0
     nonCoalescenceStrength: 0
     nonCoalescenceNormalDotThreshold: 0.7
@@ -298,11 +298,11 @@ MonoBehaviour:
   initialVelocity: {x: 0, y: 0}
   jitterStr: 0.03
   spawnRegions:
-  - position: {x: 0, y: -7.86}
+  - position: {x: 0, y: -3.75}
     size: {x: 5, y: 10}
     debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
     phaseID: 0
-  - position: {x: 0, y: 5.42}
+  - position: {x: 0, y: 8.67}
     size: {x: 10, y: 10}
     debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
     phaseID: 1
@@ -322,7 +322,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
-  renderMode: 1
+  renderMode: 0
   directParticleShader: {fileID: 4800000, guid: 441b7193936682446b30d2140d15792a, type: 3}
   metaballShader: {fileID: 4800000, guid: 85b87c70f093d411791140a3aca6ced6, type: 3}
   scale: 0.07
@@ -470,7 +470,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cc55bd493d57bbf4fb5cf3f4d97d4d51, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Simulation.HeatSource2D
+  shape: 1
   radius: 4
+  size: {x: 13.57, y: 2}
   temperature: 100
 --- !u!4 &2055861084
 Transform:
@@ -481,7 +483,7 @@ Transform:
   m_GameObject: {fileID: 2055861082}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: -18, z: 0}
+  m_LocalPosition: {x: 0, y: -10.06, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
