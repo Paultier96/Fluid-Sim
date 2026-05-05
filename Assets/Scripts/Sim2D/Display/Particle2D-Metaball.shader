@@ -19,6 +19,7 @@ Shader "Instanced/Particle2DMetaball" {
 			StructuredBuffer<float2> Positions2D;
 			StructuredBuffer<int> Phases;
 			StructuredBuffer<uint> IsGhost;
+			StructuredBuffer<uint> BlobIDs;
 			StructuredBuffer<float> Temperatures;
 			StructuredBuffer<float2> CSFGradients;
 			StructuredBuffer<float2> DensityData;
@@ -39,7 +40,18 @@ Shader "Instanced/Particle2DMetaball" {
 				nointerpolation float phase : TEXCOORD3;
 				nointerpolation uint isGhost : TEXCOORD4;
 				float density : TEXCOORD5;
+				nointerpolation float3 blobCol : TEXCOORD4;
 			};
+
+			float3 HashBlobColor(uint blobId)
+			{
+				uint n = blobId * 1664525u + 1013904223u;
+				n ^= (n >> 16);
+				uint r = n * 2246822519u;
+				uint g = (n ^ 3266489917u) * 668265263u;
+				uint b = (n ^ 374761393u) * 2246822519u;
+				return 0.25 + 0.75 * frac(float3(r, g, b) / 65535.0);
+			}
 
 			v2f vert(appdata_full v, uint instanceID : SV_InstanceID)
 			{
@@ -60,6 +72,7 @@ Shader "Instanced/Particle2DMetaball" {
 				o.phase = Phases[instanceID];
 				o.isGhost = IsGhost[instanceID];
 				o.density = density;
+				o.blobCol = HashBlobColor(BlobIDs[instanceID]);
 				return o;
 			}
 
@@ -93,6 +106,12 @@ Shader "Instanced/Particle2DMetaball" {
 				
 				if (debugMode != 0)
 				{
+					if (debugMode == 7)
+					{
+						return float4(i.blobCol * kernel, kernel);
+					}
+
+					// Debug mode packs two weighted values into one texture:
 					// Other debug modes pack two weighted values into one texture:
 					// R/G = debug X, B/A = debug Y (or curvature duplicated).
 					float maxAbsValue = max(debugGradientMax, 0.0001);

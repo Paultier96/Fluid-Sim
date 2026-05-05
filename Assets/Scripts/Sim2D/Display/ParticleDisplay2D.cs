@@ -28,6 +28,7 @@ namespace Seb.Fluid2D.Rendering
 			Viscosity = 4,
 			Density = 5,
 			Temperature = 6,
+			BlobIds = 7,
 		}
 
 		[Tooltip("The fluid simulation to visualize.")]
@@ -334,6 +335,7 @@ namespace Seb.Fluid2D.Rendering
 			targetMaterial.SetBuffer("DensityData", sim.densityBuffer);
 			targetMaterial.SetBuffer("Phases", sim.phaseBuffer);
 			targetMaterial.SetBuffer("IsGhost", sim.ghostFlagBuffer);
+			targetMaterial.SetBuffer("BlobIDs", sim.blobIdBuffer);
 			targetMaterial.SetBuffer("Temperatures", sim.temperatureBuffer);
 		}
 

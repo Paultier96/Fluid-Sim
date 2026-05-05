@@ -219,6 +219,45 @@ MonoBehaviour:
       m_ColorSpace: -1
       m_NumColorKeys: 2
       m_NumAlphaKeys: 2
+    targetDensity: 390
+    viscosity: 0.5
+    viscosityTemperatureSensitivity: 0.04
+    thermalExpansion: 0.035
+    surfaceTension: 115
+    nonCoalescenceRadius: 0
+    nonCoalescenceStrength: 0
+    nonCoalescenceNormalDotThreshold: 0.7
+  - name: Wax
+    colourMap:
+      serializedVersion: 2
+      key0: {r: 0.4, g: 0.1764706, b: 0.54901963, a: 1}
+      key1: {r: 0.92941177, g: 0.11764706, b: 0.4745098, a: 1}
+      key2: {r: 0, g: 0, b: 0, a: 0}
+      key3: {r: 0, g: 0, b: 0, a: 0}
+      key4: {r: 0, g: 0, b: 0, a: 0}
+      key5: {r: 0, g: 0, b: 0, a: 0}
+      key6: {r: 0, g: 0, b: 0, a: 0}
+      key7: {r: 0, g: 0, b: 0, a: 0}
+      ctime0: 0
+      ctime1: 65535
+      ctime2: 0
+      ctime3: 0
+      ctime4: 0
+      ctime5: 0
+      ctime6: 0
+      ctime7: 0
+      atime0: 0
+      atime1: 65535
+      atime2: 0
+      atime3: 0
+      atime4: 0
+      atime5: 0
+      atime6: 0
+      atime7: 0
+      m_Mode: 2
+      m_ColorSpace: -1
+      m_NumColorKeys: 2
+      m_NumAlphaKeys: 2
     targetDensity: 500
     viscosity: 0.5
     viscosityTemperatureSensitivity: 0.04
@@ -271,11 +310,13 @@ MonoBehaviour:
     nonCoalescenceStrength: 0
     nonCoalescenceNormalDotThreshold: 0.7
   ghostPhase: 1
-  phaseSeparation: 1.3
+  phaseSeparation: 1.1
   phaseCohesionValues:
   - 1
   - -0.5
   - 1
+  blobIdUpdateInterval: 1000
+  blobPropagationIterations: 120
   surfaceTensionThreshold: 0.1
   ambientTemperature: 10
   ghostCoolingMultiplier: 1
@@ -339,7 +380,7 @@ MonoBehaviour:
   phaseBlendWidth: 4
   metaballSharpness: 1
   metaballIntensity: 20
-  debugMode: 0
+  debugMode: 5
   debugGradientMax: 1
   edgeWidth: 0.03
   jumpFloodCompute: {fileID: 7200000, guid: 7349de8b8fa110249b104a7dac6f38c0, type: 3}
