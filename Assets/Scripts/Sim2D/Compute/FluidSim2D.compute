@@ -19,11 +19,12 @@
 #pragma kernel CalculateCSF // 18
 #pragma kernel ComputeColorGradients // 19
 #pragma kernel ResetGhostTemperatures // 20
-#pragma kernel InitializeBlobIDs // 18
-#pragma kernel PropagateBlobIDs // 19
-#pragma kernel CopyBlobIDs // 20
-#pragma kernel ReorderBlobIDs // 21
-#pragma kernel ReorderBlobIDsCopyback // 22
+#pragma kernel InitializeBlobIDs // 21
+#pragma kernel PropagateBlobIDs // 22
+#pragma kernel CopyBlobIDs // 23
+#pragma kernel CopyBlobIDsToPrevious // 24
+#pragma kernel ReorderBlobIDs // 25
+#pragma kernel ReorderBlobIDsCopyback // 26
 
 // Includes
 #include "./FluidMaths2D.hlsl"
@@ -39,19 +40,25 @@ RWStructuredBuffer<float2> Densities;
 RWStructuredBuffer<uint> Phases;
 RWStructuredBuffer<uint> IsGhost;
 RWStructuredBuffer<uint> BlobIDs;
+RWStructuredBuffer<uint> BlobIDsPrevious;
 RWStructuredBuffer<uint> BlobIDsScratch;
 RWStructuredBuffer<float> Temperatures;
 RWStructuredBuffer<float> ParticleTargetDensities;
 StructuredBuffer<float> PhaseCohesionMatrix;
 StructuredBuffer<float> PhaseSurfaceTensionMatrix;
 const float surfaceTensionThreshold; // min gradient magnitude to apply force
+const float blobBlobSurfaceTension;
+const float maxSurfaceTensionCurvature;
 // Non-coalescence (interface repulsion) per-phase parameters
 StructuredBuffer<float> PhaseNonCoalescenceRadius;
 StructuredBuffer<float> PhaseNonCoalescenceStrength;
 StructuredBuffer<float> PhaseNonCoalescenceNormalDotThreshold;
-RWStructuredBuffer<float2> CSFGradients; // debug output (mode-dependent): gradient.xy, curvature.xx, force.xy, or viscosity.xx
+RWStructuredBuffer<float2> DebugData; // debug output (mode-dependent): gradient.xy, curvature.xx, force.xy, or viscosity.xx
 RWStructuredBuffer<float2> ColorGradients; // per-particle color gradient
-
+StructuredBuffer<float2> ColorGradientsRO;
+StructuredBuffer<float2> DensitiesRO;
+StructuredBuffer<uint> PhasesRO;
+StructuredBuffer<uint> BlobIDsRO;
 
 // Spatial hashing
 RWStructuredBuffer<uint> SpatialKeys;
@@ -93,12 +100,15 @@ StructuredBuffer<float> PhaseThermalConductivity;
 StructuredBuffer<float> PhaseSpecificHeatCapacity;
 const float heatCoolingRate;
 const float ghostCoolingMultiplier;
+const float ambientCoolingRate;
+const float wallCoolingRate;
+const float wallCoolingDistance;
 const float heatSourceTransferRate;
 const float2 heatSourcePos;
-const float heatSourceRadius;
 const float2 heatSourceSize;
-const int heatSourceShape; // 0 = circular, 1 = rectangular
+const int heatSourceShape; // 0 = rectangular, 1 = elliptical
 const float heatSourceTemperature;
+const float heatSourceFalloffPower;
 const float buoyancyInversionStrength;
 const float buoyancyInversionClamp;
 
@@ -402,6 +412,7 @@ void ApplyThermalBuoyancy(uint3 id : SV_DispatchThreadID)
 	if (IsGhost[id.x] != 0) return;
 
 	float2 pos = PredictedPositions[id.x];
+	uint myPhase = Phases[id.x];
 	int2 originCell = GetCell2D(pos, smoothingRadius);
 	float sqrRadius = smoothingRadius * smoothingRadius;
 
@@ -424,6 +435,7 @@ void ApplyThermalBuoyancy(uint3 id : SV_DispatchThreadID)
 
 			uint neighbourKey = SpatialKeys[neighbourIndex];
 			if (neighbourKey != key) break;
+			if (Phases[neighbourIndex] == myPhase) continue;
 
 			float2 offset = PredictedPositions[neighbourIndex] - pos;
 			float sqrDst = dot(offset, offset);
@@ -437,10 +449,28 @@ void ApplyThermalBuoyancy(uint3 id : SV_DispatchThreadID)
 		}
 	}
 
-	if (weightSum <= 1e-6) return;
-
 	float rho_i = ParticleTargetDensities[id.x];
-	float rho_env = weightedEnvDensitySum / weightSum;
+	float rho_env = 0;
+
+	if (weightSum > 1e-6)
+	{
+		rho_env = weightedEnvDensitySum / weightSum;
+	}
+	else
+	{
+		float otherPhaseDensitySum = 0;
+		int otherPhaseCount = 0;
+		for (int phase = 0; phase < NumPhases; phase++)
+		{
+			if ((uint)phase == myPhase) continue;
+			otherPhaseDensitySum += PhaseTargetDensities[phase];
+			otherPhaseCount++;
+		}
+
+		if (otherPhaseCount == 0) return;
+		rho_env = otherPhaseDensitySum / otherPhaseCount;
+	}
+
 	float normalizedDensityContrast = (rho_env - rho_i) / max(rho_env, 1e-4);
 	normalizedDensityContrast = clamp(normalizedDensityContrast, -buoyancyInversionClamp, buoyancyInversionClamp);
 
@@ -449,7 +479,7 @@ void ApplyThermalBuoyancy(uint3 id : SV_DispatchThreadID)
 	Velocities[id.x] += buoyancyAccel * deltaTime;
 	if (debugVisualizationMode == 3)
 	{
-		CSFGradients[id.x] += buoyancyAccel;
+		DebugData[id.x] += buoyancyAccel;
 	}
 }
 
@@ -540,7 +570,7 @@ void ExternalForces(uint3 id : SV_DispatchThreadID)
     float2 externalAcceleration = ExternalForces(Positions[id.x], Velocities[id.x], density, phase, id.x);
     if (debugVisualizationMode == 3)
     {
-        CSFGradients[id.x] = externalAcceleration;
+        DebugData[id.x] = externalAcceleration;
     }
     Velocities[id.x] += externalAcceleration * deltaTime;
 
@@ -614,7 +644,7 @@ void ReorderBlobIDsCopyback (uint3 id : SV_DispatchThreadID)
 void InitializeBlobIDs(uint3 id : SV_DispatchThreadID)
 {
 	if (id.x >= numParticles) return;
-	BlobIDs[id.x] = SortedIndices[id.x];
+	BlobIDs[id.x] = id.x;
 }
 
 [numthreads(NumThreads, 1, 1)]
@@ -625,10 +655,19 @@ void PropagateBlobIDs(uint3 id : SV_DispatchThreadID)
 	uint myPhase = Phases[id.x];
 	float2 pos = PredictedPositions[id.x];
 	int2 originCell = GetCell2D(pos, smoothingRadius);
-	float sqrRadius = smoothingRadius * smoothingRadius;
+	float blobConnectivityRadius = smoothingRadius * 0.8;
+	float sqrBlobRadius = blobConnectivityRadius * blobConnectivityRadius;
 
 	uint minBlob = BlobIDs[id.x];
 
+	// Phase 1 blobs are irrelevant - treat all phase 1 as one blob (ID = UINT_MAX)
+	if (myPhase == 1)
+	{
+		BlobIDsScratch[id.x] = 0xFFFFFFFFu;
+		return;
+	}
+
+	// Only propagate blob IDs within phase 1
 	for (int i = 0; i < 9; i++)
 	{
 		uint hash = HashCell2D(originCell + offsets2D[i]);
@@ -641,11 +680,11 @@ void PropagateBlobIDs(uint3 id : SV_DispatchThreadID)
 			if (neighbourIndex == id.x) continue;
 			if (SpatialKeys[neighbourIndex] != key) break;
 
-			if (Phases[neighbourIndex] != myPhase) continue;
+			if (Phases[neighbourIndex] != 0) continue;
 
 			float2 offset = PredictedPositions[neighbourIndex] - pos;
 			float sqrDst = dot(offset, offset);
-			if (sqrDst > sqrRadius) continue;
+			if (sqrDst > sqrBlobRadius) continue;
 
 			minBlob = min(minBlob, BlobIDs[neighbourIndex]);
 		}
@@ -659,6 +698,13 @@ void CopyBlobIDs(uint3 id : SV_DispatchThreadID)
 {
 	if (id.x >= numParticles) return;
 	BlobIDs[id.x] = BlobIDsScratch[id.x];
+}
+
+[numthreads(NumThreads, 1, 1)]
+void CopyBlobIDsToPrevious(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= numParticles) return;
+	BlobIDsPrevious[id.x] = BlobIDs[id.x];
 }
 
 
@@ -822,22 +868,65 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
     if (totalWeight > 0)
         newTemp += diffusion / totalWeight * PhaseThermalConductivity[myPhase] * deltaTime / PhaseSpecificHeatCapacity[myPhase];
 
-    // Heat source over source area with finite transfer rate
-    bool inHeatSource = false;
-    if (heatSourceShape == 0) // Circular
+    float heatCapacity = max(PhaseSpecificHeatCapacity[myPhase], 0.01);
+
+    if (ambientCoolingRate > 0)
     {
-        float2 toSource = pos - heatSourcePos;
-        inHeatSource = dot(toSource, toSource) < heatSourceRadius * heatSourceRadius;
+        newTemp += (ambientTemperature - newTemp) * ambientCoolingRate * deltaTime / heatCapacity;
     }
-    else if (heatSourceShape == 1) // Rectangular
+
+    if (wallCoolingRate > 0)
+    {
+        float coolingRadius = (wallCoolingDistance > 0) ? wallCoolingDistance : smoothingRadius;
+        float wallDist = 1e9;
+
+        if (useEllipticalBounds)
+        {
+            float2 closestPoint;
+            float2 outwardNormal;
+            float signedDist;
+            GetEllipseSurfaceData(pos, ellipseBoundsCenter, ellipseBoundsSize, closestPoint, outwardNormal, signedDist);
+            if (signedDist < 0)
+            {
+                wallDist = -signedDist;
+            }
+        }
+        else
+        {
+            float2 halfSize = boundsSize * 0.5;
+            float2 edgeDst = halfSize - abs(pos);
+            wallDist = min(edgeDst.x, edgeDst.y);
+        }
+
+        if (wallDist >= 0 && wallDist < coolingRadius)
+        {
+            float wallT = 1.0 - saturate(wallDist / max(coolingRadius, 1e-6));
+            newTemp += (ambientTemperature - newTemp) * wallCoolingRate * wallT * deltaTime / heatCapacity;
+        }
+    }
+
+    // Heat source over source area. Elliptical sources use smooth radial falloff.
+    float heatSourceWeight = 0;
+    if (heatSourceShape == 0) // Rectangular
     {
         float2 relPos = pos - heatSourcePos;
         float2 halfSize = heatSourceSize * 0.5;
-        inHeatSource = abs(relPos.x) < halfSize.x && abs(relPos.y) < halfSize.y;
+        heatSourceWeight = (abs(relPos.x) < halfSize.x && abs(relPos.y) < halfSize.y) ? 1.0 : 0.0;
+    }
+    else if (heatSourceShape == 1) // Elliptical
+    {
+        float2 radii = max(heatSourceSize * 0.5, float2(1e-6, 1e-6));
+        float2 normalizedOffset = (pos - heatSourcePos) / radii;
+        float normalizedRadius = length(normalizedOffset);
+        if (normalizedRadius < 1.0)
+        {
+            float smoothFalloff = 1.0 - smoothstep(0.0, 1.0, normalizedRadius);
+            heatSourceWeight = pow(saturate(smoothFalloff), max(heatSourceFalloffPower, 0.01));
+        }
     }
     
-    if (inHeatSource)
-        newTemp += (heatSourceTemperature - newTemp) * deltaTime / PhaseSpecificHeatCapacity[myPhase];
+    if (heatSourceWeight > 0)
+        newTemp += (heatSourceTemperature - newTemp) * heatSourceTransferRate * heatSourceWeight * deltaTime / heatCapacity;
 
     Temperatures[id.x] = newTemp;
 }
@@ -912,7 +1001,7 @@ void CalculateCohesion(uint3 id : SV_DispatchThreadID)
 	Velocities[id.x] += cohesionForce * deltaTime;
     if (debugVisualizationMode == 3)
     {
-        CSFGradients[id.x] += cohesionForce;
+        DebugData[id.x] += cohesionForce;
     }
 }
 
@@ -921,8 +1010,13 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 {
 	if (id.x >= numParticles) return;
 
-	// Skip ghost particles - they don't get forces
-	if (IsGhost[id.x] != 0) return;
+	// Skip ghost particles
+	if (IsGhost[id.x] != 0)
+	{
+		if (debugVisualizationMode == 4)
+			DebugData[id.x] = 0;
+		return;
+	}
 	
 	float2 pos = PredictedPositions[id.x];
 	int2 originCell = GetCell2D(pos, smoothingRadius);
@@ -936,7 +1030,7 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 	float myViscosity = GetTemperatureAdjustedViscosity(myPhase, myTemp);
 	if (debugVisualizationMode == 4)
 	{
-		CSFGradients[id.x] = myViscosity.xx;
+		DebugData[id.x] = myViscosity.xx;
 	}
 
 
@@ -980,7 +1074,7 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 	Velocities[id.x] += viscosityForce * deltaTime;
     if (debugVisualizationMode == 3)
     {
-        CSFGradients[id.x] += viscosityForce;
+        DebugData[id.x] += viscosityForce;
     }
 }
 
@@ -1003,8 +1097,7 @@ void UpdateThermalExpansion(uint3 id : SV_DispatchThreadID)
         return;
 
     // Skip ghost particles
-    if (IsGhost[id.x] != 0)
-        return;
+    if (IsGhost[id.x] != 0) return;
 
     uint phase = Phases[id.x];
     float baseDensity = PhaseTargetDensities[phase];
@@ -1102,7 +1195,8 @@ void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
 
             float density_j = max(Densities[j][0], 0.0001);
 
-        	float dc = (Phases[j] == myPhase) ? 0.0 : -1.0;
+        	//float dc = (Phases[j] == myPhase) ? 0.0 : -1.0;
+        	float dc = (BlobIDsRO[j] == BlobIDsRO[id.x])?  0.0: -1.0;
 
             float gradW = DensityDerivative(dst, smoothingRadius);
 
@@ -1111,17 +1205,29 @@ void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
     }
 
     ColorGradients[id.x] = gradC;
-	//CSFGradients[id.x] = (gradC+1)/2;
+	if (debugVisualizationMode == 1)
+	{
+		DebugData[id.x] = gradC;
+	}
 }
 
 [numthreads(NumThreads, 1, 1)]
 void CalculateCSF(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= numParticles) return;
+    if (IsGhost[id.x] != 0)
+    {
+    	if (debugVisualizationMode == 2)
+    		DebugData[id.x] = 0;
+	    return;
+    };
+	
+	
 
-    uint myPhase = Phases[id.x];
+    uint myPhase = PhasesRO[id.x];
+    uint myBlobId = BlobIDsRO[id.x];
     float2 pos = PredictedPositions[id.x];
-    float density_i = max(Densities[id.x][0], 0.0001);
+    float density_i = max(DensitiesRO[id.x][0], 0.0001);
 
     int2 originCell = GetCell2D(pos, smoothingRadius);
     float sqrRadius = smoothingRadius * smoothingRadius;
@@ -1130,22 +1236,19 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
     // 1. COLOR FIELD GRADIENT
     // ----------------------------------
 
-    float2 gradC = ColorGradients[id.x];
+    float2 gradC = ColorGradientsRO[id.x];
 
     float gradMag = length(gradC);
 
-    if (debugVisualizationMode == 1)
+
+    if (debugVisualizationMode == 2)
     {
-        CSFGradients[id.x] = gradC;
-    }
-    else if (debugVisualizationMode == 2)
-    {
-        CSFGradients[id.x] = 0;
+        DebugData[id.x] = 0;
     }
     else if (debugVisualizationMode == 7 || debugVisualizationMode == 8)
     {
         // Lubrication/repulsion debug views are produced in this kernel; clear stale data first.
-        CSFGradients[id.x] = 0;
+        DebugData[id.x] = 0;
     }
 
     // Surface detection
@@ -1156,9 +1259,7 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 	// short-range non-coalescence
     float2 repulsionForce = 0;
 
-	// ----------------------------------
 	// 2. CURVATURE (divergence of normal)
-	// ----------------------------------
 
 	float curvature = 0;
 	float sigmaWeightedSum = 0;
@@ -1185,37 +1286,46 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 			float dst = sqrt(sqrDst);
 			float2 dir = offset / dst;
 
-			float density_j = max(Densities[j][0], 0.0001);
+			float density_j = max(DensitiesRO[j][0], 0.0001);
 
 			float gradW = DensityDerivative(dst, smoothingRadius);
 
-			float2 gradCj = ColorGradients[j];
+			float2 gradCj = ColorGradientsRO[j];
 			float gjmag = length(gradCj);
-			uint neighbourPhase = Phases[j];
+			uint neighbourPhase = PhasesRO[j];
+			bool neighbourIsGhost = IsGhost[j] != 0;
 			float2 normal_j = (gjmag > 1e-6) ? gradCj / gjmag : normal;
 			// With per-phase color fields, opposite-side neighbors have flipped normals.
 			// Reorient to particle i's phase field before divergence/curvature accumulation.
-			float2 normal_j_for_curvature = (neighbourPhase == myPhase) ? normal_j : -normal_j;
+			float2 normal_j_for_curvature = (BlobIDsRO[j] == BlobIDsRO[id.x]) ? normal_j : -normal_j;
 			// short-range non-coalescence repulsion accumulation
-			if (neighbourPhase == myPhase && gjmag > surfaceTensionThreshold && gradMag > surfaceTensionThreshold)
+			if (!neighbourIsGhost && neighbourPhase == myPhase && gjmag > surfaceTensionThreshold && gradMag > surfaceTensionThreshold)
 			{
-				float ndot = dot(normal, normal_j); // -1 = facing
-				if (ndot < -PhaseNonCoalescenceNormalDotThreshold[myPhase])
+				if (BlobIDsRO[j] != BlobIDsRO[id.x])
 				{
-					float ndist = dst; // distance to neighbor
-					float radiusParam = PhaseNonCoalescenceRadius[myPhase];
-					if (ndist < radiusParam)
-					{
-						float overlapT = 1.0 - ndist / radiusParam;
-						float facing = saturate((-ndot - PhaseNonCoalescenceNormalDotThreshold[myPhase]) / (1.0 - PhaseNonCoalescenceNormalDotThreshold[myPhase]));
-						float repulseAmount = PhaseNonCoalescenceStrength[myPhase] * GetSurfaceTension(myPhase, myPhase) * overlapT * facing;
-						repulsionForce += -dir * repulseAmount;
-					}
+					float overlapT = 1.0 - dst / max(PhaseNonCoalescenceRadius[myPhase], 1e-6);
+					if (overlapT > 0)
+						repulsionForce += -dir * PhaseNonCoalescenceStrength[myPhase] * overlapT;
 				}
 			}
-			if (neighbourPhase != myPhase)
+			if (neighbourIsGhost)
+			{
+				float sigma_ij = blobBlobSurfaceTension;
+				float sigmaWeight = abs(gradW) / density_j;
+				sigmaWeightedSum += sigma_ij * sigmaWeight;
+				sigmaWeightSum += sigmaWeight;
+			}
+			else if (neighbourPhase != myPhase)
 			{
 				float sigma_ij = GetSurfaceTension(myPhase, neighbourPhase);
+				float sigmaWeight = abs(gradW) / density_j;
+				sigmaWeightedSum += sigma_ij * sigmaWeight;
+				sigmaWeightSum += sigmaWeight;
+			}
+			//explicit blob-blob surface tension
+			else if (BlobIDsRO[j] != BlobIDsRO[id.x])
+			{
+				float sigma_ij = blobBlobSurfaceTension;
 				float sigmaWeight = abs(gradW) / density_j;
 				sigmaWeightedSum += sigma_ij * sigmaWeight;
 				sigmaWeightSum += sigmaWeight;
@@ -1225,10 +1335,11 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 	}
 
 	curvature = -curvature;
+	curvature = clamp(curvature, -maxSurfaceTensionCurvature, maxSurfaceTensionCurvature);
 
 	if (debugVisualizationMode == 2)
 	{
-		CSFGradients[id.x] = curvature.xx;
+		DebugData[id.x] = curvature.xx;
 	}
 	
 	// Step 3: apply surface tension force along normal, scaled by curvature.
@@ -1241,12 +1352,12 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 	// apply both surface tension and any computed short-range repulsion
 	if (debugVisualizationMode == 3)
 	{
-		CSFGradients[id.x] += surfaceTensionForce + repulsionForce;
+		DebugData[id.x] += surfaceTensionForce + repulsionForce;
 	}
 	else if (debugVisualizationMode == 8)
 	{
 		// Debug mode 8: show repulsion force vector (lubrication + contact)
-		CSFGradients[id.x] = repulsionForce;
+		DebugData[id.x] = repulsionForce;
 	}
 	
 	Velocities[id.x] += (surfaceTensionForce + repulsionForce) * deltaTime;
@@ -1263,16 +1374,17 @@ void ResetGhostTemperatures(uint3 id : SV_DispatchThreadID)
         
         // Check if ghost is inside heat source
         bool inHeatSource = false;
-        if (heatSourceShape == 0) // Circular
-        {
-            float2 toSource = pos - heatSourcePos;
-            inHeatSource = dot(toSource, toSource) < heatSourceRadius * heatSourceRadius;
-        }
-        else if (heatSourceShape == 1) // Rectangular
+        if (heatSourceShape == 0) // Rectangular
         {
             float2 relPos = pos - heatSourcePos;
             float2 halfSize = heatSourceSize * 0.5;
             inHeatSource = abs(relPos.x) < halfSize.x && abs(relPos.y) < halfSize.y;
+        }
+        else if (heatSourceShape == 1) // Elliptical
+        {
+            float2 radii = max(heatSourceSize * 0.5, float2(1e-6, 1e-6));
+            float2 normalizedOffset = (pos - heatSourcePos) / radii;
+            inHeatSource = dot(normalizedOffset, normalizedOffset) < 1.0;
         }
         
         if (inHeatSource)

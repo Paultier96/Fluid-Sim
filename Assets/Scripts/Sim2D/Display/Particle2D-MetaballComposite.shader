@@ -43,6 +43,41 @@ Shader "Hidden/Particle2DMetaballComposite" {
 				return o;
 			}
 
+			float3 HeatMapColor(float t)
+			{
+				t = saturate(t);
+				float3 c0 = float3(0.0, 0.0, 0.0);
+				float3 c1 = float3(0.125, 0.0, 0.549);
+				float3 c2 = float3(0.8, 0.0, 0.466);
+				float3 c3 = float3(1.0, 0.843, 0.0);
+				float3 c4 = float3(1.0, 1.0, 1.0);
+
+				if (t < 0.25) return lerp(c0, c1, t * 4.0);
+				if (t < 0.5) return lerp(c1, c2, (t - 0.25) * 4.0);
+				if (t < 0.75) return lerp(c2, c3, (t - 0.5) * 4.0);
+				return lerp(c3, c4, (t - 0.75) * 4.0);
+			}
+
+			float3 SignedHeatMapColor(float t)
+			{
+				float a = saturate(abs(t));
+				float3 pos = lerp(float3(0.0, 0.0, 0.0),
+				                  float3(0.0, 0.2, 1.0),
+				                  saturate(a * 2.0))
+				           + lerp(float3(0.0, 0.0, 0.0),
+				                  float3(0.0, 1.0, 1.0),
+				                  saturate(a * 2.0 - 1.0));
+
+				float3 neg = lerp(float3(0.0, 0.0, 0.0),
+				                  float3(1.0, 0.1, 0.0),
+				                  saturate(a * 2.0))
+				           + lerp(float3(0.0, 0.0, 0.0),
+				                  float3(1.0, 0.6, 0.0),
+				                  saturate(a * 2.0 - 1.0));
+
+				return t < 0.0 ? neg : pos;
+			}
+
 			float4 frag(v2f i) : SV_Target
 			{
 				float4 combined = tex2D(CombinedTex, i.uv);
@@ -60,7 +95,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 				float3 colour0, colour1;
 				if (debugMode != 0)
 				{
-					if (debugMode == 5)
+					if (debugMode == 7)
 					{
 						float3 blobCol = combined.rgb / max(combined.a, 0.0001);
 						return float4(saturate(blobCol), alpha);
@@ -69,57 +104,47 @@ Shader "Hidden/Particle2DMetaballComposite" {
 					if (debugMode == 1)
 					{
 						float2 grad = float2(data0, data1);
-						float2 mapped = saturate(0.5 + grad * 0.5);
-						return float4(mapped.x, mapped.y, 1, alpha);
+						float z = sqrt(saturate(1.0 - dot(grad, grad)));
+						float3 normal = float3(grad, z);
+						return float4(saturate(0.5 + normal / 2.0), alpha);
 					}
 
 					if (debugMode == 2)
 					{
 						float curvature = data0;
-						float t = saturate(0.5 + curvature * 0.5);
-						float3 negCol = float3(1.0, 0.0, 0.0);
-						float3 zeroCol = float3(0.0, 0.0, 1.0);
-						float3 posCol = float3(0.0, 1.0, 0.0);
-						float3 curvCol = (t < 0.5) ? lerp(negCol, zeroCol, t * 2.0) : lerp(zeroCol, posCol, (t - 0.5) * 2.0);
-						return float4(curvCol, alpha);
+						return float4(SignedHeatMapColor(curvature), alpha);
+					}
+
+					if (debugMode == 3)
+					{
+						float2 force = float2(data0, data1);
+						float2 mapped = saturate(0.5 + force * 0.5);
+						float mag = saturate(length(force));
+						return float4(mapped, mag, alpha);
 					}
 
 					if (debugMode == 4)
 					{
 						float viscosity = lerp(data0, data1, phaseT);
-						float t = saturate(viscosity);
-						float3 lowCol = float3(0.0, 0.0, 1.0);
-						float3 highCol = float3(1.0, 0.0, 0.0);
-						return float4(lerp(lowCol, highCol, t), alpha);
+						return float4(HeatMapColor(viscosity), alpha);
 					}
 
 					if (debugMode == 5)
 					{
-						// Density visualization: blue (low) -> green (mid) -> red (high)
 						float densityVal = lerp(data0, data1, phaseT);
-						float t = saturate(densityVal);
-						float3 lowCol = float3(0.0, 0.0, 1.0);   // blue
-						float3 midCol = float3(0.0, 1.0, 0.0);   // green
-						float3 highCol = float3(1.0, 0.0, 0.0);  // red
-						float3 densityCol = (t < 0.5) ? lerp(lowCol, midCol, t * 2.0) : lerp(midCol, highCol, (t - 0.5) * 2.0);
-						return float4(densityCol, alpha);
+						return float4(HeatMapColor(densityVal), alpha);
 					}
 
 					if (debugMode == 6)
 					{
-						// Temperature visualization: blue (cold) -> red (hot)
 						float tempVal = lerp(data0, data1, phaseT);
-						float t = saturate(tempVal);
-						float3 coldCol = float3(0.0, 0.0, 1.0);   // blue
-						float3 hotCol = float3(1.0, 0.0, 0.0);    // red
-						float3 tempCol = lerp(coldCol, hotCol, t);
-						return float4(tempCol, alpha);
+						return float4(HeatMapColor(tempVal), alpha);
 					}
 
 					float2 force = float2(data0, data1);
-					float2 mappedForce = saturate(0.5 + force * 0.5);
+					float2 mapped = saturate(0.5 + force * 0.5);
 					float mag = saturate(length(force));
-					return float4(mappedForce.x, mappedForce.y, mag, alpha);
+					return float4(mapped, mag, alpha);
 				}
 				else
 				{

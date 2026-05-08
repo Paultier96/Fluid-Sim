@@ -133,39 +133,34 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
 {
     float a = radii.x;
     float b = radii.y;
-
-    // 1. Build a lookup table: arc length -> parameter t
     int lutSize = 1000;
     float[] lutT = new float[lutSize + 1];
     float[] lutArc = new float[lutSize + 1];
-    lutT[0] = 0f;
-    lutArc[0] = 0f;
-
-    for (int i = 1; i <= lutSize; i++)
-    {
-        float t0 = (i - 1) / (float)lutSize * Mathf.PI * 2;
-        float t1 = i / (float)lutSize * Mathf.PI * 2;
-        // Arc length of small segment via midpoint derivative
-        float tMid = (t0 + t1) * 0.5f;
-        float dx = -a * Mathf.Sin(tMid);
-        float dy =  b * Mathf.Cos(tMid);
-        lutArc[i] = lutArc[i - 1] + Mathf.Sqrt(dx * dx + dy * dy) * (t1 - t0);
-        lutT[i] = t1;
-    }
-
-    float totalArc = lutArc[lutSize];
 
     for (int layer = 1; layer <= numLayers; layer++)
     {
         float layerDist = layer * spacing;
-        int numPoints = Mathf.FloorToInt(totalArc / spacing);
+
+        lutT[0] = 0f;
+        lutArc[0] = 0f;
+        float2 previousPoint = GetOffsetEllipsePoint(0f, layerDist);
+
+        for (int lutIndex = 1; lutIndex <= lutSize; lutIndex++)
+        {
+            float t = lutIndex / (float)lutSize * Mathf.PI * 2;
+            float2 point = GetOffsetEllipsePoint(t, layerDist);
+            lutT[lutIndex] = t;
+            lutArc[lutIndex] = lutArc[lutIndex - 1] + math.length(point - previousPoint);
+            previousPoint = point;
+        }
+
+        float totalArc = lutArc[lutSize];
+        int numPoints = Mathf.Max(3, Mathf.RoundToInt(totalArc / spacing));
 
         for (int i = 0; i < numPoints; i++)
         {
-            // 2. Target arc length for this point
             float targetArc = (i + 0.5f) * (totalArc / numPoints);
 
-            // 3. Binary search in LUT to find corresponding t
             int lo = 0, hi = lutSize;
             while (hi - lo > 1)
             {
@@ -174,19 +169,13 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
             }
             float arcFrac = (targetArc - lutArc[lo]) / Mathf.Max(lutArc[hi] - lutArc[lo], 1e-8f);
             float t = Mathf.Lerp(lutT[lo], lutT[hi], arcFrac);
-
-            float cosT = Mathf.Cos(t);
-            float sinT = Mathf.Sin(t);
-
-            float2 ellipsePoint = new float2(a * cosT, b * sinT);
-            float2 normal = Unity.Mathematics.math.normalize(new float2(b * b * cosT, a * a * sinT));
-            float2 ghostPos = (float2)center + ellipsePoint + normal * layerDist;
+            float2 ghostPos = (float2)center + GetOffsetEllipsePoint(t, layerDist);
 
             // Skip if inside obstacle (if obstacle size is valid)
             if (obstacleSize.x > 0 && obstacleSize.y > 0)
             {
                 Vector2 relPos = (Vector2)ghostPos - obstacleCentre;
-                if (Mathf.Abs(relPos.x) < obstacleSize.x * 0.5f && Mathf.Abs(relPos.y) < obstacleSize.y * 0.5f)
+                if (Mathf.Abs(relPos.x) < obstacleSize.x * 0.5f && Mathf.Abs(relPos.y) + spacing * numLayers < obstacleSize.y * 0.5f)
                 {
                     continue; // Skip this ghost, it's inside the obstacle
                 }
@@ -196,6 +185,15 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
             outVelocities.Add(float2.zero);
             outPhases.Add(ghostPhase);
         }
+    }
+
+    float2 GetOffsetEllipsePoint(float t, float offset)
+    {
+        float cosT = Mathf.Cos(t);
+        float sinT = Mathf.Sin(t);
+        float2 ellipsePoint = new float2(a * cosT, b * sinT);
+        float2 normal = math.normalize(new float2(b * cosT, a * sinT));
+        return ellipsePoint + normal * offset;
     }
     
     // Also spawn ghosts around the obstacle boundary (if obstacle exists)
@@ -216,7 +214,7 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
                 float2 ghostPos = new float2(x, obstacleCentre.y + obsHalfY - layerDist);
                 float2 rel = ghostPos - (float2)center;
                 float normalized = (rel.x * rel.x) / (a * a) + (rel.y * rel.y) / (b * b);
-                if (normalized < 1.0f)
+                if (normalized < 1.09f)
                 {
                     outPositions.Add(ghostPos);
                     outVelocities.Add(float2.zero);

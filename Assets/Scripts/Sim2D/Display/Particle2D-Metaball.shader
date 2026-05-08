@@ -21,13 +21,17 @@ Shader "Instanced/Particle2DMetaball" {
 			StructuredBuffer<uint> IsGhost;
 			StructuredBuffer<uint> BlobIDs;
 			StructuredBuffer<float> Temperatures;
-			StructuredBuffer<float2> CSFGradients;
+			StructuredBuffer<float2> DebugData;
 			StructuredBuffer<float2> DensityData;
 
 			float scale;
 			float tempMin;
 			float tempMax;
 			float debugGradientMax;
+			float debugCurvatureMax;
+			float debugViscosityMax;
+			float debugDensityMin;
+			float debugDensityMax;
 			float metaballSharpness;
 			float metaballIntensity;
 			int debugMode;
@@ -40,7 +44,7 @@ Shader "Instanced/Particle2DMetaball" {
 				nointerpolation float phase : TEXCOORD3;
 				nointerpolation uint isGhost : TEXCOORD4;
 				float density : TEXCOORD5;
-				nointerpolation float3 blobCol : TEXCOORD4;
+				nointerpolation float3 blobCol : TEXCOORD6;
 			};
 
 			float3 HashBlobColor(uint blobId)
@@ -61,7 +65,7 @@ Shader "Instanced/Particle2DMetaball" {
 
 				float temp = Temperatures[instanceID];
 				float tempT = saturate((temp - tempMin) / max(tempMax - tempMin, 0.001));
-				float2 csfData = CSFGradients[instanceID];
+				float2 csfData = DebugData[instanceID];
 				float density = DensityData[instanceID].x;
 
 				v2f o;
@@ -85,14 +89,18 @@ Shader "Instanced/Particle2DMetaball" {
 				if (r2 >= 1.0) discard;
 
 				float kernel = exp(-r2 * max(metaballSharpness, 0.01)) * metaballIntensity;
+				float maxAbsValue = max(debugGradientMax, 0.0001);
+
+				// Debug mode 7: blob id visualization uses RGB weighted colour + A weight.
+				if (debugMode == 7)
+				{
+					return float4(i.blobCol * kernel, kernel);
+				}
 				
 				// Debug mode 5: density visualization
 				if (debugMode == 5)
 				{
-					float maxAbsValue = max(debugGradientMax, 0.0001);
-					float densityT = saturate(i.density / maxAbsValue);
-					// Map density to RGB gradient: blue (0) -> green (0.5) -> red (1)
-					// Encode as packed data similar to temperature
+					float densityT = saturate((i.density - debugDensityMin) / max(debugDensityMax - debugDensityMin, 0.0001));
 					float2 packed = float2(densityT * kernel, kernel);
 					return i.phase < 0.5 ? float4(packed, 0, 0) : float4(0, 0, packed);
 				}
@@ -106,22 +114,23 @@ Shader "Instanced/Particle2DMetaball" {
 				
 				if (debugMode != 0)
 				{
-					if (debugMode == 7)
-					{
-						return float4(i.blobCol * kernel, kernel);
-					}
-
-					// Debug mode packs two weighted values into one texture:
-					// Other debug modes pack two weighted values into one texture:
-					// R/G = debug X, B/A = debug Y (or curvature duplicated).
-					float maxAbsValue = max(debugGradientMax, 0.0001);
 					float2 debugData;
 					if (debugMode == 1)
+					{
 						debugData = i.csfDebug;
-					else if (debugMode == 2 || debugMode == 4)
-						debugData = i.csfDebug.xx / maxAbsValue;
+					}
+					else if (debugMode == 2)
+					{
+						debugData = i.csfDebug.xx / max(debugCurvatureMax, 0.0001);
+					}
+					else if (debugMode == 4)
+					{
+						debugData = i.csfDebug.xx / max(debugViscosityMax, 0.0001);
+					}
 					else
+					{
 						debugData = i.csfDebug / maxAbsValue;
+					}
 					return float4(debugData.x * kernel, kernel, debugData.y * kernel, kernel);
 				}
 

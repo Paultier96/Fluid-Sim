@@ -171,7 +171,7 @@ MonoBehaviour:
   gravity: -13
   collisionDamping: 0.5
   smoothingRadius: 0.175
-  pressureMultiplier: 800
+  pressureMultiplier: 1500
   nearPressureMultiplier: 30
   boundsSize: {x: 46.22222, y: 26}
   obstacleSize: {x: 14, y: 30.28}
@@ -185,7 +185,7 @@ MonoBehaviour:
   ellipseBoundsCenter: {x: 0, y: -5.55}
   interactionRadius: 2.5
   interactionStrength: 75
-  buoyancyInversionStrength: 7.5
+  buoyancyInversionStrength: 10
   buoyancyInversionClamp: 1
   phases:
   - name: Wax
@@ -219,54 +219,15 @@ MonoBehaviour:
       m_ColorSpace: -1
       m_NumColorKeys: 2
       m_NumAlphaKeys: 2
-    targetDensity: 390
+    targetDensity: 245
     viscosity: 0.5
-    viscosityTemperatureSensitivity: 0.04
-    thermalExpansion: 0.035
-    surfaceTension: 115
-    nonCoalescenceRadius: 0
-    nonCoalescenceStrength: 0
-    nonCoalescenceNormalDotThreshold: 0.7
-  - name: Wax
-    colourMap:
-      serializedVersion: 2
-      key0: {r: 0.4, g: 0.1764706, b: 0.54901963, a: 1}
-      key1: {r: 0.92941177, g: 0.11764706, b: 0.4745098, a: 1}
-      key2: {r: 0, g: 0, b: 0, a: 0}
-      key3: {r: 0, g: 0, b: 0, a: 0}
-      key4: {r: 0, g: 0, b: 0, a: 0}
-      key5: {r: 0, g: 0, b: 0, a: 0}
-      key6: {r: 0, g: 0, b: 0, a: 0}
-      key7: {r: 0, g: 0, b: 0, a: 0}
-      ctime0: 0
-      ctime1: 65535
-      ctime2: 0
-      ctime3: 0
-      ctime4: 0
-      ctime5: 0
-      ctime6: 0
-      ctime7: 0
-      atime0: 0
-      atime1: 65535
-      atime2: 0
-      atime3: 0
-      atime4: 0
-      atime5: 0
-      atime6: 0
-      atime7: 0
-      m_Mode: 2
-      m_ColorSpace: -1
-      m_NumColorKeys: 2
-      m_NumAlphaKeys: 2
-    targetDensity: 500
-    viscosity: 0.5
-    viscosityTemperatureSensitivity: 0.04
-    thermalExpansion: 0.035
-    surfaceTension: 120
-    thermalConductivity: 1
+    viscosityTemperatureSensitivity: 0.01
+    thermalExpansion: 0.003
+    surfaceTension: 90
+    thermalConductivity: 2
     specificHeatCapacity: 10
-    nonCoalescenceRadius: 2
-    nonCoalescenceStrength: 10
+    nonCoalescenceRadius: 4
+    nonCoalescenceStrength: 0
     nonCoalescenceNormalDotThreshold: 0.234
   - name: Water
     colourMap:
@@ -299,10 +260,10 @@ MonoBehaviour:
       m_ColorSpace: -1
       m_NumColorKeys: 2
       m_NumAlphaKeys: 2
-    targetDensity: 200
+    targetDensity: 234
     viscosity: 0.03
     viscosityTemperatureSensitivity: 0
-    thermalExpansion: 0.003
+    thermalExpansion: 0.0005
     surfaceTension: 10
     thermalConductivity: 50
     specificHeatCapacity: 20
@@ -310,16 +271,21 @@ MonoBehaviour:
     nonCoalescenceStrength: 0
     nonCoalescenceNormalDotThreshold: 0.7
   ghostPhase: 1
-  phaseSeparation: 1.1
+  phaseSeparation: 1
   phaseCohesionValues:
   - 1
   - -0.5
   - 1
-  blobIdUpdateInterval: 1000
-  blobPropagationIterations: 120
+  blobIdUpdateInterval: 3000
+  blobPropagationIterations: 200
   surfaceTensionThreshold: 0.1
+  blobBlobSurfaceTension: 200
+  maxSurfaceTensionCurvature: 10
   ambientTemperature: 10
-  ghostCoolingMultiplier: 1
+  ghostCoolingMultiplier: 2
+  ambientCoolingRate: 0.01
+  wallCoolingRate: 1
+  wallCoolingDistance: 1
   heatSource: {fileID: 2055861083}
   compute: {fileID: 7200000, guid: 1c77ce8de78fddb419ed2d15cae41af0, type: 3}
   spawner2D: {fileID: 271053320}
@@ -380,8 +346,10 @@ MonoBehaviour:
   phaseBlendWidth: 4
   metaballSharpness: 1
   metaballIntensity: 20
-  debugMode: 5
+  debugMode: 0
   debugGradientMax: 1
+  debugDensityMin: 220
+  debugDensityMax: 400
   edgeWidth: 0.03
   jumpFloodCompute: {fileID: 7200000, guid: 7349de8b8fa110249b104a7dac6f38c0, type: 3}
   jumpFloodDisplayShader: {fileID: 4800000, guid: a3cfade596b52974f8bac4577967ca73, type: 3}
@@ -401,6 +369,7 @@ GameObject:
   - component: {fileID: 963194228}
   - component: {fileID: 963194227}
   - component: {fileID: 963194226}
+  - component: {fileID: 963194229}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -451,7 +420,7 @@ Camera:
   far clip plane: 1000
   field of view: 60
   orthographic: 1
-  orthographic size: 15.5
+  orthographic size: 18
   m_Depth: -1
   m_CullingMask:
     serializedVersion: 2
@@ -476,12 +445,29 @@ Transform:
   m_GameObject: {fileID: 963194225}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: -10}
+  m_LocalPosition: {x: 0, y: 7, z: -10}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &963194229
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 963194225}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ba4f7c9d5899b9244bfea6ba99e07aba, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Camera2D
+  controlsEnabled: 1
+  zoomSpeed: 0.12
+  minZoom: 0.1
+  maxZoom: 100
+  zoomTowardMouse: 1
 --- !u!1 &2055861082
 GameObject:
   m_ObjectHideFlags: 0
@@ -512,9 +498,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Simulation.HeatSource2D
   shape: 1
-  radius: 4
-  size: {x: 13.57, y: 2}
   temperature: 100
+  transferRate: 3
+  falloffPower: 2
 --- !u!4 &2055861084
 Transform:
   m_ObjectHideFlags: 0
@@ -524,8 +510,8 @@ Transform:
   m_GameObject: {fileID: 2055861082}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: -10.06, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalPosition: {x: 0, y: -9.86, z: 0}
+  m_LocalScale: {x: 9, y: 4, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}

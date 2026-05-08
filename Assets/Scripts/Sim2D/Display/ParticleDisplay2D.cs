@@ -75,10 +75,14 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0)] public float metaballIntensity = 1.0f;
 
 		[Header("Debug")]
-		[Tooltip("Selects what to show in debug mode. Gradient: X/Y in R/G. Curvature: signed scalar. Force: X/Y direction + magnitude. Viscosity: effective temperature-adjusted viscosity. Density: particle density. Temperature: particle temperature (blue=cold, red=hot).")]
+		[Tooltip("Selects what to show in debug mode. Press 0-7 to switch modes at runtime.")]
 		public DebugVisualization debugMode = DebugVisualization.None;
 		[Tooltip("Maximum absolute value mapped in debug visualisation (used by curvature/force views).")]
 		public float debugGradientMax = 1.0f;
+		[Tooltip("Lower density value used for density debug colour mapping.")]
+		[Min(0f)] public float debugDensityMin = 0f;
+		[Tooltip("Upper density value used for density debug colour mapping.")]
+		[Min(0.0001f)] public float debugDensityMax = 500f;
 		
 		public float edgeWidth = 0.03f;
 
@@ -127,6 +131,8 @@ namespace Seb.Fluid2D.Rendering
 
 		void LateUpdate()
 		{
+			UpdateDebugModeFromKeyboard();
+
 			EnsureMaterials();
 			CollectRenderCameras(renderCameras);
 			targetCamera = GetPrimaryRenderCamera(renderCameras);
@@ -156,6 +162,42 @@ namespace Seb.Fluid2D.Rendering
 					RemoveCommandBuffer();
 					Graphics.DrawMeshInstancedIndirect(mesh, 0, directParticleMaterial, bounds, argsBuffer);
 				}
+			}
+		}
+
+		void UpdateDebugModeFromKeyboard()
+		{
+			if (Input.GetKeyDown(KeyCode.Alpha0) || Input.GetKeyDown(KeyCode.Keypad0))
+			{
+				debugMode = DebugVisualization.None;
+			}
+			else if (Input.GetKeyDown(KeyCode.Alpha1) || Input.GetKeyDown(KeyCode.Keypad1))
+			{
+				debugMode = DebugVisualization.Gradient;
+			}
+			else if (Input.GetKeyDown(KeyCode.Alpha2) || Input.GetKeyDown(KeyCode.Keypad2))
+			{
+				debugMode = DebugVisualization.Curvature;
+			}
+			else if (Input.GetKeyDown(KeyCode.Alpha3) || Input.GetKeyDown(KeyCode.Keypad3))
+			{
+				debugMode = DebugVisualization.Force;
+			}
+			else if (Input.GetKeyDown(KeyCode.Alpha4) || Input.GetKeyDown(KeyCode.Keypad4))
+			{
+				debugMode = DebugVisualization.Viscosity;
+			}
+			else if (Input.GetKeyDown(KeyCode.Alpha5) || Input.GetKeyDown(KeyCode.Keypad5))
+			{
+				debugMode = DebugVisualization.Density;
+			}
+			else if (Input.GetKeyDown(KeyCode.Alpha6) || Input.GetKeyDown(KeyCode.Keypad6))
+			{
+				debugMode = DebugVisualization.Temperature;
+			}
+			else if (Input.GetKeyDown(KeyCode.Alpha7) || Input.GetKeyDown(KeyCode.Keypad7))
+			{
+				debugMode = DebugVisualization.BlobIds;
 			}
 		}
 
@@ -345,12 +387,19 @@ namespace Seb.Fluid2D.Rendering
 			targetMaterial.SetFloat("velocityMax", velocityDisplayMax);
 			targetMaterial.SetFloat("tempMin", sim.ambientTemperature);
 			targetMaterial.SetFloat("tempMax", sim.HeatSourceTemperature);
-			targetMaterial.SetBuffer("CSFGradients", sim.csfGradientBuffer);
+			targetMaterial.SetBuffer("DebugData", sim.csfGradientBuffer);
 			targetMaterial.SetFloat("debugGradientMax", debugGradientMax);
+			targetMaterial.SetFloat("debugCurvatureMax", sim.MaxDebugCurvature);
+			targetMaterial.SetFloat("debugViscosityMax", sim.MaxDebugViscosity);
+			targetMaterial.SetFloat("debugDensityMin", DebugDensityMin);
+			targetMaterial.SetFloat("debugDensityMax", DebugDensityMax);
 			targetMaterial.SetInt("debugMode", (int)debugMode);
 			targetMaterial.SetFloat("metaballSharpness", metaballSharpness);
 			targetMaterial.SetFloat("metaballIntensity", metaballIntensity);
 		}
+
+		float DebugDensityMin => Mathf.Min(debugDensityMin, debugDensityMax - 0.0001f);
+		float DebugDensityMax => Mathf.Max(debugDensityMax, debugDensityMin + 0.0001f);
 
 		void ApplyGradientTextures()
 		{
@@ -703,6 +752,17 @@ namespace Seb.Fluid2D.Rendering
 		{
 			needsUpdate = true;
 			blurReferenceOrthoSize = -1f;
+		}
+
+		void OnGUI()
+		{
+			GUIStyle style = new GUIStyle(GUI.skin.box)
+			{
+				alignment = TextAnchor.MiddleLeft,
+				fontSize = 20,
+			};
+
+			GUI.Box(new Rect(30, 30, 240, 30), $"Debug: {debugMode}", style);
 		}
 
 		void OnDisable()
