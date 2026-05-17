@@ -173,6 +173,7 @@ MonoBehaviour:
   smoothingRadius: 0.175
   pressureMultiplier: 1500
   nearPressureMultiplier: 30
+  interfaceViscosityMultiplier: 0.5
   boundsSize: {x: 46.22222, y: 26}
   obstacleSize: {x: 14, y: 30.28}
   obstacleCentre: {x: 0, y: -25}
@@ -191,19 +192,19 @@ MonoBehaviour:
   - name: Wax
     colourMap:
       serializedVersion: 2
-      key0: {r: 0.4, g: 0.1764706, b: 0.54901963, a: 1}
-      key1: {r: 0.92941177, g: 0.11764706, b: 0.4745098, a: 1}
-      key2: {r: 0, g: 0, b: 0, a: 0}
-      key3: {r: 0, g: 0, b: 0, a: 0}
-      key4: {r: 0, g: 0, b: 0, a: 0}
+      key0: {r: 0.06, g: 0, b: 0.08, a: 1}
+      key1: {r: 0.25, g: 0, b: 0.45, a: 1}
+      key2: {r: 0.9, g: 0, b: 0.55, a: 0}
+      key3: {r: 1, g: 0.38, b: 0, a: 0}
+      key4: {r: 1, g: 1, b: 1, a: 0}
       key5: {r: 0, g: 0, b: 0, a: 0}
       key6: {r: 0, g: 0, b: 0, a: 0}
       key7: {r: 0, g: 0, b: 0, a: 0}
       ctime0: 0
-      ctime1: 65535
-      ctime2: 0
-      ctime3: 0
-      ctime4: 0
+      ctime1: 16384
+      ctime2: 32768
+      ctime3: 49151
+      ctime4: 65535
       ctime5: 0
       ctime6: 0
       ctime7: 0
@@ -217,13 +218,13 @@ MonoBehaviour:
       atime7: 0
       m_Mode: 2
       m_ColorSpace: -1
-      m_NumColorKeys: 2
+      m_NumColorKeys: 5
       m_NumAlphaKeys: 2
     targetDensity: 245
     viscosity: 0.5
     viscosityTemperatureSensitivity: 0.01
     thermalExpansion: 0.003
-    surfaceTension: 90
+    surfaceTension: 120
     thermalConductivity: 2
     specificHeatCapacity: 10
     nonCoalescenceRadius: 4
@@ -232,19 +233,19 @@ MonoBehaviour:
   - name: Water
     colourMap:
       serializedVersion: 2
-      key0: {r: 0, g: 0.14901961, b: 0.38039216, a: 1}
-      key1: {r: 0.57254905, g: 1, b: 0.7529412, a: 1}
-      key2: {r: 0, g: 0, b: 0, a: 0}
-      key3: {r: 0, g: 0, b: 0, a: 0}
-      key4: {r: 0, g: 0, b: 0, a: 0}
+      key0: {r: 0, g: 0.03, b: 0.08, a: 1}
+      key1: {r: 0, g: 0.1, b: 0.45, a: 1}
+      key2: {r: 0, g: 0.75, b: 1, a: 0}
+      key3: {r: 0, g: 1, b: 0.6046601, a: 0}
+      key4: {r: 1, g: 1, b: 1, a: 0}
       key5: {r: 0, g: 0, b: 0, a: 0}
       key6: {r: 0, g: 0, b: 0, a: 0}
       key7: {r: 0, g: 0, b: 0, a: 0}
       ctime0: 0
-      ctime1: 65535
-      ctime2: 0
-      ctime3: 0
-      ctime4: 0
+      ctime1: 16384
+      ctime2: 32768
+      ctime3: 49151
+      ctime4: 65535
       ctime5: 0
       ctime6: 0
       ctime7: 0
@@ -258,7 +259,7 @@ MonoBehaviour:
       atime7: 0
       m_Mode: 2
       m_ColorSpace: -1
-      m_NumColorKeys: 2
+      m_NumColorKeys: 5
       m_NumAlphaKeys: 2
     targetDensity: 234
     viscosity: 0.03
@@ -276,14 +277,21 @@ MonoBehaviour:
   - 1
   - -0.5
   - 1
+  blobBlobCohesion: -0.5
+  blobFilmSeparationDistance: 0
+  blobFilmSeparationStrength: 0
   blobIdUpdateInterval: 3000
   blobPropagationIterations: 200
+  restrictBlobMergingToCoil: 1
+  blobMergeCoil: {fileID: 2055861083}
   surfaceTensionThreshold: 0.1
   blobBlobSurfaceTension: 200
+  blobSelfSurfaceTension: 0
+  blobSelfSurfaceTensionPhase: -1
   maxSurfaceTensionCurvature: 10
   ambientTemperature: 10
   ghostCoolingMultiplier: 2
-  ambientCoolingRate: 0.01
+  ambientCoolingRate: 0.005
   wallCoolingRate: 1
   wallCoolingDistance: 1
   heatSource: {fileID: 2055861083}
@@ -329,28 +337,115 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
-  renderMode: 0
+  renderMode: 1
   directParticleShader: {fileID: 4800000, guid: 441b7193936682446b30d2140d15792a, type: 3}
   metaballShader: {fileID: 4800000, guid: 85b87c70f093d411791140a3aca6ced6, type: 3}
   scale: 0.07
   gradientResolution: 64
   velocityDisplayMax: 15
-  useRenderTextureMetaballs: 1
+  particleLightDirection: {x: -2.5, y: 2.5, z: 2.5}
+  particleLightColor: {r: 1, g: 0.26729542, b: 0.66926533, a: 1}
+  particleAmbientLight: 1
+  particleDirectionalLightIntensity: 0
+  particleNormalStrength: 1
+  particleNormalBlurCompensation: 0.43
+  particleSpecularColor: {r: 1, g: 0.50628924, b: 0.7447482, a: 1}
+  particleSpecularIntensity: 100
+  particleSpecularPower: 5000
+  particleFresnelColor: {r: 0.75, g: 0.9, b: 1, a: 1}
+  particleFresnelIntensity: 0
+  particleFresnelPower: 3
+  particleGlowDirection: {x: -0.75, y: -0.45}
+  particleGlowColor: {r: 1, g: 1, b: 1, a: 1}
+  particleGlowIntensity: 8
+  particleGlowPower: 8.1
+  particleTransmissionIntensity: 15.2
+  particleTransmissionPower: 1.99
+  particleEdgeDarkening: 1
+  particleEdgeDarkeningPower: 1.11
   compositeShader: {fileID: 4800000, guid: db6a0932797cd49b1a42ac6d2c30ac61, type: 3}
   blurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
   renderTextureScale: 1
-  blurRadius: 2.5
-  scaleBlurWithZoom: 1
+  blurRadius: 7
   densityThreshold: 0.18
   edgeSoftness: 2
-  phaseBlendWidth: 4
+  phaseBlendWidth: 2
   metaballSharpness: 1
   metaballIntensity: 20
+  metaballRefractionStrength: 0.03
+  metaballRefractionEdgeFade: 10
   debugMode: 0
-  debugGradientMax: 1
+  debugGradientMax: 30
   debugDensityMin: 220
   debugDensityMax: 400
-  edgeWidth: 0.03
+  heatMap:
+    serializedVersion: 2
+    key0: {r: 0, g: 0, b: 0, a: 1}
+    key1: {r: 0.125, g: 0, b: 0.549, a: 1}
+    key2: {r: 0.8, g: 0, b: 0.466, a: 0}
+    key3: {r: 1, g: 0.843, b: 0, a: 0}
+    key4: {r: 1, g: 1, b: 1, a: 0}
+    key5: {r: 0, g: 0, b: 0, a: 0}
+    key6: {r: 0, g: 0, b: 0, a: 0}
+    key7: {r: 0, g: 0, b: 0, a: 0}
+    ctime0: 0
+    ctime1: 16384
+    ctime2: 32768
+    ctime3: 49151
+    ctime4: 65535
+    ctime5: 0
+    ctime6: 0
+    ctime7: 0
+    atime0: 0
+    atime1: 65535
+    atime2: 0
+    atime3: 0
+    atime4: 0
+    atime5: 0
+    atime6: 0
+    atime7: 0
+    m_Mode: 0
+    m_ColorSpace: -1
+    m_NumColorKeys: 5
+    m_NumAlphaKeys: 2
+  signedHeatMap:
+    serializedVersion: 2
+    key0: {r: 2, g: 0.7, b: 0, a: 1}
+    key1: {r: 1, g: 0.1, b: 0, a: 1}
+    key2: {r: 0, g: 0, b: 0, a: 0}
+    key3: {r: 0, g: 0.2, b: 1, a: 0}
+    key4: {r: 0, g: 1.2, b: 2, a: 0}
+    key5: {r: 0, g: 0, b: 0, a: 0}
+    key6: {r: 0, g: 0, b: 0, a: 0}
+    key7: {r: 0, g: 0, b: 0, a: 0}
+    ctime0: 0
+    ctime1: 16384
+    ctime2: 32768
+    ctime3: 49151
+    ctime4: 65535
+    ctime5: 0
+    ctime6: 0
+    ctime7: 0
+    atime0: 0
+    atime1: 65535
+    atime2: 0
+    atime3: 0
+    atime4: 0
+    atime5: 0
+    atime6: 0
+    atime7: 0
+    m_Mode: 0
+    m_ColorSpace: -1
+    m_NumColorKeys: 5
+    m_NumAlphaKeys: 2
+  ditherStrength: 0.01
+  vectorFieldShader: {fileID: 4800000, guid: 0526403c05f5a334ba1749bab01fec70, type: 3}
+  vectorFieldSource: 0
+  vectorScale: 0.52
+  vectorMaxMagnitude: 1
+  vectorUseLogScale: 1
+  vectorLogScaleStrength: 100
+  vectorWidth: 0.035
   jumpFloodCompute: {fileID: 7200000, guid: 7349de8b8fa110249b104a7dac6f38c0, type: 3}
   jumpFloodDisplayShader: {fileID: 4800000, guid: a3cfade596b52974f8bac4577967ca73, type: 3}
   jumpFloodSeedShader: {fileID: 4800000, guid: e73c24e1274d0fd459972e6e52ee7b27, type: 3}
@@ -510,7 +605,7 @@ Transform:
   m_GameObject: {fileID: 2055861082}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: -9.86, z: 0}
+  m_LocalPosition: {x: 0, y: -8.5, z: 0}
   m_LocalScale: {x: 9, y: 4, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []

@@ -20,6 +20,8 @@ namespace Seb.Fluid2D.Simulation
         public float smoothingRadius = 2;
         public float pressureMultiplier;
         public float nearPressureMultiplier;
+        [Tooltip("Multiplier applied to viscous velocity exchange across phase boundaries and between separate same-phase blobs. Lower values make interfaces more slippery.")]
+        [Range(0f, 1f)] public float interfaceViscosityMultiplier = 1f;
         public Vector2 boundsSize;
         public Vector2 obstacleSize;
         public Vector2 obstacleCentre;
@@ -88,16 +90,31 @@ namespace Seb.Fluid2D.Simulation
         public float phaseSeparation = 0.3f;
 
         public float[] phaseCohesionValues = new float[] { 0.5f, -0.1f, 0.5f };
+        [Tooltip("Cohesion override for same-phase particles that belong to different blobs. Negative values repel.")]
+        public float blobBlobCohesion = -0.1f;
+        [Tooltip("Minimum separation to preserve a resolved carrier-liquid film between same-phase blobs. Set to 0 to disable.")]
+        [Min(0f)] public float blobFilmSeparationDistance = 0f;
+        [Tooltip("Repulsion strength used when different same-phase blobs are closer than the film separation distance.")]
+        [Min(0f)] public float blobFilmSeparationStrength = 0f;
 
         [Header("Blob Connectivity")]
         [Tooltip("Simulation steps between blob-ID recomputation. 1 = every step.")]
         [Min(1)] public int blobIdUpdateInterval = 1;
         [Tooltip("Label-propagation passes used when recomputing blob IDs.")]
         [Min(1)] public int blobPropagationIterations = 8;
+        [Tooltip("When enabled, existing blobs can split anywhere, but different blobs only merge inside the configured coil area.")]
+        public bool restrictBlobMergingToCoil = false;
+        [Tooltip("Area where separate blobs are allowed to merge. If unset, the heat source area is used.")]
+        public HeatSource2D blobMergeCoil;
 
         [Header("Surface Tension")]
         public float surfaceTensionThreshold = 0.1f;
-        [Min(0f)] public float blobBlobSurfaceTension = 800f;
+        //[Min(0f)]
+        public float blobBlobSurfaceTension = 800f;
+        [Tooltip("Extra blob-ID based surface tension. This tries to minimize each blob's own perimeter, independent of the surrounding phase. Set to 0 to disable.")]
+        [Min(0f)] public float blobSelfSurfaceTension = 0f;
+        [Tooltip("Phase affected by blob self surface tension. Set to -1 to affect all phases.")]
+        public int blobSelfSurfaceTensionPhase = -1;
         [Min(0f)] public float maxSurfaceTensionCurvature = 10f;
 
         // ADDED: temperature settings
@@ -117,6 +134,28 @@ namespace Seb.Fluid2D.Simulation
 
         public float HeatSourceTemperature => heatSource != null && heatSource.isActiveAndEnabled ? heatSource.temperature : ambientTemperature;
         public float MaxDebugCurvature => Mathf.Max(maxSurfaceTensionCurvature, 0.0001f);
+        public float MaxDebugSurfaceTensionForce
+        {
+            get
+            {
+                float maxSurfaceTension = Mathf.Max(Mathf.Abs(blobBlobSurfaceTension), Mathf.Abs(blobSelfSurfaceTension));
+                if (phases != null)
+                {
+                    for (int i = 0; i < phases.Length; i++)
+                    {
+                        if (phases[i] != null)
+                        {
+                            maxSurfaceTension = Mathf.Max(maxSurfaceTension, Mathf.Abs(phases[i].surfaceTension));
+                        }
+                    }
+                }
+
+                return Mathf.Max(maxSurfaceTension * MaxDebugCurvature, 0.0001f);
+            }
+        }
+
+        public float MaxDebugConvection => Mathf.Max(Mathf.Abs(gravity) * buoyancyInversionStrength * Mathf.Max(0f, buoyancyInversionClamp), 0.0001f);
+
 
         public float MaxDebugViscosity
         {
@@ -156,9 +195,12 @@ namespace Seb.Fluid2D.Simulation
         public ComputeBuffer blobIdBuffer { get; private set; }
         public ComputeBuffer temperatureBuffer { get; private set; }
         public ComputeBuffer csfGradientBuffer { get; private set; }
+        public ComputeBuffer debugVectorDataBuffer { get; private set; }
+        public ComputeBuffer debugVectorSignBuffer { get; private set; }
         public ComputeBuffer colorGradientBuffer { get; private set; }
         ComputeBuffer blobIdScratchBuffer;
         ComputeBuffer blobIdPreviousBuffer;
+        ComputeBuffer blobSizeBuffer;
 
         ComputeBuffer sortTarget_Position;
         ComputeBuffer sortTarget_PredicitedPosition;
@@ -220,6 +262,9 @@ namespace Seb.Fluid2D.Simulation
         int copyBlobIdsToPreviousKernel;
         int reorderBlobIdsKernel;
         int copybackBlobIdsKernel;
+        int clearBlobSizesKernel;
+        int countBlobSizesKernel;
+        int markSingleParticleBlobsKernel;
 
         // State
         bool isPaused;
@@ -270,6 +315,9 @@ namespace Seb.Fluid2D.Simulation
             copyBlobIdsToPreviousKernel = compute.FindKernel("CopyBlobIDsToPrevious");
             reorderBlobIdsKernel = compute.FindKernel("ReorderBlobIDs");
             copybackBlobIdsKernel = compute.FindKernel("ReorderBlobIDsCopyback");
+            clearBlobSizesKernel = compute.FindKernel("ClearBlobSizes");
+            countBlobSizesKernel = compute.FindKernel("CountBlobSizes");
+            markSingleParticleBlobsKernel = compute.FindKernel("MarkSingleParticleBlobs");
 
             particleDisplay = GetComponent<Rendering.ParticleDisplay2D>();
             if (phases != null)
@@ -317,6 +365,7 @@ namespace Seb.Fluid2D.Simulation
             blobIdBuffer = ComputeHelper.CreateStructuredBuffer<uint>(numParticles);
             blobIdScratchBuffer = ComputeHelper.CreateStructuredBuffer<uint>(numParticles);
             blobIdPreviousBuffer = ComputeHelper.CreateStructuredBuffer<uint>(numParticles);
+            blobSizeBuffer = ComputeHelper.CreateStructuredBuffer<uint>(numParticles);
             temperatureBuffer = ComputeHelper.CreateStructuredBuffer<float>(numParticles);
             float[] initialTemps = new float[numParticles];
             for (int i = 0; i < numFluidParticles; i++)
@@ -327,6 +376,10 @@ namespace Seb.Fluid2D.Simulation
             //debug
             csfGradientBuffer = ComputeHelper.CreateStructuredBuffer<float2>(numParticles);
             ComputeHelper.SetBuffer(compute, csfGradientBuffer, "DebugData", csfKernel);
+            debugVectorDataBuffer = ComputeHelper.CreateStructuredBuffer<float2>(numParticles);
+            ComputeHelper.SetBuffer(compute, debugVectorDataBuffer, "DebugVectorData", thermalBuoyancyKernel, csfKernel);
+            debugVectorSignBuffer = ComputeHelper.CreateStructuredBuffer<float>(numParticles);
+            ComputeHelper.SetBuffer(compute, debugVectorSignBuffer, "DebugVectorSign", csfKernel);
             // Color gradients for CSF
             colorGradientBuffer = ComputeHelper.CreateStructuredBuffer<float2>(numParticles);
             ComputeHelper.SetBuffer(compute, colorGradientBuffer, "ColorGradients", computeColorGradKernel);
@@ -362,11 +415,12 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.SetBuffer(compute, predictedPositionBuffer, "PredictedPositions", externalForcesKernel, spatialHashKernel, densityKernel, pressureKernel, viscosityKernel, thermalBuoyancyKernel, updateTemperatureKernel, cohesionKernel, computeColorGradKernel, csfKernel, reorderKernel, copybackKernel);
             ComputeHelper.SetBuffer(compute, velocityBuffer, "Velocities", externalForcesKernel, pressureKernel, viscosityKernel, thermalBuoyancyKernel, cohesionKernel, csfKernel, updatePositionKernel, reorderKernel, copybackKernel);
             ComputeHelper.SetBuffer(compute, densityBuffer, "Densities", externalForcesKernel, densityKernel, pressureKernel, viscosityKernel, cohesionKernel,computeColorGradKernel);
-            ComputeHelper.SetBuffer(compute, phaseBuffer, "Phases", externalForcesKernel, densityKernel, pressureKernel, viscosityKernel, thermalBuoyancyKernel, updateTemperatureKernel, updatePositionKernel, cohesionKernel,computeColorGradKernel, reorderKernel, copybackKernel, updateThermalExpansionKernel);
+            ComputeHelper.SetBuffer(compute, phaseBuffer, "Phases", externalForcesKernel, densityKernel, pressureKernel, viscosityKernel, thermalBuoyancyKernel, updateTemperatureKernel, updatePositionKernel, cohesionKernel,computeColorGradKernel, reorderKernel, copybackKernel, updateThermalExpansionKernel, countBlobSizesKernel, markSingleParticleBlobsKernel);
             ComputeHelper.SetBuffer(compute, ghostFlagBuffer, "IsGhost", externalForcesKernel, pressureKernel, viscosityKernel, thermalBuoyancyKernel, updateTemperatureKernel, updatePositionKernel, cohesionKernel, csfKernel, reorderGhostFlagsKernel, copybackGhostFlagsKernel, updateThermalExpansionKernel);
-            ComputeHelper.SetBuffer(compute, blobIdBuffer, "BlobIDs", initializeBlobIdsKernel, propagateBlobIdsKernel, copyBlobIdsKernel, pressureKernel, reorderBlobIdsKernel, copybackBlobIdsKernel);
+            ComputeHelper.SetBuffer(compute, blobIdBuffer, "BlobIDs", initializeBlobIdsKernel, propagateBlobIdsKernel, copyBlobIdsKernel, pressureKernel, cohesionKernel, reorderBlobIdsKernel, copybackBlobIdsKernel, countBlobSizesKernel, markSingleParticleBlobsKernel);
             ComputeHelper.SetBuffer(compute, blobIdScratchBuffer, "BlobIDsScratch", propagateBlobIdsKernel, copyBlobIdsKernel);
-            ComputeHelper.SetBuffer(compute, blobIdPreviousBuffer, "BlobIDsPrevious", initializeBlobIdsKernel, copyBlobIdsToPreviousKernel);
+            ComputeHelper.SetBuffer(compute, blobSizeBuffer, "BlobSizes", clearBlobSizesKernel, countBlobSizesKernel, markSingleParticleBlobsKernel);
+            ComputeHelper.SetBuffer(compute, blobIdPreviousBuffer, "BlobIDsPrevious", initializeBlobIdsKernel, propagateBlobIdsKernel, copyBlobIdsToPreviousKernel);
             ComputeHelper.SetBuffer(compute, spatialHash.SpatialOffsets, "SpatialOffsets", spatialHashKernel, densityKernel, pressureKernel, viscosityKernel, thermalBuoyancyKernel, updateTemperatureKernel, cohesionKernel, csfKernel);
             ComputeHelper.SetBuffer(compute, spatialHash.SpatialKeys, "SpatialKeys", spatialHashKernel, densityKernel, pressureKernel, viscosityKernel, thermalBuoyancyKernel, updateTemperatureKernel, cohesionKernel, csfKernel);
             ComputeHelper.SetBuffer(compute, spatialHash.SpatialOffsets, "SpatialOffsetsRO", csfKernel);
@@ -374,7 +428,7 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.SetBuffer(compute, colorGradientBuffer, "ColorGradientsRO", csfKernel);
             ComputeHelper.SetBuffer(compute, densityBuffer, "DensitiesRO", csfKernel);
             ComputeHelper.SetBuffer(compute, phaseBuffer, "PhasesRO", csfKernel);
-            ComputeHelper.SetBuffer(compute, blobIdBuffer, "BlobIDsRO", csfKernel, computeColorGradKernel);
+            ComputeHelper.SetBuffer(compute, blobIdBuffer, "BlobIDsRO", viscosityKernel, csfKernel, computeColorGradKernel);
             
             ComputeHelper.SetBuffer(compute, phaseCohesionBuffer, "PhaseCohesionMatrix", cohesionKernel);
 
@@ -387,11 +441,12 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.SetBuffer(compute, predictedPositionBuffer, "PredictedPositions", externalForcesKernel, spatialHashKernel, densityKernel, pressureKernel, viscosityKernel, thermalBuoyancyKernel, updateTemperatureKernel, reorderKernel, copybackKernel, resetGhostTemperaturesKernel);
             ComputeHelper.SetBuffer(compute, velocityBuffer, "Velocities", externalForcesKernel, pressureKernel, viscosityKernel, thermalBuoyancyKernel, updatePositionKernel, reorderKernel, copybackKernel);
             ComputeHelper.SetBuffer(compute, densityBuffer, "Densities", externalForcesKernel, densityKernel, pressureKernel, viscosityKernel);
-            ComputeHelper.SetBuffer(compute, phaseBuffer, "Phases", externalForcesKernel, densityKernel, pressureKernel, viscosityKernel, thermalBuoyancyKernel, updateTemperatureKernel, updatePositionKernel, reorderKernel, copybackKernel, updateThermalExpansionKernel);
+            ComputeHelper.SetBuffer(compute, phaseBuffer, "Phases", externalForcesKernel, densityKernel, pressureKernel, viscosityKernel, thermalBuoyancyKernel, updateTemperatureKernel, updatePositionKernel, reorderKernel, copybackKernel, updateThermalExpansionKernel, countBlobSizesKernel, markSingleParticleBlobsKernel);
             ComputeHelper.SetBuffer(compute, ghostFlagBuffer, "IsGhost", externalForcesKernel, pressureKernel, viscosityKernel, thermalBuoyancyKernel, updateTemperatureKernel, updatePositionKernel, cohesionKernel, csfKernel, reorderGhostFlagsKernel, copybackGhostFlagsKernel, updateThermalExpansionKernel, resetGhostTemperaturesKernel);
-            ComputeHelper.SetBuffer(compute, blobIdBuffer, "BlobIDs", initializeBlobIdsKernel, propagateBlobIdsKernel, copyBlobIdsKernel, pressureKernel, reorderBlobIdsKernel, copybackBlobIdsKernel, copyBlobIdsToPreviousKernel);
+            ComputeHelper.SetBuffer(compute, blobIdBuffer, "BlobIDs", initializeBlobIdsKernel, propagateBlobIdsKernel, copyBlobIdsKernel, pressureKernel, cohesionKernel, reorderBlobIdsKernel, copybackBlobIdsKernel, copyBlobIdsToPreviousKernel, countBlobSizesKernel, markSingleParticleBlobsKernel);
             ComputeHelper.SetBuffer(compute, blobIdScratchBuffer, "BlobIDsScratch", propagateBlobIdsKernel, copyBlobIdsKernel);
-            ComputeHelper.SetBuffer(compute, blobIdPreviousBuffer, "BlobIDsPrevious", initializeBlobIdsKernel, copyBlobIdsToPreviousKernel);
+            ComputeHelper.SetBuffer(compute, blobSizeBuffer, "BlobSizes", clearBlobSizesKernel, countBlobSizesKernel, markSingleParticleBlobsKernel);
+            ComputeHelper.SetBuffer(compute, blobIdPreviousBuffer, "BlobIDsPrevious", initializeBlobIdsKernel, propagateBlobIdsKernel, copyBlobIdsToPreviousKernel);
 
             ComputeHelper.SetBuffer(compute, temperatureBuffer, "Temperatures", viscosityKernel, updateTemperatureKernel, reorderTemperatureKernel, copybackTemperatureKernel, updateThermalExpansionKernel, resetGhostTemperaturesKernel);
             ComputeHelper.SetBuffer(compute, sortTarget_Temperatures, "SortTarget_Temperatures", reorderTemperatureKernel, copybackTemperatureKernel);
@@ -420,6 +475,8 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.SetBuffer(compute, spatialHash.SpatialIndices, "SortedIndices", spatialHashKernel, reorderKernel, reorderTemperatureKernel, reorderParticleTargetDensitiesKernel, reorderGhostFlagsKernel, initializeBlobIdsKernel, reorderBlobIdsKernel); 
             ComputeHelper.SetBuffer(compute, csfGradientBuffer, "DebugData", computeColorGradKernel);
             ComputeHelper.SetBuffer(compute, csfGradientBuffer, "DebugData", externalForcesKernel, viscosityKernel, thermalBuoyancyKernel, cohesionKernel, csfKernel);
+            ComputeHelper.SetBuffer(compute, debugVectorDataBuffer, "DebugVectorData", thermalBuoyancyKernel, csfKernel);
+            ComputeHelper.SetBuffer(compute, debugVectorSignBuffer, "DebugVectorSign", csfKernel);
 
             compute.SetInt("numParticles", numParticles);
             compute.SetInt("numSpatialParticles", numParticles);
@@ -437,6 +494,7 @@ namespace Seb.Fluid2D.Simulation
                 UpdateSettings(settleStepSize);
                 RunSimulationStep();
             }
+            RecomputeBlobIDs();
         }
 
         void Update()
@@ -649,6 +707,9 @@ namespace Seb.Fluid2D.Simulation
                 ComputeHelper.Dispatch(compute, numParticles, kernelIndex: propagateBlobIdsKernel);
                 ComputeHelper.Dispatch(compute, numParticles, kernelIndex: copyBlobIdsKernel);
             }
+            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: clearBlobSizesKernel);
+            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: countBlobSizesKernel);
+            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: markSingleParticleBlobsKernel);
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: copyBlobIdsToPreviousKernel);
         }
 
@@ -660,6 +721,7 @@ namespace Seb.Fluid2D.Simulation
             compute.SetFloat("smoothingRadius", smoothingRadius);
             compute.SetFloat("pressureMultiplier", pressureMultiplier);
             compute.SetFloat("nearPressureMultiplier", nearPressureMultiplier);
+            compute.SetFloat("interfaceViscosityMultiplier", interfaceViscosityMultiplier);
             compute.SetVector("boundsSize", boundsSize);
             compute.SetVector("obstacleSize", obstacleSize);
             compute.SetVector("obstacleCentre", obstacleCentre);
@@ -694,13 +756,32 @@ namespace Seb.Fluid2D.Simulation
                 compute.SetFloat("heatSourceTransferRate", heatSource.transferRate);
                 compute.SetFloat("heatSourceFalloffPower", heatSource.falloffPower);
             }
+
+            HeatSource2D mergeCoilSource = blobMergeCoil != null ? blobMergeCoil : heatSource;
+            bool useMergeCoil = restrictBlobMergingToCoil && mergeCoilSource != null && mergeCoilSource.isActiveAndEnabled;
+            Vector2 mergeCoilPos = Vector2.zero;
+            Vector2 mergeCoilSize = Vector2.zero;
+            int mergeCoilShape = 1; // 0 = rectangular, 1 = elliptical
+            if (useMergeCoil)
+            {
+                mergeCoilPos = mergeCoilSource.Position;
+                mergeCoilSize = mergeCoilSource.Size;
+                mergeCoilShape = mergeCoilSource.shape == HeatSource2D.HeatSourceShape.Rectangular ? 0 : 1;
+            }
+            compute.SetBool("restrictBlobMergingToCoil", useMergeCoil);
+            compute.SetVector("blobMergeCoilPos", mergeCoilPos);
+            compute.SetVector("blobMergeCoilSize", mergeCoilSize);
+            compute.SetInt("blobMergeCoilShape", mergeCoilShape);
             
             compute.SetFloat("buoyancyInversionStrength", buoyancyInversionStrength);
             compute.SetFloat("buoyancyInversionClamp", Mathf.Max(0f, buoyancyInversionClamp));
             compute.SetFloat("surfaceTensionThreshold", surfaceTensionThreshold);
             compute.SetFloat("blobBlobSurfaceTension", blobBlobSurfaceTension);
+            compute.SetFloat("blobSelfSurfaceTension", blobSelfSurfaceTension);
+            compute.SetInt("blobSelfSurfaceTensionPhase", blobSelfSurfaceTensionPhase);
             compute.SetFloat("maxSurfaceTensionCurvature", maxSurfaceTensionCurvature);
             compute.SetInt("debugVisualizationMode", particleDisplay != null ? (int)particleDisplay.debugMode : 0);
+            compute.SetInt("debugVectorFieldMode", particleDisplay != null ? particleDisplay.ComputeVectorFieldMode : 0);
 
             Vector2 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
             bool isPullInteraction = Input.GetMouseButton(0);
@@ -712,6 +793,9 @@ namespace Seb.Fluid2D.Simulation
             compute.SetVector("interactionInputPoint", mousePos);
             compute.SetFloat("interactionInputStrength", currInteractStrength);
             compute.SetFloat("interactionInputRadius", interactionRadius);
+            compute.SetFloat("blobBlobCohesion", blobBlobCohesion);
+            compute.SetFloat("blobFilmSeparationDistance", blobFilmSeparationDistance);
+            compute.SetFloat("blobFilmSeparationStrength", blobFilmSeparationStrength);
         }
 
         void SetInitialBufferData(Spawner2D.ParticleSpawnData spawnData)
@@ -747,6 +831,7 @@ namespace Seb.Fluid2D.Simulation
             ghostFlagBuffer.SetData(allGhostFlags);
             uint[] initialBlobIds = new uint[numParticles];
             blobIdBuffer.SetData(initialBlobIds);
+            blobIdPreviousBuffer.SetData(initialBlobIds);
 
             // ADDED: reset temperatures to ambient on reset
             float[] initialTemps = new float[numParticles];
@@ -794,6 +879,7 @@ namespace Seb.Fluid2D.Simulation
             if (blobIdBuffer != null) blobIdBuffer.Release();
             if (blobIdScratchBuffer != null) blobIdScratchBuffer.Release();
             if (blobIdPreviousBuffer != null) blobIdPreviousBuffer.Release();
+            if (blobSizeBuffer != null) blobSizeBuffer.Release();
             if (temperatureBuffer != null) temperatureBuffer.Release();
 
             if (sortTarget_Position != null) sortTarget_Position.Release();
@@ -820,6 +906,8 @@ namespace Seb.Fluid2D.Simulation
             if (phaseNonCoalescenceStrengthBuffer != null) phaseNonCoalescenceStrengthBuffer.Release();
             if (phaseNonCoalescenceNormalDotThresholdBuffer != null) phaseNonCoalescenceNormalDotThresholdBuffer.Release();
             if (csfGradientBuffer != null) csfGradientBuffer.Release();
+            if (debugVectorDataBuffer != null) debugVectorDataBuffer.Release();
+            if (debugVectorSignBuffer != null) debugVectorSignBuffer.Release();
             if (colorGradientBuffer != null) colorGradientBuffer.Release();
 
             spatialHash?.Release();

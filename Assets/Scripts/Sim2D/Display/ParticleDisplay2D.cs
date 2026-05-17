@@ -1,9 +1,9 @@
 using Seb.Fluid2D.Simulation;
 using Seb.Helpers;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Experimental.Rendering;
+using UnityEngine.Serialization;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -24,11 +24,20 @@ namespace Seb.Fluid2D.Rendering
 			None = 0,
 			Gradient = 1,
 			Curvature = 2,
-			Force = 3,
-			Viscosity = 4,
-			Density = 5,
-			Temperature = 6,
-			BlobIds = 7,
+			Viscosity = 3,
+			Density = 4,
+			Temperature = 5,
+			BlobIds = 6,
+		}
+
+		public enum VectorFieldSource
+		{
+			None = 0,
+			SurfaceTensionForce = 1,
+			RepulsionForce = 2,
+			Velocity = 3,
+			CurvatureNormal = 4,
+			Convection = 5,
 		}
 
 		[Tooltip("The fluid simulation to visualize.")]
@@ -49,10 +58,49 @@ namespace Seb.Fluid2D.Rendering
 		[Tooltip("Velocity magnitude mapped to the top of the colour gradient.")]
 		public float velocityDisplayMax;
 
+		[Header("Particle Lighting")]
+		[Tooltip("Direction toward the light used to shade particles in normal rendering mode.")]
+		public Vector3 particleLightDirection = new Vector3(-0.35f, 0.55f, 0.75f);
+		[Tooltip("Colour of the directional light used to shade particles in normal rendering mode.")]
+		[ColorUsage(false, true)] public Color particleLightColor = Color.white;
+		[Tooltip("Unlit colour multiplier. Increase if shadowed particles are too dark.")]
+		[Range(0f, 1f)] public float particleAmbientLight = 0.65f;
+		[Tooltip("Directional light strength applied from each particle's reconstructed normal.")]
+		[Min(0f)] public float particleDirectionalLightIntensity = 0.45f;
+		[Tooltip("Multiplier applied to reconstructed normal XY before rebuilding Z. Higher values make blurred normals look steeper.")]
+		[Min(0f)] public float particleNormalStrength = 1f;
+		[Tooltip("Exponent used to increase normal strength with effective blur radius. 0 disables automatic compensation, 1 is linear.")]
+		[Min(0f)] public float particleNormalBlurCompensation = 0.5f;
+		[Tooltip("Colour of the specular highlight used in normal rendering mode.")]
+		[ColorUsage(false, true)] public Color particleSpecularColor = Color.white;
+		[Tooltip("Specular highlight strength applied from each particle's reconstructed normal.")]
+		[Min(0f)] public float particleSpecularIntensity = 0.25f;
+		[Tooltip("Specular exponent. Higher values make highlights smaller and sharper.")]
+		[Min(1f)] public float particleSpecularPower = 24f;
+		[Tooltip("Colour added at grazing view angles to fake transparent liquid edges.")]
+		[ColorUsage(false, true)] public Color particleFresnelColor = new Color(0.75f, 0.9f, 1f, 1f);
+		[Tooltip("Strength of the Fresnel edge glow.")]
+		[Min(0f)] public float particleFresnelIntensity = 0.25f;
+		[Tooltip("Fresnel exponent. Higher values concentrate the glow closer to grazing angles.")]
+		[Min(0.1f)] public float particleFresnelPower = 3f;
+		[Tooltip("Screen/normal-space direction for the one-sided liquid-glass rim glow.")]
+		public Vector2 particleGlowDirection = new Vector2(-0.75f, -0.45f);
+		[Tooltip("Colour of the one-sided liquid-glass rim glow.")]
+		[ColorUsage(false, true)] public Color particleGlowColor = Color.white;
+		[Tooltip("Strength of the one-sided liquid-glass rim glow.")]
+		[Min(0f)] public float particleGlowIntensity = 0.35f;
+		[Tooltip("Directional glow exponent. Higher values make the glow narrower along its chosen side.")]
+		[Min(0.1f)] public float particleGlowPower = 1.5f;
+		[Tooltip("Strength of the fake transmission/backlight term.")]
+		[Min(0f)] public float particleTransmissionIntensity = 0.2f;
+		[Tooltip("Transmission exponent. Higher values make transmission more directional.")]
+		[Min(0.1f)] public float particleTransmissionPower = 2f;
+		[Tooltip("Darkens thin/edge regions to fake inner shadow and liquid thickness.")]
+		[Range(0f, 1f)] public float particleEdgeDarkening = 0.2f;
+		[Tooltip("Edge darkening exponent. Higher values keep the darkening tighter to the edge.")]
+		[Min(0.1f)] public float particleEdgeDarkeningPower = 2f;
+
 		[Header("Metaball Rendering")]
-		[Tooltip("When enabled, particles are composited into a smooth fluid surface via render textures. When disabled, falls back to direct particle rendering.")]
-		public bool useRenderTextureMetaballs = true;
-		private Camera targetCamera;
 		[Tooltip("Shader that blits the blurred accumulation texture onto the camera, applying the density threshold and colour lookup.")]
 		public Shader compositeShader;
 		[Tooltip("Shader used for the separable Gaussian blur applied to the accumulation texture.")]
@@ -61,36 +109,62 @@ namespace Seb.Fluid2D.Rendering
 		[Range(0.25f, 1f)] public float renderTextureScale = 0.5f;
 		[Tooltip("Radius in pixels (at render texture resolution) of the Gaussian blur. Larger values make particles merge at greater distances.")]
 		[Min(0)] public float blurRadius = 6;
-		[Tooltip("Scales blur radius with camera zoom so metaball blending stays visually consistent while zooming.")]
-		public bool scaleBlurWithZoom = true;
 		[Tooltip("Blurred density value at which the fluid surface appears. Increase to shrink the visible fluid; decrease to expand it.")]
 		[Min(0)] public float densityThreshold = 0.18f;
 		[Tooltip("Width of the density falloff around the surface threshold. Larger values give a softer, more transparent edge. Clamped so the fade never starts below zero density.")]
 		[Min(0.0001f)] public float edgeSoftness = 0.06f;
-		[Tooltip("Width of the crossfade zone where two fluid phases blend into each other's colour.")]
-		[Min(0.0001f)] public float phaseBlendWidth = 0.02f;
+		[Tooltip("Screen-space width in pixels for anti-aliased blending between fluid phases.")]
+		[Min(0.0001f)] public float phaseBlendWidth = 1f;
 		[Tooltip("Steepness of each particle's density kernel (exp(-r² × sharpness)). Higher values make particles contribute a tighter, more localised density spike.")]
 		[Min(0.01f)] public float metaballSharpness = 3.5f;
 		[Tooltip("Uniform scale applied to each particle's density contribution. Increase if particles are too sparse to merge.")]
 		[Min(0)] public float metaballIntensity = 1.0f;
+		[Tooltip("Metaball-only UV offset strength for refracting the blurred colour data outward from the normal. Alpha and phase remain unwarped.")]
+		public float metaballRefractionStrength = 0.01f;
+		[Tooltip("Density distance over which refraction fades in from the visible edge. Higher values push refraction farther inward.")]
+		[Min(0.0001f)] public float metaballRefractionEdgeFade = 0.05f;
 
 		[Header("Debug")]
-		[Tooltip("Selects what to show in debug mode. Press 0-7 to switch modes at runtime.")]
+		[Tooltip("Selects what to show in debug mode. Press 0-6 to switch modes at runtime.")]
 		public DebugVisualization debugMode = DebugVisualization.None;
-		[Tooltip("Maximum absolute value mapped in debug visualisation (used by curvature/force views).")]
+		[Tooltip("Maximum absolute value mapped in gradient debug visualisation.")]
 		public float debugGradientMax = 1.0f;
 		[Tooltip("Lower density value used for density debug colour mapping.")]
 		[Min(0f)] public float debugDensityMin = 0f;
 		[Tooltip("Upper density value used for density debug colour mapping.")]
 		[Min(0.0001f)] public float debugDensityMax = 500f;
+		[Tooltip("Colour gradient used by viscosity, density, and temperature debug views.")]
+		public Gradient heatMap;
+		[FormerlySerializedAs("debugSignedHeatMapGradient")] [Tooltip("Signed colour gradient used by curvature debug views. The centre represents zero; left is negative, right is positive.")]
+		public Gradient signedHeatMap;
+		[Tooltip("Screen-space dithering strength used by the metaball composite shader to reduce colour banding.")]
+		[Min(0f)] public float ditherStrength = 1.0f / 255.0f;
+
+		[Header("Vector Field Debug")]
+		[Tooltip("Shader used to draw force vectors as instanced arrows.")]
+		public Shader vectorFieldShader;
+		[Tooltip("Vector data shown by the arrow overlay.")]
+		public VectorFieldSource vectorFieldSource = VectorFieldSource.SurfaceTensionForce;
+		[Tooltip("World-space length of an arrow at vectorMaxMagnitude.")]
+		[Min(0f)] public float vectorScale = 0.25f;
+		[Tooltip("Vector magnitude that maps to full arrow length and colour intensity.")]
+		[Min(0.0001f)] public float vectorMaxMagnitude = 1.0f;
+		[Tooltip("Use a logarithmic remap for arrow length so small vectors remain visible while large vectors stay bounded.")]
+		public bool vectorUseLogScale = false;
+		[Tooltip("Log remap strength. Higher values boost small vectors more strongly.")]
+		[Min(1f)] public float vectorLogScaleStrength = 10.0f;
+		[Tooltip("World-space arrow width.")]
+		[Min(0f)] public float vectorWidth = 0.035f;
 		
-		public float edgeWidth = 0.03f;
+		//public float edgeWidth = 0.03f;
 
 
 		Material directParticleMaterial;
 		Material metaballMaterial;
 		Material compositeMaterial;
 		Material blurMaterial;
+		Material vectorFieldMaterial;
+		Mesh vectorArrowMesh;
 		
 		// Jump Flood related fields
 		public ComputeShader jumpFloodCompute; // kept for compatibility but not used when raster pass is available
@@ -110,58 +184,58 @@ namespace Seb.Fluid2D.Rendering
 		RenderTexture jfaTemp;
 		RenderTexture jfaResult;
 		ComputeBuffer argsBuffer;
+		ComputeBuffer vectorArgsBuffer;
 		Bounds bounds;
 		Texture2D gradientTexture;
 		Texture2D gradientTexture2;
+		Texture2D debugHeatMapTexture;
+		Texture2D debugSignedHeatMapTexture;
 		RenderTexture combinedAccumulationTexture;
 		RenderTexture combinedBlurTexture;
+		RenderTexture normalAccumulationTexture;
+		RenderTexture normalBlurTexture;
 		CommandBuffer metaballCommandBuffer;
-		readonly List<Camera> boundCameras = new List<Camera>(2);
-		readonly List<Camera> renderCameras = new List<Camera>(2);
-		float blurReferenceOrthoSize = -1f;
+		bool commandBufferAttached;
 		bool needsUpdate;
+		const float BlurReferenceOrthoSize = 15f;
+		const string MetaballCommandBufferName = "Sim2D Metaball Render";
+		const string SceneViewDirectCommandBufferName = "Sim2D Scene View Direct Particles";
+		private Camera mainCamera;
 
 		void Awake()
 		{
 			EnsureMaterials();
 			needsUpdate = true;
-			targetCamera = Camera.main;
-			EnsureBlurZoomReference(targetCamera);
+			mainCamera = Camera.main;
 		}
+
+#if UNITY_EDITOR
+		void OnEnable()
+		{
+			Camera.onPreCull += DrawSceneViewDirect;
+		}
+#endif
 
 		void LateUpdate()
 		{
 			UpdateDebugModeFromKeyboard();
-
 			EnsureMaterials();
-			CollectRenderCameras(renderCameras);
-			targetCamera = GetPrimaryRenderCamera(renderCameras);
-			if (targetCamera == null)
-			{
-				return;
-			}
-			EnsureBlurZoomReference(targetCamera);
+			UpdateSettings();
 
 			if (renderMode == RenderMode.JumpFlood)
 			{
-				UpdateJumpFloodRender();
+				UpdateJumpFloodRender(mainCamera);
 				UpdateJumpFloodCommandBuffer();
-				return;
 			}
-
-			if (GetActiveParticleMaterial() != null)
+			else if (renderMode == RenderMode.Metaballs && compositeShader != null && blurShader != null)
 			{
-				UpdateSettings();
-
-				if (renderMode == RenderMode.Metaballs && useRenderTextureMetaballs && compositeShader != null && blurShader != null)
-				{
-					UpdateMetaballRender();
-				}
-				else
-				{
-					RemoveCommandBuffer();
-					Graphics.DrawMeshInstancedIndirect(mesh, 0, directParticleMaterial, bounds, argsBuffer);
-				}
+				UpdateMetaballRender(mainCamera);
+			}
+			else
+			{
+				RemoveCommandBuffer();
+				DrawDirectParticles(mainCamera);
+				DrawVectorField(mainCamera);
 			}
 		}
 
@@ -181,21 +255,17 @@ namespace Seb.Fluid2D.Rendering
 			}
 			else if (Input.GetKeyDown(KeyCode.Alpha3) || Input.GetKeyDown(KeyCode.Keypad3))
 			{
-				debugMode = DebugVisualization.Force;
+				debugMode = DebugVisualization.Viscosity;
 			}
 			else if (Input.GetKeyDown(KeyCode.Alpha4) || Input.GetKeyDown(KeyCode.Keypad4))
 			{
-				debugMode = DebugVisualization.Viscosity;
+				debugMode = DebugVisualization.Density;
 			}
 			else if (Input.GetKeyDown(KeyCode.Alpha5) || Input.GetKeyDown(KeyCode.Keypad5))
 			{
-				debugMode = DebugVisualization.Density;
-			}
-			else if (Input.GetKeyDown(KeyCode.Alpha6) || Input.GetKeyDown(KeyCode.Keypad6))
-			{
 				debugMode = DebugVisualization.Temperature;
 			}
-			else if (Input.GetKeyDown(KeyCode.Alpha7) || Input.GetKeyDown(KeyCode.Keypad7))
+			else if (Input.GetKeyDown(KeyCode.Alpha6) || Input.GetKeyDown(KeyCode.Keypad6))
 			{
 				debugMode = DebugVisualization.BlobIds;
 			}
@@ -210,15 +280,9 @@ namespace Seb.Fluid2D.Rendering
 		void UpdateSettings()
 		{
 			EnsureGradientTextures();
-			Material activeMaterial = GetActiveParticleMaterial();
-			if (activeMaterial == null)
-			{
-				return;
-			}
-
-			BindSimulationBuffers(activeMaterial);
 
             ComputeHelper.CreateArgsBuffer(ref argsBuffer, mesh, sim.positionBuffer.count);
+            ComputeHelper.CreateArgsBuffer(ref vectorArgsBuffer, vectorArrowMesh, sim.positionBuffer.count);
 			bounds = new Bounds(Vector3.zero, Vector3.one * 10000);
 
 			if (needsUpdate)
@@ -227,23 +291,44 @@ namespace Seb.Fluid2D.Rendering
 				ApplyGradientTextures();
 			}
 			
-			ApplySharedParticleSettings(activeMaterial);
+			ApplyParticleMaterialSettings(directParticleMaterial);
+			ApplyParticleMaterialSettings(metaballMaterial);
+			ApplyParticleMaterialSettings(vectorFieldMaterial);
+			ApplyVectorFieldSettings();
+		}
+
+		void ApplyParticleMaterialSettings(Material targetMaterial)
+		{
+			if (targetMaterial == null)
+			{
+				return;
+			}
+
+			BindSimulationBuffers(targetMaterial);
+			ApplySharedParticleSettings(targetMaterial);
 		}
 
 		void EnsureMaterials()
 		{
+			if (vectorFieldShader == null)
+			{
+				vectorFieldShader = Shader.Find("Instanced/Particle2DVectorField");
+			}
+
 			EnsureMaterial(ref directParticleMaterial, directParticleShader);
 			EnsureMaterial(ref metaballMaterial, metaballShader);
+			EnsureMaterial(ref vectorFieldMaterial, vectorFieldShader);
 			EnsureMaterial(ref jumpFloodDisplayMaterial, jumpFloodDisplayShader);
 			EnsureMaterial(ref jumpFloodSeedMaterial, jumpFloodSeedShader);
 			EnsureMaterial(ref jumpFloodPassMaterial, jumpFloodPassShader);
+			EnsureVectorArrowMesh();
 		}
 
-		void UpdateJumpFloodRender()
+		void UpdateJumpFloodRender(Camera cam)
 		{
 			RemoveCommandBuffer(); // avoid metaball cb
 
-			EnsureJumpFloodRenderTextures(targetCamera);
+			EnsureJumpFloodRenderTextures(cam);
 
 			int width = jfaSeedA.width;
 			int height = jfaSeedA.height;
@@ -258,7 +343,7 @@ namespace Seb.Fluid2D.Rendering
 				jfKernel = jumpFloodCompute.FindKernel("JumpFlood");
 			}
 			
-			Matrix4x4 VP = targetCamera.projectionMatrix * targetCamera.worldToCameraMatrix;
+			Matrix4x4 VP = cam.projectionMatrix * cam.worldToCameraMatrix;
 
 			if (useComputeMethod)
 			{
@@ -339,7 +424,7 @@ namespace Seb.Fluid2D.Rendering
 			Material mat = jumpFloodDisplayMaterial;
 			if (mat == null) return;
 			EnsureGradientTextures();
-			EnsureCommandBuffers(renderCameras);
+			EnsureCommandBuffer();
 			mat.SetTexture("_SeedTex", jfaResult != null ? jfaResult : jfaSeedA);
 			mat.SetTexture("ColourMap", gradientTexture);
 			mat.SetTexture("ColourMap2", gradientTexture2);
@@ -352,11 +437,7 @@ namespace Seb.Fluid2D.Rendering
 			metaballCommandBuffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
 			metaballCommandBuffer.ClearRenderTarget(false, true, Color.black);
 			metaballCommandBuffer.Blit(jfaResult != null ? jfaResult : jfaSeedA, BuiltinRenderTextureType.CameraTarget, mat);
-		}
-
-		Material GetActiveParticleMaterial()
-		{
-			return renderMode == RenderMode.Metaballs ? metaballMaterial : directParticleMaterial;
+			AppendVectorFieldDraw(metaballCommandBuffer);
 		}
 
 		void EnsureMaterial(ref Material material, Shader shader)
@@ -393,13 +474,120 @@ namespace Seb.Fluid2D.Rendering
 			targetMaterial.SetFloat("debugViscosityMax", sim.MaxDebugViscosity);
 			targetMaterial.SetFloat("debugDensityMin", DebugDensityMin);
 			targetMaterial.SetFloat("debugDensityMax", DebugDensityMax);
-			targetMaterial.SetInt("debugMode", (int)debugMode);
+			targetMaterial.SetInt("debugMode", (int)ParticleShaderDebugMode);
+			targetMaterial.SetVector("particleLightDirection", particleLightDirection);
+			targetMaterial.SetColor("particleLightColor", particleLightColor);
+			targetMaterial.SetFloat("particleAmbientLight", particleAmbientLight);
+			targetMaterial.SetFloat("particleDirectionalLightIntensity", particleDirectionalLightIntensity);
+			targetMaterial.SetColor("particleSpecularColor", particleSpecularColor);
+			targetMaterial.SetFloat("particleSpecularIntensity", particleSpecularIntensity);
+			targetMaterial.SetFloat("particleSpecularPower", particleSpecularPower);
+			targetMaterial.SetColor("particleFresnelColor", particleFresnelColor);
+			targetMaterial.SetFloat("particleFresnelIntensity", particleFresnelIntensity);
+			targetMaterial.SetFloat("particleFresnelPower", particleFresnelPower);
+			targetMaterial.SetVector("particleGlowDirection", new Vector4(particleGlowDirection.x, particleGlowDirection.y, 0f, 0f));
+			targetMaterial.SetColor("particleGlowColor", particleGlowColor);
+			targetMaterial.SetFloat("particleGlowIntensity", particleGlowIntensity);
+			targetMaterial.SetFloat("particleGlowPower", particleGlowPower);
+			targetMaterial.SetFloat("particleTransmissionIntensity", particleTransmissionIntensity);
+			targetMaterial.SetFloat("particleTransmissionPower", particleTransmissionPower);
+			targetMaterial.SetFloat("particleEdgeDarkening", particleEdgeDarkening);
+			targetMaterial.SetFloat("particleEdgeDarkeningPower", particleEdgeDarkeningPower);
 			targetMaterial.SetFloat("metaballSharpness", metaballSharpness);
 			targetMaterial.SetFloat("metaballIntensity", metaballIntensity);
 		}
 
+		void ApplyVectorFieldSettings()
+		{
+			if (vectorFieldMaterial == null)
+			{
+				return;
+			}
+
+			vectorFieldMaterial.SetFloat("vectorScale", vectorScale);
+			vectorFieldMaterial.SetFloat("vectorMaxMagnitude", EffectiveVectorMaxMagnitude);
+			vectorFieldMaterial.SetInt("vectorUseLogScale", vectorUseLogScale ? 1 : 0);
+			vectorFieldMaterial.SetFloat("vectorLogScaleStrength", vectorLogScaleStrength);
+			vectorFieldMaterial.SetFloat("vectorWidth", vectorWidth);
+			vectorFieldMaterial.SetInt("vectorUseSignedColor", vectorFieldSource == VectorFieldSource.CurvatureNormal ? 1 : 0);
+			ComputeBuffer vectorFieldBuffer = GetVectorFieldBuffer();
+			if (vectorFieldBuffer != null)
+			{
+				vectorFieldMaterial.SetBuffer("DebugVectorData", vectorFieldBuffer);
+			}
+			if (sim != null && sim.debugVectorSignBuffer != null)
+			{
+				vectorFieldMaterial.SetBuffer("DebugVectorSign", sim.debugVectorSignBuffer);
+			}
+		}
+
 		float DebugDensityMin => Mathf.Min(debugDensityMin, debugDensityMax - 0.0001f);
 		float DebugDensityMax => Mathf.Max(debugDensityMax, debugDensityMin + 0.0001f);
+		float EffectiveVectorMaxMagnitude
+		{
+			get
+			{
+				if (sim != null)
+				{
+					if (vectorFieldSource == VectorFieldSource.CurvatureNormal)
+					{
+						return sim.MaxDebugCurvature;
+					}
+
+					if (vectorFieldSource == VectorFieldSource.SurfaceTensionForce)
+					{
+						return sim.MaxDebugSurfaceTensionForce;
+					}
+
+					if (vectorFieldSource == VectorFieldSource.Convection)
+					{
+						return sim.MaxDebugConvection;
+					}
+				}
+
+				return Mathf.Max(0.0001f, vectorMaxMagnitude);
+			}
+		}
+		DebugVisualization ParticleShaderDebugMode => debugMode;
+		public int ComputeVectorFieldMode
+		{
+			get
+			{
+				if (vectorFieldSource == VectorFieldSource.SurfaceTensionForce)
+				{
+					return 1;
+				}
+
+				if (vectorFieldSource == VectorFieldSource.RepulsionForce)
+				{
+					return 2;
+				}
+
+				if (vectorFieldSource == VectorFieldSource.CurvatureNormal)
+				{
+					return 3;
+				}
+
+				if (vectorFieldSource == VectorFieldSource.Convection)
+				{
+					return 4;
+				}
+
+				return 0;
+			}
+		}
+
+		ComputeBuffer GetVectorFieldBuffer()
+		{
+			if (sim == null)
+			{
+				return null;
+			}
+
+			return vectorFieldSource == VectorFieldSource.Velocity
+				? sim.velocityBuffer
+				: sim.debugVectorDataBuffer;
+		}
 
 		void ApplyGradientTextures()
 		{
@@ -407,6 +595,14 @@ namespace Seb.Fluid2D.Rendering
 			{
 				directParticleMaterial.SetTexture("ColourMap", gradientTexture);
 				directParticleMaterial.SetTexture("ColourMap2", gradientTexture2);
+				directParticleMaterial.SetTexture("DebugHeatMap", debugHeatMapTexture);
+				directParticleMaterial.SetTexture("DebugSignedHeatMap", debugSignedHeatMapTexture);
+			}
+
+			if (compositeMaterial != null)
+			{
+				compositeMaterial.SetTexture("DebugHeatMap", debugHeatMapTexture);
+				compositeMaterial.SetTexture("DebugSignedHeatMap", debugSignedHeatMapTexture);
 			}
 		}
 
@@ -419,8 +615,10 @@ namespace Seb.Fluid2D.Rendering
 
 			Gradient primary = GetGradient(0);
 			Gradient secondary = GetGradient(1);
-			TextureFromGradient(ref gradientTexture, gradientResolution, primary);
-			TextureFromGradient(ref gradientTexture2, gradientResolution, secondary);
+			TextureFromGradient(ref gradientTexture, gradientResolution, primary, FilterMode.Bilinear, true, TextureFormat.RGBAHalf, true);
+			TextureFromGradient(ref gradientTexture2, gradientResolution, secondary, FilterMode.Bilinear, true, TextureFormat.RGBAHalf, true);
+			TextureFromGradient(ref debugHeatMapTexture, gradientResolution, heatMap, FilterMode.Bilinear, true, TextureFormat.RGBAHalf);
+			TextureFromGradient(ref debugSignedHeatMapTexture, GetSignedGradientResolution(), signedHeatMap, FilterMode.Bilinear, true, TextureFormat.RGBAHalf);
 		}
 
 		Gradient GetGradient(int index)
@@ -438,34 +636,76 @@ namespace Seb.Fluid2D.Rendering
 			return gradient;
 		}
 
-		void UpdateMetaballRender()
+		int GetSignedGradientResolution()
+		{
+			int width = Mathf.Max(3, gradientResolution);
+			return width % 2 == 0 ? width + 1 : width;
+		}
+
+		void UpdateMetaballRender(Camera cam)
 		{
 			EnsurePostProcessMaterials();
 
-			EnsureCommandBuffers(renderCameras);
-			EnsureRenderTextures(targetCamera);
+			EnsureCommandBuffer();
+			EnsureRenderTextures(cam);
 
 			compositeMaterial.SetFloat("densityThreshold", densityThreshold);
 			compositeMaterial.SetFloat("edgeSoftness", edgeSoftness);
 			compositeMaterial.SetFloat("phaseBlendWidth", phaseBlendWidth);
 			compositeMaterial.SetTexture("CombinedTex", combinedAccumulationTexture);
+			compositeMaterial.SetTexture("NormalTex", normalAccumulationTexture);
 			compositeMaterial.SetTexture("ColourMap", gradientTexture);
 			compositeMaterial.SetTexture("ColourMap2", gradientTexture2);
-			compositeMaterial.SetInt("debugMode", (int)debugMode);
+			compositeMaterial.SetTexture("DebugHeatMap", debugHeatMapTexture);
+			compositeMaterial.SetTexture("DebugSignedHeatMap", debugSignedHeatMapTexture);
+			float effectiveBlurRadius = GetEffectiveBlurRadius(cam);
+			float effectiveRefractionStrength = metaballRefractionStrength * GetZoomScale(cam);
+			compositeMaterial.SetFloat("metaballRefractionStrength", effectiveRefractionStrength);
+			compositeMaterial.SetFloat("metaballRefractionEdgeFade", metaballRefractionEdgeFade);
+			float effectiveNormalStrength = GetEffectiveNormalStrength(blurRadius);
+			compositeMaterial.SetInt("debugMode", (int)ParticleShaderDebugMode);
+			compositeMaterial.SetFloat("ditherStrength", ditherStrength);
+			compositeMaterial.SetVector("particleLightDirection", particleLightDirection);
+			compositeMaterial.SetColor("particleLightColor", particleLightColor);
+			compositeMaterial.SetFloat("particleAmbientLight", particleAmbientLight);
+			compositeMaterial.SetFloat("particleDirectionalLightIntensity", particleDirectionalLightIntensity);
+			compositeMaterial.SetFloat("particleNormalStrength", effectiveNormalStrength);
+			compositeMaterial.SetColor("particleSpecularColor", particleSpecularColor);
+			compositeMaterial.SetFloat("particleSpecularIntensity", particleSpecularIntensity);
+			compositeMaterial.SetFloat("particleSpecularPower", particleSpecularPower);
+			compositeMaterial.SetColor("particleFresnelColor", particleFresnelColor);
+			compositeMaterial.SetFloat("particleFresnelIntensity", particleFresnelIntensity);
+			compositeMaterial.SetFloat("particleFresnelPower", particleFresnelPower);
+			compositeMaterial.SetVector("particleGlowDirection", new Vector4(particleGlowDirection.x, particleGlowDirection.y, 0f, 0f));
+			compositeMaterial.SetColor("particleGlowColor", particleGlowColor);
+			compositeMaterial.SetFloat("particleGlowIntensity", particleGlowIntensity);
+			compositeMaterial.SetFloat("particleGlowPower", particleGlowPower);
+			compositeMaterial.SetFloat("particleTransmissionIntensity", particleTransmissionIntensity);
+			compositeMaterial.SetFloat("particleTransmissionPower", particleTransmissionPower);
+			compositeMaterial.SetFloat("particleEdgeDarkening", particleEdgeDarkening);
+			compositeMaterial.SetFloat("particleEdgeDarkeningPower", particleEdgeDarkeningPower);
 
-			blurMaterial.SetFloat("blurRadius", GetEffectiveBlurRadius(targetCamera));
+			blurMaterial.SetFloat("blurRadius", effectiveBlurRadius);
 
 			metaballCommandBuffer.Clear();
 			metaballCommandBuffer.SetRenderTarget(combinedAccumulationTexture);
 			metaballCommandBuffer.ClearRenderTarget(false, true, Color.clear);
 			metaballCommandBuffer.DrawMeshInstancedIndirect(mesh, 0, metaballMaterial, 0, argsBuffer);
+			metaballCommandBuffer.SetRenderTarget(normalAccumulationTexture);
+			metaballCommandBuffer.ClearRenderTarget(false, true, Color.clear);
+			metaballCommandBuffer.DrawMeshInstancedIndirect(mesh, 0, metaballMaterial, 1, argsBuffer);
 
 			metaballCommandBuffer.SetGlobalVector("blurDirection", new Vector2(1, 0));
 			metaballCommandBuffer.Blit(combinedAccumulationTexture, combinedBlurTexture, blurMaterial);
 			metaballCommandBuffer.SetGlobalVector("blurDirection", new Vector2(0, 1));
 			metaballCommandBuffer.Blit(combinedBlurTexture, combinedAccumulationTexture, blurMaterial);
+			metaballCommandBuffer.SetGlobalVector("blurDirection", new Vector2(1, 0));
+			metaballCommandBuffer.Blit(normalAccumulationTexture, normalBlurTexture, blurMaterial);
+			metaballCommandBuffer.SetGlobalVector("blurDirection", new Vector2(0, 1));
+			metaballCommandBuffer.Blit(normalBlurTexture, normalAccumulationTexture, blurMaterial);
 
 			metaballCommandBuffer.Blit(null, BuiltinRenderTextureType.CameraTarget, compositeMaterial);
+			AppendVectorFieldDraw(metaballCommandBuffer);
 		}
 
 		void EnsurePostProcessMaterials()
@@ -481,41 +721,139 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
-		void EnsureCommandBuffers(List<Camera> cameras)
+		void EnsureCommandBuffer()
 		{
+			Camera mainCamera = Camera.main;
+
 			if (metaballCommandBuffer == null)
 			{
 				metaballCommandBuffer = new CommandBuffer();
-				metaballCommandBuffer.name = "Sim2D Metaball Render";
+				metaballCommandBuffer.name = MetaballCommandBufferName;
 			}
 
-			for (int i = boundCameras.Count - 1; i >= 0; i--)
-			{
-				Camera bound = boundCameras[i];
-				if (bound == null || !cameras.Contains(bound))
-				{
-					if (bound != null)
-					{
-						bound.RemoveCommandBuffer(CameraEvent.BeforeImageEffects, metaballCommandBuffer);
-						bound.RemoveCommandBuffer(CameraEvent.AfterEverything, metaballCommandBuffer);
-					}
-					boundCameras.RemoveAt(i);
-				}
-			}
+#if UNITY_EDITOR
+			RemoveCommandBufferFromCamera(GetSceneViewCamera());
+#endif
 
-			for (int i = 0; i < cameras.Count; i++)
+			if (!commandBufferAttached)
 			{
-				Camera cam = cameras[i];
-				if (cam == null || boundCameras.Contains(cam))
-				{
-					continue;
-				}
-
-				CameraEvent evt = GetCommandBufferEvent(cam);
-				cam.AddCommandBuffer(evt, metaballCommandBuffer);
-				boundCameras.Add(cam);
+				mainCamera.RemoveCommandBuffer(CameraEvent.AfterEverything, metaballCommandBuffer);
+				RemoveCommandBuffersByName(mainCamera, CameraEvent.AfterEverything, MetaballCommandBufferName);
+				RemoveCommandBuffersByName(mainCamera, CameraEvent.BeforeImageEffects, MetaballCommandBufferName);
+				mainCamera.AddCommandBuffer(CameraEvent.AfterEverything, metaballCommandBuffer);
+				commandBufferAttached = true;
 			}
 		}
+
+		void DrawDirectParticles(Camera cam)
+		{
+			if (directParticleMaterial == null || argsBuffer == null)
+			{
+				return;
+			}
+
+			Graphics.DrawMeshInstancedIndirect(
+				mesh,
+				0,
+				directParticleMaterial,
+				bounds,
+				argsBuffer,
+				0,
+				null,
+				ShadowCastingMode.Off,
+				false,
+				gameObject.layer,
+				cam
+			);
+		}
+
+		bool ShouldDrawVectorField()
+		{
+			return vectorFieldSource != VectorFieldSource.None
+			       && GetVectorFieldBuffer() != null
+			       && vectorFieldMaterial != null
+			       && vectorArrowMesh != null
+			       && vectorArgsBuffer != null;
+		}
+
+		void DrawVectorField(Camera cam)
+		{
+			if (!ShouldDrawVectorField())
+			{
+				return;
+			}
+
+			Graphics.DrawMeshInstancedIndirect(
+				vectorArrowMesh,
+				0,
+				vectorFieldMaterial,
+				bounds,
+				vectorArgsBuffer,
+				0,
+				null,
+				ShadowCastingMode.Off,
+				false,
+				gameObject.layer,
+				cam
+			);
+		}
+
+		void AppendVectorFieldDraw(CommandBuffer commandBuffer)
+		{
+			if (!ShouldDrawVectorField())
+			{
+				return;
+			}
+
+			commandBuffer.DrawMeshInstancedIndirect(vectorArrowMesh, 0, vectorFieldMaterial, 0, vectorArgsBuffer);
+		}
+
+		void EnsureVectorArrowMesh()
+		{
+			if (vectorArrowMesh != null)
+			{
+				return;
+			}
+
+			vectorArrowMesh = new Mesh();
+			vectorArrowMesh.name = "Sim2D Vector Arrow";
+			vectorArrowMesh.vertices = new[]
+			{
+				new Vector3(0f, -0.5f, 0f),
+				new Vector3(0.62f, -0.5f, 0f),
+				new Vector3(0.62f, -1f, 0f),
+				new Vector3(1f, 0f, 0f),
+				new Vector3(0.62f, 1f, 0f),
+				new Vector3(0.62f, 0.5f, 0f),
+				new Vector3(0f, 0.5f, 0f),
+			};
+			vectorArrowMesh.triangles = new[]
+			{
+				0, 1, 6,
+				1, 5, 6,
+				1, 2, 3,
+				1, 3, 5,
+				3, 4, 5,
+			};
+			vectorArrowMesh.RecalculateBounds();
+		}
+
+#if UNITY_EDITOR
+		void DrawSceneViewDirect(Camera sceneViewCamera)
+		{
+			if (sceneViewCamera == null || sceneViewCamera.cameraType != CameraType.SceneView || sceneViewCamera == Camera.main || sim == null || mesh == null)
+			{
+				return;
+			}
+
+			EnsureMaterials();
+			UpdateSettings();
+			RemoveCommandBufferFromCamera(sceneViewCamera);
+			RemoveCommandBuffersByName(sceneViewCamera, CameraEvent.AfterEverything, SceneViewDirectCommandBufferName);
+			DrawDirectParticles(sceneViewCamera);
+			DrawVectorField(sceneViewCamera);
+		}
+#endif
 
 		void EnsureRenderTextures(Camera cam)
 		{
@@ -524,6 +862,8 @@ namespace Seb.Fluid2D.Rendering
 
 			ComputeHelper.CreateRenderTexture(ref combinedAccumulationTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Combined Accumulation");
 			ComputeHelper.CreateRenderTexture(ref combinedBlurTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Combined Blur");
+			ComputeHelper.CreateRenderTexture(ref normalAccumulationTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Normal Accumulation");
+			ComputeHelper.CreateRenderTexture(ref normalBlurTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Normal Blur");
 
 			// Also ensure Jump Flood textures (used by compute shader)
 			ComputeHelper.CreateRenderTexture(ref jfaSeedA, width, height, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "JFA Seed A");
@@ -549,126 +889,91 @@ namespace Seb.Fluid2D.Rendering
 		{
 			if (metaballCommandBuffer != null)
 			{
-				for (int i = 0; i < boundCameras.Count; i++)
-				{
-					Camera cam = boundCameras[i];
-					if (cam != null)
-					{
-						cam.RemoveCommandBuffer(CameraEvent.BeforeImageEffects, metaballCommandBuffer);
-						cam.RemoveCommandBuffer(CameraEvent.AfterEverything, metaballCommandBuffer);
-					}
-				}
-			}
-			boundCameras.Clear();
-		}
-
-		void CollectRenderCameras(List<Camera> cameras)
-		{
-			cameras.Clear();
-			AddCamera(cameras, Camera.main);
+				RemoveCommandBufferFromCamera(Camera.main);
 #if UNITY_EDITOR
-			if (SceneView.lastActiveSceneView != null)
-			{
-				AddCamera(cameras, SceneView.lastActiveSceneView.camera);
-			}
+				RemoveCommandBufferFromCamera(GetSceneViewCamera());
 #endif
-			if (cameras.Count == 0)
-			{
-				AddCamera(cameras, targetCamera);
 			}
+			commandBufferAttached = false;
 		}
 
-		static void AddCamera(List<Camera> cameras, Camera cam)
+		void RemoveCommandBufferFromCamera(Camera cam)
 		{
-			if (cam != null && !cameras.Contains(cam))
+			if (cam == null || metaballCommandBuffer == null)
 			{
-				cameras.Add(cam);
-			}
-		}
-
-		static CameraEvent GetCommandBufferEvent(Camera cam)
-		{
-			return cam != null && cam.cameraType == CameraType.SceneView
-				? CameraEvent.BeforeImageEffects
-				: CameraEvent.AfterEverything;
-		}
-
-		void EnsureBlurZoomReference(Camera cam)
-		{
-			if (!scaleBlurWithZoom)
-			{
-				blurReferenceOrthoSize = -1f;
 				return;
 			}
 
-			if (cam != null && cam.orthographic && blurReferenceOrthoSize <= 0f)
+			cam.RemoveCommandBuffer(CameraEvent.AfterEverything, metaballCommandBuffer);
+			cam.RemoveCommandBuffer(CameraEvent.BeforeImageEffects, metaballCommandBuffer);
+			RemoveCommandBuffersByName(cam, CameraEvent.AfterEverything, MetaballCommandBufferName);
+			RemoveCommandBuffersByName(cam, CameraEvent.BeforeImageEffects, MetaballCommandBufferName);
+		}
+
+		static void RemoveCommandBuffersByName(Camera cam, CameraEvent evt, string commandBufferName)
+		{
+			if (cam == null)
 			{
-				blurReferenceOrthoSize = cam.orthographicSize;
+				return;
 			}
+
+			CommandBuffer[] commandBuffers = cam.GetCommandBuffers(evt);
+			for (int i = 0; i < commandBuffers.Length; i++)
+			{
+				CommandBuffer commandBuffer = commandBuffers[i];
+				if (commandBuffer != null && commandBuffer.name == commandBufferName)
+				{
+					cam.RemoveCommandBuffer(evt, commandBuffer);
+				}
+			}
+		}
+
+		static Camera GetSceneViewCamera()
+		{
+#if UNITY_EDITOR
+			if (SceneView.lastActiveSceneView != null)
+			{
+				return SceneView.lastActiveSceneView.camera;
+			}
+#endif
+			return null;
 		}
 
 		float GetEffectiveBlurRadius(Camera cam)
 		{
-			float baseRadius = Mathf.Max(0f, blurRadius);
-			if (!scaleBlurWithZoom || cam == null || !cam.orthographic)
-			{
-				return baseRadius;
-			}
-
-			if (blurReferenceOrthoSize <= 0f)
-			{
-				blurReferenceOrthoSize = cam.orthographicSize;
-				return baseRadius;
-			}
-
-			float zoomScale = blurReferenceOrthoSize / Mathf.Max(cam.orthographicSize, 0.0001f);
-			return baseRadius * zoomScale;
+			return blurRadius * GetZoomScale(cam) * Mathf.Max(renderTextureScale, 0.0001f);
 		}
 
-		static Camera GetPrimaryRenderCamera(List<Camera> cameras)
+		float GetZoomScale(Camera cam)
 		{
-			if (cameras == null || cameras.Count == 0)
+			if (cam == null || !cam.orthographic)
 			{
-				return null;
+				return 1f;
 			}
 
-#if UNITY_EDITOR
-			if (SceneView.lastActiveSceneView != null)
-			{
-				Camera sceneCam = SceneView.lastActiveSceneView.camera;
-				if (sceneCam != null && cameras.Contains(sceneCam))
-				{
-					return sceneCam;
-				}
-			}
-#endif
-
-			Camera best = cameras[0];
-			int bestPixels = best.pixelWidth * best.pixelHeight;
-			for (int i = 1; i < cameras.Count; i++)
-			{
-				Camera cam = cameras[i];
-				int pixels = cam.pixelWidth * cam.pixelHeight;
-				if (pixels > bestPixels)
-				{
-					best = cam;
-					bestPixels = pixels;
-				}
-			}
-			return best;
+			return BlurReferenceOrthoSize / Mathf.Max(cam.orthographicSize, 0.0001f);
 		}
 
-		public static void TextureFromGradient(ref Texture2D texture, int width, Gradient gradient, FilterMode filterMode = FilterMode.Bilinear)
+		float GetEffectiveNormalStrength(float referenceBlurRadius)
+		{
+			float baseStrength = Mathf.Max(0f, particleNormalStrength);
+			float compensation = Mathf.Max(0f, particleNormalBlurCompensation);
+			if (compensation <= 0f)
+			{
+				return baseStrength;
+			}
+
+			float blurScale = Mathf.Max(0f, referenceBlurRadius) / 6f;
+			return baseStrength * Mathf.Max(1f, Mathf.Pow(blurScale, compensation));
+		}
+
+		public static void TextureFromGradient(ref Texture2D texture, int width, Gradient gradient, FilterMode filterMode = FilterMode.Bilinear, bool linear = false, TextureFormat textureFormat = TextureFormat.RGBA32, bool convertGammaToLinear = false)
 		{
 			width = Mathf.Max(1, width);
 
-			if (texture == null)
+			if (texture == null || texture.width != width || texture.format != textureFormat)
 			{
-				texture = new Texture2D(width, 1);
-			}
-			else if (texture.width != width)
-			{
-				texture.Reinitialize(width, 1);
+				texture = new Texture2D(width, 1, textureFormat, false, linear);
 			}
 
 			if (gradient == null)
@@ -688,6 +993,10 @@ namespace Seb.Fluid2D.Rendering
 			{
 				float t = cols.Length == 1 ? 0 : i / (cols.Length - 1f);
 				cols[i] = gradient.Evaluate(t);
+				if (convertGammaToLinear)
+				{
+					cols[i] = cols[i].linear;
+				}
 			}
 
 			texture.SetPixels(cols);
@@ -751,7 +1060,6 @@ namespace Seb.Fluid2D.Rendering
 		void OnValidate()
 		{
 			needsUpdate = true;
-			blurReferenceOrthoSize = -1f;
 		}
 
 		void OnGUI()
@@ -767,19 +1075,28 @@ namespace Seb.Fluid2D.Rendering
 
 		void OnDisable()
 		{
+			#if UNITY_EDITOR
+			Camera.onPreCull -= DrawSceneViewDirect;
+			#endif
 			RemoveCommandBuffer();
 		}
 
 		void OnDestroy()
 		{
 			ComputeHelper.Release(argsBuffer);
+			ComputeHelper.Release(vectorArgsBuffer);
 			ComputeHelper.Release(combinedAccumulationTexture, combinedBlurTexture);
+			ComputeHelper.Release(normalAccumulationTexture, normalBlurTexture);
 			// Release jump flood textures
 			ComputeHelper.Release(jfaSeedA, jfaSeedB, jfaTemp);
 			RemoveCommandBuffer();
 			if (metaballCommandBuffer != null)
 			{
 				metaballCommandBuffer.Release();
+			}
+			if (vectorArrowMesh != null)
+			{
+				DestroyImmediate(vectorArrowMesh);
 			}
 			if (jumpFloodDisplayMaterial != null)
 			{

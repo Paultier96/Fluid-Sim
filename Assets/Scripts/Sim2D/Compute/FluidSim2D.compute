@@ -25,12 +25,17 @@
 #pragma kernel CopyBlobIDsToPrevious // 24
 #pragma kernel ReorderBlobIDs // 25
 #pragma kernel ReorderBlobIDsCopyback // 26
+#pragma kernel ClearBlobSizes // 27
+#pragma kernel CountBlobSizes // 28
+#pragma kernel MarkSingleParticleBlobs // 29
 
 // Includes
 #include "./FluidMaths2D.hlsl"
 #include "./SpatialHash.hlsl"
 
 static const int NumThreads = 64;
+static const uint UnassignedBlobID = 0xFFFFFFFEu;
+static const uint IgnoredPhaseBlobID = 0xFFFFFFFFu;
 
 // Buffers
 RWStructuredBuffer<float2> Positions;
@@ -42,18 +47,26 @@ RWStructuredBuffer<uint> IsGhost;
 RWStructuredBuffer<uint> BlobIDs;
 RWStructuredBuffer<uint> BlobIDsPrevious;
 RWStructuredBuffer<uint> BlobIDsScratch;
+RWStructuredBuffer<uint> BlobSizes;
 RWStructuredBuffer<float> Temperatures;
 RWStructuredBuffer<float> ParticleTargetDensities;
 StructuredBuffer<float> PhaseCohesionMatrix;
+const float blobBlobCohesion;
+const float blobFilmSeparationDistance;
+const float blobFilmSeparationStrength;
 StructuredBuffer<float> PhaseSurfaceTensionMatrix;
 const float surfaceTensionThreshold; // min gradient magnitude to apply force
 const float blobBlobSurfaceTension;
+const float blobSelfSurfaceTension;
+const int blobSelfSurfaceTensionPhase;
 const float maxSurfaceTensionCurvature;
 // Non-coalescence (interface repulsion) per-phase parameters
 StructuredBuffer<float> PhaseNonCoalescenceRadius;
 StructuredBuffer<float> PhaseNonCoalescenceStrength;
 StructuredBuffer<float> PhaseNonCoalescenceNormalDotThreshold;
-RWStructuredBuffer<float2> DebugData; // debug output (mode-dependent): gradient.xy, curvature.xx, force.xy, or viscosity.xx
+RWStructuredBuffer<float2> DebugData; // debug colour output (mode-dependent): gradient.xy, curvature.xx, or viscosity.xx
+RWStructuredBuffer<float2> DebugVectorData; // vector overlay output: surface tension force.xy, repulsion force.xy, curvature normal.xy, or convection.xy
+RWStructuredBuffer<float> DebugVectorSign; // signed scalar for vector overlay colouring, used by curvature combs
 RWStructuredBuffer<float2> ColorGradients; // per-particle color gradient
 StructuredBuffer<float2> ColorGradientsRO;
 StructuredBuffer<float2> DensitiesRO;
@@ -85,6 +98,7 @@ const float pressureMultiplier;
 const float nearPressureMultiplier;
 StructuredBuffer<float> PhaseViscosities;
 StructuredBuffer<float> PhaseViscosityTemperatureSensitivity;
+const float interfaceViscosityMultiplier;
 const float2 boundsSize;
 const float2 interactionInputPoint;
 const float interactionInputStrength;
@@ -95,6 +109,7 @@ StructuredBuffer<float> PhaseThermalExpansion; // how much density changes per d
 StructuredBuffer<float> PhaseInteractionMatrix;
 int NumPhases;
 int debugVisualizationMode;
+int debugVectorFieldMode;
 const float ambientTemperature;
 StructuredBuffer<float> PhaseThermalConductivity;
 StructuredBuffer<float> PhaseSpecificHeatCapacity;
@@ -111,6 +126,10 @@ const float heatSourceTemperature;
 const float heatSourceFalloffPower;
 const float buoyancyInversionStrength;
 const float buoyancyInversionClamp;
+const bool restrictBlobMergingToCoil;
+const float2 blobMergeCoilPos;
+const float2 blobMergeCoilSize;
+const int blobMergeCoilShape; // 0 = rectangular, 1 = elliptical
 
 const float2 obstacleSize;
 const float2 obstacleCentre;
@@ -193,6 +212,21 @@ float SignedDistanceToEllipse(float2 pos, float2 center, float2 radii)
 	float signedDistance;
 	GetEllipseSurfaceData(pos, center, radii, closestPoint, outwardNormal, signedDistance);
 	return signedDistance;
+}
+
+bool IsInsideBlobMergeCoil(float2 pos)
+{
+	float2 halfSize = blobMergeCoilSize * 0.5;
+	if (halfSize.x <= 0 || halfSize.y <= 0) return false;
+
+	float2 relPos = pos - blobMergeCoilPos;
+	if (blobMergeCoilShape == 0)
+	{
+		return abs(relPos.x) < halfSize.x && abs(relPos.y) < halfSize.y;
+	}
+
+	float2 normalizedOffset = relPos / max(halfSize, float2(1e-6, 1e-6));
+	return dot(normalizedOffset, normalizedOffset) < 1.0;
 }
 
 float DensityKernel(float dst, float radius)
@@ -409,7 +443,14 @@ void ApplyThermalBuoyancy(uint3 id : SV_DispatchThreadID)
 	if (id.x >= numParticles) return;
 
 	// Skip ghost particles
-	if (IsGhost[id.x] != 0) return;
+	if (IsGhost[id.x] != 0)
+	{
+		if (debugVectorFieldMode == 4)
+		{
+			DebugVectorData[id.x] = 0;
+		}
+		return;
+	}
 
 	float2 pos = PredictedPositions[id.x];
 	uint myPhase = Phases[id.x];
@@ -467,20 +508,29 @@ void ApplyThermalBuoyancy(uint3 id : SV_DispatchThreadID)
 			otherPhaseCount++;
 		}
 
-		if (otherPhaseCount == 0) return;
+		if (otherPhaseCount == 0)
+		{
+			if (debugVectorFieldMode == 4)
+			{
+				DebugVectorData[id.x] = 0;
+			}
+			return;
+		}
 		rho_env = otherPhaseDensitySum / otherPhaseCount;
 	}
 
+	float2 gravityDir = float2(0, gravity);
 	float normalizedDensityContrast = (rho_env - rho_i) / max(rho_env, 1e-4);
 	normalizedDensityContrast = clamp(normalizedDensityContrast, -buoyancyInversionClamp, buoyancyInversionClamp);
-
-	float2 gravityDir = float2(0, gravity);
 	float2 buoyancyAccel = -gravityDir * (buoyancyInversionStrength * normalizedDensityContrast);
-	Velocities[id.x] += buoyancyAccel * deltaTime;
-	if (debugVisualizationMode == 3)
+	if (debugVectorFieldMode == 4)
 	{
-		DebugData[id.x] += buoyancyAccel;
+		float baseDensity = PhaseTargetDensities[myPhase];
+		float thermalDensityContrast = (baseDensity - rho_i) / max(baseDensity, 1e-4);
+		thermalDensityContrast = clamp(thermalDensityContrast, -buoyancyInversionClamp, buoyancyInversionClamp);
+		DebugVectorData[id.x] = -gravityDir * (buoyancyInversionStrength * thermalDensityContrast);
 	}
+	Velocities[id.x] += buoyancyAccel * deltaTime;
 }
 
 
@@ -568,10 +618,6 @@ void ExternalForces(uint3 id : SV_DispatchThreadID)
     uint phase = Phases[id.x];
     float density = Densities[id.x][0];
     float2 externalAcceleration = ExternalForces(Positions[id.x], Velocities[id.x], density, phase, id.x);
-    if (debugVisualizationMode == 3)
-    {
-        DebugData[id.x] = externalAcceleration;
-    }
     Velocities[id.x] += externalAcceleration * deltaTime;
 
     //const float predictionFactor = 1 / 120.0;//idk why
@@ -644,6 +690,7 @@ void ReorderBlobIDsCopyback (uint3 id : SV_DispatchThreadID)
 void InitializeBlobIDs(uint3 id : SV_DispatchThreadID)
 {
 	if (id.x >= numParticles) return;
+	BlobIDsPrevious[id.x] = BlobIDs[id.x];
 	BlobIDs[id.x] = id.x;
 }
 
@@ -655,19 +702,21 @@ void PropagateBlobIDs(uint3 id : SV_DispatchThreadID)
 	uint myPhase = Phases[id.x];
 	float2 pos = PredictedPositions[id.x];
 	int2 originCell = GetCell2D(pos, smoothingRadius);
-	float blobConnectivityRadius = smoothingRadius * 0.8;
+	float blobConnectivityRadius = smoothingRadius * 2;
 	float sqrBlobRadius = blobConnectivityRadius * blobConnectivityRadius;
+	uint myPreviousBlob = BlobIDsPrevious[id.x];
+	bool myWasUnassigned = myPreviousBlob == UnassignedBlobID;
 
-	uint minBlob = BlobIDs[id.x];
+	uint minBlob = myWasUnassigned ? IgnoredPhaseBlobID : BlobIDs[id.x];
 
 	// Phase 1 blobs are irrelevant - treat all phase 1 as one blob (ID = UINT_MAX)
 	if (myPhase == 1)
 	{
-		BlobIDsScratch[id.x] = 0xFFFFFFFFu;
+		BlobIDsScratch[id.x] = IgnoredPhaseBlobID;
 		return;
 	}
 
-	// Only propagate blob IDs within phase 1
+	// Only propagate blob IDs within the wax phase.
 	for (int i = 0; i < 9; i++)
 	{
 		uint hash = HashCell2D(originCell + offsets2D[i]);
@@ -686,7 +735,22 @@ void PropagateBlobIDs(uint3 id : SV_DispatchThreadID)
 			float sqrDst = dot(offset, offset);
 			if (sqrDst > sqrBlobRadius) continue;
 
-			minBlob = min(minBlob, BlobIDs[neighbourIndex]);
+			bool samePreviousBlob = BlobIDsPrevious[neighbourIndex] == myPreviousBlob;
+			bool neighbourWasUnassigned = BlobIDsPrevious[neighbourIndex] == UnassignedBlobID;
+			bool unassignedPreviousBlob = myWasUnassigned || neighbourWasUnassigned;
+			if (!samePreviousBlob && !unassignedPreviousBlob && restrictBlobMergingToCoil)
+			{
+				float2 contactPos = (PredictedPositions[neighbourIndex] + pos) * 0.5;
+				if (!IsInsideBlobMergeCoil(contactPos)) continue;
+			}
+
+			if (!myWasUnassigned && neighbourWasUnassigned)
+			{
+				continue;
+			}
+
+			uint neighbourBlob = BlobIDs[neighbourIndex];
+			minBlob = min(minBlob, neighbourBlob);
 		}
 	}
 
@@ -705,6 +769,39 @@ void CopyBlobIDsToPrevious(uint3 id : SV_DispatchThreadID)
 {
 	if (id.x >= numParticles) return;
 	BlobIDsPrevious[id.x] = BlobIDs[id.x];
+}
+
+[numthreads(NumThreads, 1, 1)]
+void ClearBlobSizes(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= numParticles) return;
+	BlobSizes[id.x] = 0;
+}
+
+[numthreads(NumThreads, 1, 1)]
+void CountBlobSizes(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= numParticles) return;
+	if (Phases[id.x] != 0) return;
+
+	uint blobId = BlobIDs[id.x];
+	if (blobId >= numParticles) return;
+
+	uint previousCount;
+	InterlockedAdd(BlobSizes[blobId], 1, previousCount);
+}
+
+[numthreads(NumThreads, 1, 1)]
+void MarkSingleParticleBlobs(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= numParticles) return;
+	if (Phases[id.x] != 0) return;
+
+	uint blobId = BlobIDs[id.x];
+	if (blobId >= numParticles || BlobSizes[blobId] <= 1)
+	{
+		BlobIDs[id.x] = UnassignedBlobID;
+	}
 }
 
 
@@ -977,8 +1074,12 @@ void CalculateCohesion(uint3 id : SV_DispatchThreadID)
 			if (neighbourKey != key) break;
 
 			uint neighbourPhase = Phases[neighbourIndex];
+			bool isOtherBlobSamePhase = neighbourPhase == myPhase && BlobIDs[neighbourIndex] != BlobIDs[id.x];
 			float cohesionStrength = GetPhaseCohesion(myPhase, neighbourPhase);
-			if (cohesionStrength == 0) continue; // skip if no cohesion between these phases
+			if (isOtherBlobSamePhase)
+			{
+				cohesionStrength = blobBlobCohesion;
+			}
 
 			float2 neighbourPos = PredictedPositions[neighbourIndex];
 			float2 offsetToNeighbour = neighbourPos - pos;
@@ -994,15 +1095,25 @@ void CalculateCohesion(uint3 id : SV_DispatchThreadID)
 			//float cohesionKernel = normalizedDst * (1 - normalizedDst) * (1 - normalizedDst);
 			float cohesionKernel = SpikyKernelPow2(dst, smoothingRadius);
 			
-			cohesionForce += dirToNeighbour * cohesionKernel * cohesionStrength;
+			if (cohesionStrength != 0)
+			{
+				cohesionForce += dirToNeighbour * cohesionKernel * cohesionStrength;
+			}
+
+			if (isOtherBlobSamePhase && blobFilmSeparationDistance > 0 && blobFilmSeparationStrength > 0)
+			{
+				float2 contactPos = (neighbourPos + pos) * 0.5;
+				bool canMergeHere = restrictBlobMergingToCoil && IsInsideBlobMergeCoil(contactPos);
+				if (!canMergeHere && dst < blobFilmSeparationDistance)
+				{
+					float overlapT = 1.0 - dst / max(blobFilmSeparationDistance, 1e-6);
+					cohesionForce += -dirToNeighbour * blobFilmSeparationStrength * overlapT * overlapT;
+				}
+			}
 		}
 	}
 
 	Velocities[id.x] += cohesionForce * deltaTime;
-    if (debugVisualizationMode == 3)
-    {
-        DebugData[id.x] += cohesionForce;
-    }
 }
 
 [numthreads(NumThreads,1,1)]
@@ -1013,7 +1124,7 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 	// Skip ghost particles
 	if (IsGhost[id.x] != 0)
 	{
-		if (debugVisualizationMode == 4)
+		if (debugVisualizationMode == 3)
 			DebugData[id.x] = 0;
 		return;
 	}
@@ -1028,7 +1139,7 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 	uint myPhase = Phases[id.x];
 	float myTemp = Temperatures[id.x];
 	float myViscosity = GetTemperatureAdjustedViscosity(myPhase, myTemp);
-	if (debugVisualizationMode == 4)
+	if (debugVisualizationMode == 3)
 	{
 		DebugData[id.x] = myViscosity.xx;
 	}
@@ -1064,6 +1175,12 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 			float neighbourTemp = Temperatures[neighbourIndex];
 			float neighbourViscosity = GetTemperatureAdjustedViscosity(neighbourPhase, neighbourTemp);
 			float blendedViscosity = (myViscosity + neighbourViscosity) * 0.5;
+			bool differentPhase = neighbourPhase != myPhase;
+			bool differentBlobSamePhase = !differentPhase && BlobIDsRO[neighbourIndex] != BlobIDsRO[id.x];
+			if (differentPhase || differentBlobSamePhase)
+			{
+				blendedViscosity *= interfaceViscosityMultiplier;
+			}
 
 			float dst = sqrt(sqrDstToNeighbour);
 			float2 neighbourVelocity = Velocities[neighbourIndex];
@@ -1072,10 +1189,6 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 
 	}
 	Velocities[id.x] += viscosityForce * deltaTime;
-    if (debugVisualizationMode == 3)
-    {
-        DebugData[id.x] += viscosityForce;
-    }
 }
 
 [numthreads(NumThreads, 1, 1)]
@@ -1205,7 +1318,7 @@ void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
     }
 
     ColorGradients[id.x] = gradC;
-	if (debugVisualizationMode == 1)
+	if (debugVisualizationMode == 1 || debugVisualizationMode == 0)
 	{
 		DebugData[id.x] = gradC;
 	}
@@ -1217,8 +1330,13 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
     if (id.x >= numParticles) return;
     if (IsGhost[id.x] != 0)
     {
-    	if (debugVisualizationMode == 2)
-    		DebugData[id.x] = 0;
+	    if (debugVisualizationMode == 2)
+		    DebugData[id.x] = 0;
+	    if (debugVectorFieldMode != 0 && debugVectorFieldMode != 4)
+	    {
+		    DebugVectorData[id.x] = 0;
+		    DebugVectorSign[id.x] = 0;
+	    }
 	    return;
     };
 	
@@ -1245,11 +1363,12 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
     {
         DebugData[id.x] = 0;
     }
-    else if (debugVisualizationMode == 7 || debugVisualizationMode == 8)
-    {
-        // Lubrication/repulsion debug views are produced in this kernel; clear stale data first.
-        DebugData[id.x] = 0;
-    }
+
+	if (debugVectorFieldMode != 0 && debugVectorFieldMode != 4)
+	{
+		DebugVectorData[id.x] = 0;
+		DebugVectorSign[id.x] = 0;
+	}
 
     // Surface detection
     if (gradMag < surfaceTensionThreshold)
@@ -1262,6 +1381,7 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 	// 2. CURVATURE (divergence of normal)
 
 	float curvature = 0;
+	float blobSelfCurvature = 0;
 	float sigmaWeightedSum = 0;
 	float sigmaWeightSum = 0;
 
@@ -1298,6 +1418,7 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 			// With per-phase color fields, opposite-side neighbors have flipped normals.
 			// Reorient to particle i's phase field before divergence/curvature accumulation.
 			float2 normal_j_for_curvature = (BlobIDsRO[j] == BlobIDsRO[id.x]) ? normal_j : -normal_j;
+			bool isOtherBlobSamePhase = !neighbourIsGhost && neighbourPhase == myPhase && BlobIDsRO[j] != BlobIDsRO[id.x];
 			// short-range non-coalescence repulsion accumulation
 			if (!neighbourIsGhost && neighbourPhase == myPhase && gjmag > surfaceTensionThreshold && gradMag > surfaceTensionThreshold)
 			{
@@ -1331,11 +1452,17 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 				sigmaWeightSum += sigmaWeight;
 			}
 			curvature += dot(normal_j_for_curvature - normal, dir) * gradW / density_j;
+			if (!isOtherBlobSamePhase)
+			{
+				blobSelfCurvature += dot(normal_j_for_curvature - normal, dir) * gradW / density_j;
+			}
 		}
 	}
 
 	curvature = -curvature;
 	curvature = clamp(curvature, -maxSurfaceTensionCurvature, maxSurfaceTensionCurvature);
+	blobSelfCurvature = -blobSelfCurvature;
+	blobSelfCurvature = clamp(blobSelfCurvature, -maxSurfaceTensionCurvature, maxSurfaceTensionCurvature);
 
 	if (debugVisualizationMode == 2)
 	{
@@ -1349,15 +1476,27 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 
 	float normalizedGradMag = gradMag * smoothingRadius;
 	float2 surfaceTensionForce = -sigma * curvature * normal * normalizedGradMag;
-	// apply both surface tension and any computed short-range repulsion
-	if (debugVisualizationMode == 3)
+	if (blobSelfSurfaceTension > 0 && (blobSelfSurfaceTensionPhase < 0 || blobSelfSurfaceTensionPhase == (int)myPhase))
 	{
-		DebugData[id.x] += surfaceTensionForce + repulsionForce;
+		bool inMergeCoil = restrictBlobMergingToCoil && IsInsideBlobMergeCoil(pos);
+		if (!inMergeCoil)
+		{
+			surfaceTensionForce += -blobSelfSurfaceTension * blobSelfCurvature * normal * normalizedGradMag;
+		}
 	}
-	else if (debugVisualizationMode == 8)
+	// apply both surface tension and any computed short-range repulsion
+	if (debugVectorFieldMode == 1)
 	{
-		// Debug mode 8: show repulsion force vector (lubrication + contact)
-		DebugData[id.x] = repulsionForce;
+		DebugVectorData[id.x] = surfaceTensionForce;
+	}
+	else if (debugVectorFieldMode == 2)
+	{
+		DebugVectorData[id.x] = repulsionForce;
+	}
+	else if (debugVectorFieldMode == 3)
+	{
+		DebugVectorData[id.x] = normal * curvature;
+		DebugVectorSign[id.x] = curvature;
 	}
 	
 	Velocities[id.x] += (surfaceTensionForce + repulsionForce) * deltaTime;

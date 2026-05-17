@@ -26,7 +26,6 @@ Shader "Instanced/Particle2D" {
 			StructuredBuffer<uint> BlobIDs;
 			StructuredBuffer<float> Temperatures;
 			StructuredBuffer<float2> DebugData;
-			float debugGradientMax;
 			float debugCurvatureMax;
 			float debugViscosityMax;
 			float debugDensityMin;
@@ -38,6 +37,8 @@ Shader "Instanced/Particle2D" {
 			float4 colA;
 			Texture2D<float4> ColourMap;
 			Texture2D<float4> ColourMap2;
+			Texture2D<float4> DebugHeatMap;
+			Texture2D<float4> DebugSignedHeatMap;
 			SamplerState linear_clamp_sampler;
 			float velocityMax;
 
@@ -46,6 +47,24 @@ Shader "Instanced/Particle2D" {
 			float4 phase1Color;
 			float tempMin;
 			float tempMax;
+			float3 particleLightDirection;
+			float4 particleLightColor;
+			float particleAmbientLight;
+			float particleDirectionalLightIntensity;
+			float4 particleSpecularColor;
+			float particleSpecularIntensity;
+			float particleSpecularPower;
+			float4 particleFresnelColor;
+			float particleFresnelIntensity;
+			float particleFresnelPower;
+			float2 particleGlowDirection;
+			float4 particleGlowColor;
+			float particleGlowIntensity;
+			float particleGlowPower;
+			float particleTransmissionIntensity;
+			float particleTransmissionPower;
+			float particleEdgeDarkening;
+			float particleEdgeDarkeningPower;
 
 			struct v2f
 			{
@@ -56,59 +75,22 @@ Shader "Instanced/Particle2D" {
 
 			float3 HashBlobColor(uint blobId)
 			{
-				uint n = blobId * 1664525u + 1013904223u;
-				n ^= (n >> 16);
-				uint r = n * 2246822519u;
-				uint g = (n ^ 3266489917u) * 668265263u;
-				uint b = (n ^ 374761393u) * 2246822519u;
-				return 0.25 + 0.75 * frac(float3(r, g, b) / 65535.0);
-			}
+				if (blobId == 0xFFFFFFFFu)
+				{
+					return float3(0, 0, 0);
+				}
 
-			float3 HeatMapColor(float t)
-			{
-				t = saturate(t);
-				float3 c0 = float3(0.0, 0.0, 0.0);
-				float3 c1 = float3(0.125, 0.0, 0.549);
-				float3 c2 = float3(0.8, 0.0, 0.466);
-				float3 c3 = float3(1.0, 0.843, 0.0);
-				float3 c4 = float3(1.0, 1.0, 1.0);
-
-				if (t < 0.25) return lerp(c0, c1, t * 4.0);
-				if (t < 0.5) return lerp(c1, c2, (t - 0.25) * 4.0);
-				if (t < 0.75) return lerp(c2, c3, (t - 0.5) * 4.0);
-				return lerp(c3, c4, (t - 0.75) * 4.0);
-			}
-
-			float3 SignedHeatMapColor(float t)
-			{
-				// old red green gradient
-			    // float3 negCol  = float3(1.0, 0.0, 0.0);
-			    // float3 zeroCol = float3(0.0, 0.0, 1.0);
-			    // float3 posCol  = float3(0.0, 1.0, 0.0);
-			    // return t < 0 ? lerp(zeroCol, negCol, -t) : lerp(zeroCol,
-			    float a = saturate(abs(t));
-			    float3 pos = lerp(float3(0.0, 0.0, 0.0),  // black
-			                      float3(0.0, 0.2, 1.0),   // deep blue
-			                      saturate(a * 2.0))
-			               + lerp(float3(0.0, 0.0, 0.0),
-			                      float3(0.0, 1.0, 1.0),   // cyan bloom
-			                      saturate(a * 2.0 - 1.0));
-
-			    float3 neg = lerp(float3(0.0, 0.0, 0.0),  // black
-			                      float3(1.0, 0.1, 0.0),   // deep red
-			                      saturate(a * 2.0))
-			               + lerp(float3(0.0, 0.0, 0.0),
-			                      float3(1.0, 0.6, 0.0),   // orange bloom
-			                      saturate(a * 2.0 - 1.0));
-
-			    return t < 0.0 ? neg : pos;
+				uint hueSlot = blobId * 7u;
+				uint tier = blobId / 12u;
+				float hue = frac((hueSlot % 12u) / 12.0 + (tier + 1u) * 0.0527864045);
+				float saturation = 0.86 + 0.10 * frac(tier * 0.318309886);
+				float value = 0.82 + 0.18 * frac(tier * 0.754877666 + 0.31);
+				float3 rgb = saturate(abs(frac(hue + float3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0);
+				return value * lerp(float3(1.0, 1.0, 1.0), rgb, saturation);
 			}
 
 			v2f vert (appdata_full v, uint instanceID : SV_InstanceID)
 			{
-				//float speed = length(Velocities[instanceID]);
-				//float speedT = saturate(speed / velocityMax);
-
 				float3 centreWorld = float3(Positions2D[instanceID], 0);
 				float3 worldVertPos = centreWorld + mul(unity_ObjectToWorld, v.vertex * scale);
 				float3 objectVertPos = mul(unity_WorldToObject, float4(worldVertPos.xyz, 1));
@@ -117,71 +99,9 @@ Shader "Instanced/Particle2D" {
 				o.uv = v.texcoord;
 				o.pos = UnityObjectToClipPos(objectVertPos);
 
-
-				// else if (IsGhost[instanceID] != 0)
-				// {
-				// 	o.colour = float3(0.1, 0.1, 0.1);
-				// }
-				if (debugMode != 0)
-				{
-					float maxAbsValue = max(debugGradientMax, 0.0001);
-					float2 debugData = DebugData[instanceID];
-
-					// if (debugMode == 1) // gradient
-					// {
-					// 	float2 mapped = saturate(0.5 + debugData / 2.0);
-					// 	o.colour = float3(mapped.x, mapped.y, 1);
-					// }
-
-					if (debugMode == 1) // gradient
-					{
-						// Reconstruct Z
-					    float z = sqrt(saturate(1.0 - dot(debugData, debugData)));
-						float3 normal = float3(debugData, z);
-					    o.colour = saturate(0.5 + normal / 2.0);;
-					}
-
-					else if (debugMode == 2) // curvature
-					{
-						float t = debugData.x / max(debugCurvatureMax, 0.0001);
-						o.colour = SignedHeatMapColor(t);
-					}
-
-					else if (debugMode == 3) // Force
-					{
-						float2 mapped = saturate(0.5 + debugData / (2.0 * maxAbsValue));
-						float mag = saturate(length(debugData) / maxAbsValue);
-						o.colour = float3(mapped, mag);
-					}
-
-					else if (debugMode == 4) // viscosity
-					{
-						float t = saturate(debugData.x / max(debugViscosityMax, 0.0001));
-						o.colour = HeatMapColor(t);
-					}
-
-					if (debugMode == 5) //density
-					{
-						float density = DensityData[instanceID].x;
-						float t = saturate((density - debugDensityMin) / max(debugDensityMax - debugDensityMin, 0.0001));
-						o.colour = HeatMapColor(t);
-					}
-
-					else if (debugMode == 6) //temperature
-					{
-						float t = saturate((Temperatures[instanceID] - tempMin) / max(tempMax - tempMin, 0.001));
-						o.colour = HeatMapColor(t);
-					}
-
-					else if (debugMode == 7) // blob ids
-					{
-						o.colour = HashBlobColor(BlobIDs[instanceID]);
-					}
-				}
-				else
+				if (debugMode == 0)
 				{
 					int pid = Phases[instanceID];
-					float3 phaseCol = pid == 0 ? phase0Color.rgb : phase1Color.rgb;
 					float temp = Temperatures[instanceID];
 					float tempT = saturate((temp - tempMin) / max(tempMax - tempMin, 0.001));
 
@@ -192,6 +112,79 @@ Shader "Instanced/Particle2D" {
 					else
 					{
 						o.colour= ColourMap2.SampleLevel(linear_clamp_sampler, float2(tempT, 0.5), 0);
+					}
+
+					float2 normalizedDebugData = DebugData[instanceID] / 7;
+					float z = sqrt(saturate(1.0 - dot(normalizedDebugData, normalizedDebugData)));
+					float3 normal = float3(normalizedDebugData, z);
+					float lightDirLength = max(length(particleLightDirection), 0.0001);
+					float3 lightDir = particleLightDirection / lightDirLength;
+					float directionalLight = saturate(dot(normal, lightDir)) * particleDirectionalLightIntensity;
+					float3 lighting = particleAmbientLight + particleLightColor.rgb * directionalLight;
+					float3 viewDir = float3(0.0, 0.0, 1.0);
+					float3 halfVector = lightDir + viewDir;
+					float3 halfDir = halfVector / max(length(halfVector), 0.0001);
+					float specular = pow(saturate(dot(normal, halfDir)), max(particleSpecularPower, 1.0)) * particleSpecularIntensity;
+					float fresnel = pow(saturate(1.0 - dot(normal, viewDir)), max(particleFresnelPower, 0.1)) * particleFresnelIntensity;
+					float2 glowDir = particleGlowDirection / max(length(particleGlowDirection), 0.0001);
+					float directionalGlow = pow(saturate(dot(normal.xy, glowDir)), max(particleGlowPower, 0.1)) * saturate(1.0 - normal.z) * particleGlowIntensity;
+					float transmission = pow(saturate(dot(-normal, lightDir)), max(particleTransmissionPower, 0.1)) * particleTransmissionIntensity;
+					float edgeT = pow(saturate(1.0 - normal.z), max(particleEdgeDarkeningPower, 0.1)) * particleEdgeDarkening;
+					o.colour *= 1.0 - edgeT;
+					o.colour = saturate(
+						o.colour * lighting
+						+ particleSpecularColor.rgb * specular
+						+ particleFresnelColor.rgb * fresnel
+						+ particleGlowColor.rgb * directionalGlow
+						+ o.colour * transmission
+					);
+				}
+				else
+				{
+					float2 debugData = DebugData[instanceID];
+
+					if (debugMode == 1) // gradient
+					{
+						// Reconstruct Z
+						float2 normalizedDebugData = debugData / 7;
+					    float z = sqrt(saturate(1.0 - dot(normalizedDebugData, normalizedDebugData)));
+						float3 normal = float3(normalizedDebugData, 1);
+					    float3 encodedNormal = saturate(0.5 + normal / 2.0);
+						#if defined(UNITY_COLORSPACE_GAMMA)
+							o.colour = encodedNormal;
+						#else
+							o.colour = GammaToLinearSpace(encodedNormal);
+						#endif
+					}
+
+					else if (debugMode == 2) // curvature
+					{
+						float t = debugData.x / max(debugCurvatureMax, 0.0001);
+						o.colour = DebugSignedHeatMap.SampleLevel(linear_clamp_sampler, float2(saturate(0.5 + t * 0.5), 0.5), 0).rgb;
+					}
+
+					else if (debugMode == 3) // viscosity
+					{
+						float t = saturate(debugData.x / max(debugViscosityMax, 0.0001));
+						o.colour = DebugHeatMap.SampleLevel(linear_clamp_sampler, float2(t, 0.5), 0).rgb;
+					}
+
+					if (debugMode == 4) //density
+					{
+						float density = DensityData[instanceID].x;
+						float t = saturate((density - debugDensityMin) / max(debugDensityMax - debugDensityMin, 0.0001));
+						o.colour = DebugHeatMap.SampleLevel(linear_clamp_sampler, float2(t, 0.5), 0).rgb;
+					}
+
+					else if (debugMode == 5) //temperature
+					{
+						float t = saturate((Temperatures[instanceID] - tempMin) / max(tempMax - tempMin, 0.001));
+						o.colour = DebugHeatMap.SampleLevel(linear_clamp_sampler, float2(t, 0.5), 0).rgb;
+					}
+
+					else if (debugMode == 6) // blob ids
+					{
+						o.colour = HashBlobColor(BlobIDs[instanceID]);
 					}
 				}
 				return o;

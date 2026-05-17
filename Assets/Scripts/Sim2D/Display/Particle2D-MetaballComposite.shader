@@ -28,12 +28,37 @@ Shader "Hidden/Particle2DMetaballComposite" {
 
 			// Single RGBA texture: RG = phase0 (weighted data, density), BA = phase1 (weighted data, density)
 			sampler2D CombinedTex;
+			sampler2D NormalTex;
 			sampler2D ColourMap;
 			sampler2D ColourMap2;
+			sampler2D DebugHeatMap;
+			sampler2D DebugSignedHeatMap;
 			float densityThreshold;
 			float edgeSoftness;
 			float phaseBlendWidth;
+			float metaballRefractionStrength;
+			float metaballRefractionEdgeFade;
 			int debugMode;
+			float ditherStrength;
+			float3 particleLightDirection;
+			float4 particleLightColor;
+			float particleAmbientLight;
+			float particleDirectionalLightIntensity;
+			float particleNormalStrength;
+			float4 particleSpecularColor;
+			float particleSpecularIntensity;
+			float particleSpecularPower;
+			float4 particleFresnelColor;
+			float particleFresnelIntensity;
+			float particleFresnelPower;
+			float2 particleGlowDirection;
+			float4 particleGlowColor;
+			float particleGlowIntensity;
+			float particleGlowPower;
+			float particleTransmissionIntensity;
+			float particleTransmissionPower;
+			float particleEdgeDarkening;
+			float particleEdgeDarkeningPower;
 
 			v2f vert(appdata v)
 			{
@@ -43,39 +68,72 @@ Shader "Hidden/Particle2DMetaballComposite" {
 				return o;
 			}
 
-			float3 HeatMapColor(float t)
+			float InterleavedGradientNoise(float2 pixel)
 			{
-				t = saturate(t);
-				float3 c0 = float3(0.0, 0.0, 0.0);
-				float3 c1 = float3(0.125, 0.0, 0.549);
-				float3 c2 = float3(0.8, 0.0, 0.466);
-				float3 c3 = float3(1.0, 0.843, 0.0);
-				float3 c4 = float3(1.0, 1.0, 1.0);
-
-				if (t < 0.25) return lerp(c0, c1, t * 4.0);
-				if (t < 0.5) return lerp(c1, c2, (t - 0.25) * 4.0);
-				if (t < 0.75) return lerp(c2, c3, (t - 0.5) * 4.0);
-				return lerp(c3, c4, (t - 0.75) * 4.0);
+				float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
+				return frac(magic.z * frac(dot(pixel, magic.xy)));
 			}
 
-			float3 SignedHeatMapColor(float t)
+			float Dither01(float t, float noise)
 			{
-				float a = saturate(abs(t));
-				float3 pos = lerp(float3(0.0, 0.0, 0.0),
-				                  float3(0.0, 0.2, 1.0),
-				                  saturate(a * 2.0))
-				           + lerp(float3(0.0, 0.0, 0.0),
-				                  float3(0.0, 1.0, 1.0),
-				                  saturate(a * 2.0 - 1.0));
+				return saturate(t + (noise - 0.5) * ditherStrength);
+			}
 
-				float3 neg = lerp(float3(0.0, 0.0, 0.0),
-				                  float3(1.0, 0.1, 0.0),
-				                  saturate(a * 2.0))
-				           + lerp(float3(0.0, 0.0, 0.0),
-				                  float3(1.0, 0.6, 0.0),
-				                  saturate(a * 2.0 - 1.0));
+			float3 NormalFromXY(float2 normalXY)
+			{
+				normalXY *= particleNormalStrength;
+				float lenSq = dot(normalXY, normalXY);
+				if (lenSq > 0.999)
+				{
+					normalXY *= rsqrt(lenSq) * 0.999;
+					lenSq = dot(normalXY, normalXY);
+				}
+				float normalZ = sqrt(saturate(1.0 - lenSq));
+				return normalize(float3(normalXY, normalZ));
+			}
 
-				return t < 0.0 ? neg : pos;
+			float3 GetPhaseNormal(float4 normalPacked, float density0, float density1, bool usePhase1)
+			{
+				float phaseDensity = usePhase1 ? density1 : density0;
+				float2 encodedNormalXY = usePhase1
+					? normalPacked.ba / max(density1, 0.0001)
+					: normalPacked.rg / max(density0, 0.0001);
+				float2 normalXY = phaseDensity > 0.0001 ? encodedNormalXY * 2.0 - 1.0 : 0.0;
+				return NormalFromXY(normalXY);
+			}
+
+			float3 GetBlendedPhaseNormal(float4 normalPacked, float density0, float density1, float phaseT)
+			{
+				float3 normal0 = GetPhaseNormal(normalPacked, density0, density1, false);
+				float3 normal1 = GetPhaseNormal(normalPacked, density0, density1, true);
+				return normalize(lerp(normal0, normal1, phaseT));
+			}
+
+			float3 ApplyParticleLighting(float3 colour, float2 uv, float density0, float density1, float phaseT)
+			{
+				float4 normalPacked = tex2D(NormalTex, uv);
+				float3 normal = GetBlendedPhaseNormal(normalPacked, density0, density1, phaseT);
+				float lightDirLength = max(length(particleLightDirection), 0.0001);
+				float3 lightDir = particleLightDirection / lightDirLength;
+				float directionalLight = saturate(dot(normal, lightDir)) * particleDirectionalLightIntensity;
+				float3 lighting = particleAmbientLight + particleLightColor.rgb * directionalLight;
+				float3 viewDir = float3(0.0, 0.0, 1.0);
+				float3 halfVector = lightDir + viewDir;
+				float3 halfDir = halfVector / max(length(halfVector), 0.0001);
+				float specular = pow(saturate(dot(normal, halfDir)), max(particleSpecularPower, 1.0)) * particleSpecularIntensity;
+				float fresnel = pow(saturate(1.0 - dot(normal, viewDir)), max(particleFresnelPower, 0.1)) * particleFresnelIntensity;
+				float2 glowDir = particleGlowDirection / max(length(particleGlowDirection), 0.0001);
+				float directionalGlow = pow(saturate(dot(normal.xy, glowDir)), max(particleGlowPower, 0.1)) * saturate(1.0 - normal.z) * particleGlowIntensity;
+				float transmission = pow(saturate(dot(-normal, float3(lightDir.xy,0))), max(particleTransmissionPower, 0.1)) * particleTransmissionIntensity;
+				float edgeT = pow(saturate(1.0 - normal.z), max(particleEdgeDarkeningPower, 0.1)) * particleEdgeDarkening;
+				colour *= 1.0 - edgeT;
+				return saturate(
+					colour * lighting
+					+ particleSpecularColor.rgb * specular
+					+ particleFresnelColor.rgb * fresnel
+					+ particleGlowColor.rgb * directionalGlow
+					+ colour * transmission
+				);
 			}
 
 			float4 frag(v2f i) : SV_Target
@@ -87,15 +145,18 @@ Shader "Hidden/Particle2DMetaballComposite" {
 				float alpha = smoothstep(max(densityThreshold - edgeSoftness, 0), densityThreshold + edgeSoftness, density);
 				if (alpha <= 0.0001) discard;
 
-				float phaseT = smoothstep(-phaseBlendWidth, phaseBlendWidth, density1 - density0);
+				float phaseDelta = density1 - density0;
+				float phaseAA = max(0.5 * fwidth(phaseDelta) * max(phaseBlendWidth, 0.0001), 0.00001);
+				float phaseT = smoothstep(-phaseAA, phaseAA, phaseDelta);
 
 				float data0 = combined.r / max(density0, 0.0001);
 				float data1 = combined.b / max(density1, 0.0001);
+				float noise = InterleavedGradientNoise(i.vertex.xy);
 
 				float3 colour0, colour1;
 				if (debugMode != 0)
 				{
-					if (debugMode == 7)
+					if (debugMode == 6)
 					{
 						float3 blobCol = combined.rgb / max(combined.a, 0.0001);
 						return float4(saturate(blobCol), alpha);
@@ -103,42 +164,38 @@ Shader "Hidden/Particle2DMetaballComposite" {
 
 					if (debugMode == 1)
 					{
-						float2 grad = float2(data0, data1);
-						float z = sqrt(saturate(1.0 - dot(grad, grad)));
-						float3 normal = float3(grad, z);
-						return float4(saturate(0.5 + normal / 2.0), alpha);
+						float4 normalPacked = tex2D(NormalTex, i.uv);
+						float3 normal = GetBlendedPhaseNormal(normalPacked, density0, density1, phaseT);
+						float3 encodedNormal = saturate(0.5 + normal / 2.0);
+						#if defined(UNITY_COLORSPACE_GAMMA)
+							return float4(encodedNormal, alpha);
+						#else
+							return float4(GammaToLinearSpace(encodedNormal), alpha);
+						#endif
 					}
 
 					if (debugMode == 2)
 					{
 						float curvature = data0;
-						return float4(SignedHeatMapColor(curvature), alpha);
+						return float4(tex2D(DebugSignedHeatMap, float2(saturate(0.5 + curvature * 0.5), 0.5)).rgb, alpha);
 					}
 
 					if (debugMode == 3)
 					{
-						float2 force = float2(data0, data1);
-						float2 mapped = saturate(0.5 + force * 0.5);
-						float mag = saturate(length(force));
-						return float4(mapped, mag, alpha);
+						float viscosity = Dither01(lerp(data0, data1, phaseT), noise);
+						return float4(tex2D(DebugHeatMap, float2(viscosity, 0.5)).rgb, alpha);
 					}
 
 					if (debugMode == 4)
 					{
-						float viscosity = lerp(data0, data1, phaseT);
-						return float4(HeatMapColor(viscosity), alpha);
+						float densityVal = Dither01(lerp(data0, data1, phaseT), noise);
+						return float4(tex2D(DebugHeatMap, float2(densityVal, 0.5)).rgb, alpha);
 					}
 
 					if (debugMode == 5)
 					{
-						float densityVal = lerp(data0, data1, phaseT);
-						return float4(HeatMapColor(densityVal), alpha);
-					}
-
-					if (debugMode == 6)
-					{
-						float tempVal = lerp(data0, data1, phaseT);
-						return float4(HeatMapColor(tempVal), alpha);
+						float tempVal = Dither01(lerp(data0, data1, phaseT), noise);
+						return float4(tex2D(DebugHeatMap, float2(tempVal, 0.5)).rgb, alpha);
 					}
 
 					float2 force = float2(data0, data1);
@@ -148,11 +205,20 @@ Shader "Hidden/Particle2DMetaballComposite" {
 				}
 				else
 				{
-					colour0 = tex2D(ColourMap,  float2(data0, 0.5)).rgb;
-					colour1 = tex2D(ColourMap2, float2(data1, 0.5)).rgb;
+					float4 normalPacked = tex2D(NormalTex, i.uv);
+					float3 normal = GetBlendedPhaseNormal(normalPacked, density0, density1, phaseT);
+					float refractionMask = smoothstep(0.0, max(metaballRefractionEdgeFade, 0.0001), density - densityThreshold);
+					float2 refractedUv = saturate(i.uv - normal.xy * metaballRefractionStrength * refractionMask);
+					float4 refractedCombined = tex2D(CombinedTex, refractedUv);
+					float refractedData0 = refractedCombined.g > 0.0001 ? refractedCombined.r / refractedCombined.g : data0;
+					float refractedData1 = refractedCombined.a > 0.0001 ? refractedCombined.b / refractedCombined.a : data1;
+
+					colour0 = tex2D(ColourMap,  float2(Dither01(refractedData0, noise), 0.5)).rgb;
+					colour1 = tex2D(ColourMap2, float2(Dither01(refractedData1, noise), 0.5)).rgb;
 				}
 
-				return float4(lerp(colour0, colour1, phaseT), alpha);
+				float3 colour = ApplyParticleLighting(lerp(colour0, colour1, phaseT), i.uv, density0, density1, phaseT);
+				return float4(colour, alpha);
 			}
 			ENDCG
 		}
