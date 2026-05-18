@@ -262,7 +262,7 @@ MonoBehaviour:
       m_NumColorKeys: 5
       m_NumAlphaKeys: 2
     targetDensity: 234
-    viscosity: 0.03
+    viscosity: 0.83
     viscosityTemperatureSensitivity: 0
     thermalExpansion: 0.0005
     surfaceTension: 10
@@ -280,6 +280,11 @@ MonoBehaviour:
   blobBlobCohesion: -0.5
   blobFilmSeparationDistance: 0
   blobFilmSeparationStrength: 0
+  carrierWedgePhase: 1
+  carrierWedgeDistance: 0.35
+  carrierWedgeStrength: 500
+  carrierWedgeMaxAcceleration: 0
+  carrierWedgeMaxDirectionDot: 0.5
   blobIdUpdateInterval: 3000
   blobPropagationIterations: 200
   restrictBlobMergingToCoil: 1
@@ -347,33 +352,38 @@ MonoBehaviour:
   particleLightColor: {r: 1, g: 0.26729542, b: 0.66926533, a: 1}
   particleAmbientLight: 1
   particleDirectionalLightIntensity: 0
-  particleNormalStrength: 1
+  particleNormalStrength: 0.85
   particleNormalBlurCompensation: 0.43
   particleSpecularColor: {r: 1, g: 0.50628924, b: 0.7447482, a: 1}
   particleSpecularIntensity: 100
-  particleSpecularPower: 5000
+  particleSpecularPower: 2000
   particleFresnelColor: {r: 0.75, g: 0.9, b: 1, a: 1}
-  particleFresnelIntensity: 0
+  particleFresnelIntensity: 0.2
   particleFresnelPower: 3
-  particleGlowDirection: {x: -0.75, y: -0.45}
+  particleGlowDirection: {x: -0.75, y: -0.93}
   particleGlowColor: {r: 1, g: 1, b: 1, a: 1}
-  particleGlowIntensity: 8
-  particleGlowPower: 8.1
-  particleTransmissionIntensity: 15.2
-  particleTransmissionPower: 1.99
+  particleGlowIntensity: 1
+  particleGlowPower: 10
+  particleTransmissionIntensity: 50
+  particleTransmissionPower: 4.5
   particleEdgeDarkening: 1
-  particleEdgeDarkeningPower: 1.11
+  particleEdgeDarkeningPower: 0.5
   compositeShader: {fileID: 4800000, guid: db6a0932797cd49b1a42ac6d2c30ac61, type: 3}
   blurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
   renderTextureScale: 1
-  blurRadius: 7
+  blurRadius: 10
   densityThreshold: 0.18
   edgeSoftness: 2
   phaseBlendWidth: 2
+  phase0RenderBias: 0.99
   metaballSharpness: 1
   metaballIntensity: 20
-  metaballRefractionStrength: 0.03
-  metaballRefractionEdgeFade: 10
+  convexCurvatureMetaballBoost: 0
+  convexCurvatureBoostMax: 5
+  convexCurvatureBoostStartBlurRadius: 6
+  convexCurvatureBoostBlurRange: 12
+  metaballRefractionStrength: 0.04
+  metaballRefractionEdgeFade: 0.0001
   debugMode: 0
   debugGradientMax: 30
   debugDensityMin: 220
@@ -441,11 +451,11 @@ MonoBehaviour:
   ditherStrength: 0.01
   vectorFieldShader: {fileID: 4800000, guid: 0526403c05f5a334ba1749bab01fec70, type: 3}
   vectorFieldSource: 0
-  vectorScale: 0.52
+  vectorScale: 0.5
   vectorMaxMagnitude: 1
   vectorUseLogScale: 1
   vectorLogScaleStrength: 100
-  vectorWidth: 0.035
+  vectorWidth: 0.02
   jumpFloodCompute: {fileID: 7200000, guid: 7349de8b8fa110249b104a7dac6f38c0, type: 3}
   jumpFloodDisplayShader: {fileID: 4800000, guid: a3cfade596b52974f8bac4577967ca73, type: 3}
   jumpFloodSeedShader: {fileID: 4800000, guid: e73c24e1274d0fd459972e6e52ee7b27, type: 3}

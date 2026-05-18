@@ -36,6 +36,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			float densityThreshold;
 			float edgeSoftness;
 			float phaseBlendWidth;
+			float phase0RenderBias;
 			float metaballRefractionStrength;
 			float metaballRefractionEdgeFade;
 			int debugMode;
@@ -145,8 +146,10 @@ Shader "Hidden/Particle2DMetaballComposite" {
 				float alpha = smoothstep(max(densityThreshold - edgeSoftness, 0), densityThreshold + edgeSoftness, density);
 				if (alpha <= 0.0001) discard;
 
-				float phaseDelta = density1 - density0;
-				float phaseAA = max(0.5 * fwidth(phaseDelta) * max(phaseBlendWidth, 0.0001), 0.00001);
+				float phaseRatio = density1 / max(density0 + density1, 0.0001);
+				float phaseBoundary = saturate(0.5 + phase0RenderBias * 0.5);
+				float phaseDelta = phaseRatio - phaseBoundary;
+				float phaseAA = max(0.5 * fwidth(phaseRatio) * max(phaseBlendWidth, 0.0001), 0.00001);
 				float phaseT = smoothstep(-phaseAA, phaseAA, phaseDelta);
 
 				float data0 = combined.r / max(density0, 0.0001);

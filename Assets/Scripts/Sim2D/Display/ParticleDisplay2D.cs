@@ -38,6 +38,7 @@ namespace Seb.Fluid2D.Rendering
 			Velocity = 3,
 			CurvatureNormal = 4,
 			Convection = 5,
+			CarrierWedge = 6,
 		}
 
 		[Tooltip("The fluid simulation to visualize.")]
@@ -115,10 +116,20 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0.0001f)] public float edgeSoftness = 0.06f;
 		[Tooltip("Screen-space width in pixels for anti-aliased blending between fluid phases.")]
 		[Min(0.0001f)] public float phaseBlendWidth = 1f;
+		[Tooltip("Render-only phase boundary bias. 0 is neutral, positive values make phase 0 visually expand, negative values make phase 1 expand.")]
+		[Range(-0.99f, 0.99f)] public float phase0RenderBias = 0f;
 		[Tooltip("Steepness of each particle's density kernel (exp(-r² × sharpness)). Higher values make particles contribute a tighter, more localised density spike.")]
 		[Min(0.01f)] public float metaballSharpness = 3.5f;
 		[Tooltip("Uniform scale applied to each particle's density contribution. Increase if particles are too sparse to merge.")]
 		[Min(0)] public float metaballIntensity = 1.0f;
+		[Tooltip("Render-only boost applied to convex high-curvature particles so small blobs survive larger blur radii. Set to 0 to disable.")]
+		[Min(0f)] public float convexCurvatureMetaballBoost = 0f;
+		[Tooltip("Curvature value that maps to full convex metaball boost.")]
+		[Min(0.0001f)] public float convexCurvatureBoostMax = 5f;
+		[Tooltip("Configured blur radius where convex curvature boost starts fading in.")]
+		[Min(0f)] public float convexCurvatureBoostStartBlurRadius = 6f;
+		[Tooltip("Configured blur radius range over which convex curvature boost reaches full strength.")]
+		[Min(0.0001f)] public float convexCurvatureBoostBlurRange = 12f;
 		[Tooltip("Metaball-only UV offset strength for refracting the blurred colour data outward from the normal. Alpha and phase remain unwarped.")]
 		public float metaballRefractionStrength = 0.01f;
 		[Tooltip("Density distance over which refraction fades in from the visible edge. Higher values push refraction farther inward.")]
@@ -460,6 +471,7 @@ namespace Seb.Fluid2D.Rendering
 			targetMaterial.SetBuffer("IsGhost", sim.ghostFlagBuffer);
 			targetMaterial.SetBuffer("BlobIDs", sim.blobIdBuffer);
 			targetMaterial.SetBuffer("Temperatures", sim.temperatureBuffer);
+			targetMaterial.SetBuffer("Curvatures", sim.debugVectorSignBuffer);
 		}
 
 		void ApplySharedParticleSettings(Material targetMaterial)
@@ -495,6 +507,10 @@ namespace Seb.Fluid2D.Rendering
 			targetMaterial.SetFloat("particleEdgeDarkeningPower", particleEdgeDarkeningPower);
 			targetMaterial.SetFloat("metaballSharpness", metaballSharpness);
 			targetMaterial.SetFloat("metaballIntensity", metaballIntensity);
+			targetMaterial.SetFloat("convexCurvatureMetaballBoost", convexCurvatureMetaballBoost);
+			targetMaterial.SetFloat("convexCurvatureBoostMax", convexCurvatureBoostMax);
+			targetMaterial.SetFloat("convexCurvatureBoostStartBlurRadius", convexCurvatureBoostStartBlurRadius);
+			targetMaterial.SetFloat("convexCurvatureBoostBlurRange", convexCurvatureBoostBlurRange);
 		}
 
 		void ApplyVectorFieldSettings()
@@ -543,6 +559,16 @@ namespace Seb.Fluid2D.Rendering
 					{
 						return sim.MaxDebugConvection;
 					}
+
+					if (vectorFieldSource == VectorFieldSource.CarrierWedge)
+					{
+						if (sim.carrierWedgeMaxAcceleration > 0)
+						{
+							return sim.carrierWedgeMaxAcceleration;
+						}
+
+						return Mathf.Max(0.0001f, Mathf.Abs(sim.carrierWedgeStrength));
+					}
 				}
 
 				return Mathf.Max(0.0001f, vectorMaxMagnitude);
@@ -571,6 +597,11 @@ namespace Seb.Fluid2D.Rendering
 				if (vectorFieldSource == VectorFieldSource.Convection)
 				{
 					return 4;
+				}
+
+				if (vectorFieldSource == VectorFieldSource.CarrierWedge)
+				{
+					return 5;
 				}
 
 				return 0;
@@ -652,6 +683,7 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetFloat("densityThreshold", densityThreshold);
 			compositeMaterial.SetFloat("edgeSoftness", edgeSoftness);
 			compositeMaterial.SetFloat("phaseBlendWidth", phaseBlendWidth);
+			compositeMaterial.SetFloat("phase0RenderBias", phase0RenderBias);
 			compositeMaterial.SetTexture("CombinedTex", combinedAccumulationTexture);
 			compositeMaterial.SetTexture("NormalTex", normalAccumulationTexture);
 			compositeMaterial.SetTexture("ColourMap", gradientTexture);
@@ -660,6 +692,7 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetTexture("DebugSignedHeatMap", debugSignedHeatMapTexture);
 			float effectiveBlurRadius = GetEffectiveBlurRadius(cam);
 			float effectiveRefractionStrength = metaballRefractionStrength * GetZoomScale(cam);
+			metaballMaterial.SetFloat("metaballBlurRadius", blurRadius);
 			compositeMaterial.SetFloat("metaballRefractionStrength", effectiveRefractionStrength);
 			compositeMaterial.SetFloat("metaballRefractionEdgeFade", metaballRefractionEdgeFade);
 			float effectiveNormalStrength = GetEffectiveNormalStrength(blurRadius);

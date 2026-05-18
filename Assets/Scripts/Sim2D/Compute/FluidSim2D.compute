@@ -28,6 +28,7 @@
 #pragma kernel ClearBlobSizes // 27
 #pragma kernel CountBlobSizes // 28
 #pragma kernel MarkSingleParticleBlobs // 29
+#pragma kernel ApplyCarrierWedgeForce // 30
 
 // Includes
 #include "./FluidMaths2D.hlsl"
@@ -54,6 +55,11 @@ StructuredBuffer<float> PhaseCohesionMatrix;
 const float blobBlobCohesion;
 const float blobFilmSeparationDistance;
 const float blobFilmSeparationStrength;
+const int carrierWedgePhase;
+const float carrierWedgeDistance;
+const float carrierWedgeStrength;
+const float carrierWedgeMaxAcceleration;
+const float carrierWedgeMaxDirectionDot;
 StructuredBuffer<float> PhaseSurfaceTensionMatrix;
 const float surfaceTensionThreshold; // min gradient magnitude to apply force
 const float blobBlobSurfaceTension;
@@ -65,7 +71,7 @@ StructuredBuffer<float> PhaseNonCoalescenceRadius;
 StructuredBuffer<float> PhaseNonCoalescenceStrength;
 StructuredBuffer<float> PhaseNonCoalescenceNormalDotThreshold;
 RWStructuredBuffer<float2> DebugData; // debug colour output (mode-dependent): gradient.xy, curvature.xx, or viscosity.xx
-RWStructuredBuffer<float2> DebugVectorData; // vector overlay output: surface tension force.xy, repulsion force.xy, curvature normal.xy, or convection.xy
+RWStructuredBuffer<float2> DebugVectorData; // vector overlay output: surface tension force.xy, repulsion force.xy, curvature normal.xy, convection.xy, or carrier wedge acceleration.xy
 RWStructuredBuffer<float> DebugVectorSign; // signed scalar for vector overlay colouring, used by curvature combs
 RWStructuredBuffer<float2> ColorGradients; // per-particle color gradient
 StructuredBuffer<float2> ColorGradientsRO;
@@ -1116,6 +1122,132 @@ void CalculateCohesion(uint3 id : SV_DispatchThreadID)
 	Velocities[id.x] += cohesionForce * deltaTime;
 }
 
+[numthreads(NumThreads, 1, 1)]
+void ApplyCarrierWedgeForce(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= numParticles) return;
+	bool debugCarrierWedge = debugVectorFieldMode == 5;
+	if (debugCarrierWedge)
+	{
+		DebugVectorData[id.x] = 0;
+	}
+
+	if (carrierWedgeStrength <= 0 || carrierWedgeDistance <= 0) return;
+	if (IsGhost[id.x] != 0) return;
+	if ((int)Phases[id.x] != carrierWedgePhase) return;
+
+	float2 pos = PredictedPositions[id.x];
+	if (restrictBlobMergingToCoil && IsInsideBlobMergeCoil(pos)) return;
+
+	float searchDistance = min(carrierWedgeDistance, smoothingRadius * 2.5);
+	float sqrSearchDistance = searchDistance * searchDistance;
+	int2 originCell = GetCell2D(pos, smoothingRadius);
+	int cellRange = (int)ceil(searchDistance / max(smoothingRadius, 1e-6));
+
+	uint blobA = IgnoredPhaseBlobID;
+	uint blobB = IgnoredPhaseBlobID;
+	float2 weightedPosA = 0;
+	float2 weightedPosB = 0;
+	float weightA = 0;
+	float weightB = 0;
+
+	for (int y = -cellRange; y <= cellRange; y++)
+	{
+		for (int x = -cellRange; x <= cellRange; x++)
+		{
+			uint hash = HashCell2D(originCell + int2(x, y));
+			uint key = KeyFromHash(hash, numSpatialParticles);
+			uint currIndex = SpatialOffsets[key];
+
+			while (currIndex < numSpatialParticles)
+			{
+				uint neighbourIndex = currIndex++;
+				if (neighbourIndex == id.x) continue;
+				if (SpatialKeys[neighbourIndex] != key) break;
+				if (IsGhost[neighbourIndex] != 0) continue;
+				if ((int)Phases[neighbourIndex] == carrierWedgePhase) continue;
+
+				uint neighbourBlob = BlobIDsRO[neighbourIndex];
+				if (neighbourBlob >= UnassignedBlobID) continue;
+
+				float2 neighbourPos = PredictedPositions[neighbourIndex];
+				float2 offset = neighbourPos - pos;
+				float sqrDst = dot(offset, offset);
+				if (sqrDst > sqrSearchDistance || sqrDst == 0) continue;
+
+				float2 contactPos = (neighbourPos + pos) * 0.5;
+				if (restrictBlobMergingToCoil && IsInsideBlobMergeCoil(contactPos)) continue;
+
+				float dst = sqrt(sqrDst);
+				float contactT = 1.0 - dst / max(searchDistance, 1e-6);
+				float weight = contactT * contactT;
+
+				if (neighbourBlob == blobA)
+				{
+					weightedPosA += neighbourPos * weight;
+					weightA += weight;
+				}
+				else if (neighbourBlob == blobB)
+				{
+					weightedPosB += neighbourPos * weight;
+					weightB += weight;
+				}
+				else if (weightA <= 0 || weight > weightA)
+				{
+					blobB = blobA;
+					weightedPosB = weightedPosA;
+					weightB = weightA;
+					blobA = neighbourBlob;
+					weightedPosA = neighbourPos * weight;
+					weightA = weight;
+				}
+				else if (weightB <= 0 || weight > weightB)
+				{
+					blobB = neighbourBlob;
+					weightedPosB = neighbourPos * weight;
+					weightB = weight;
+				}
+			}
+		}
+	}
+
+	if (weightA <= 1e-6 || weightB <= 1e-6 || blobA == blobB) return;
+
+	float2 centroidA = weightedPosA / weightA;
+	float2 centroidB = weightedPosB / weightB;
+	float2 toA = centroidA - pos;
+	float2 toB = centroidB - pos;
+	float lenA = length(toA);
+	float lenB = length(toB);
+	if (lenA <= 1e-6 || lenB <= 1e-6) return;
+
+	float2 dirA = toA / lenA;
+	float2 dirB = toB / lenB;
+	float directionDot = dot(dirA, dirB);
+	if (directionDot > carrierWedgeMaxDirectionDot) return;
+
+	float2 wedgeDir = dirA + dirB;
+	float wedgeLen = length(wedgeDir);
+	if (wedgeLen <= 1e-6) return;
+	wedgeDir /= wedgeLen;
+
+	float contactAmount = saturate(min(weightA, weightB));
+	float angleAmount = saturate((carrierWedgeMaxDirectionDot - directionDot) / max(carrierWedgeMaxDirectionDot + 1.0, 1e-6));
+	float2 acceleration = wedgeDir * carrierWedgeStrength * contactAmount * angleAmount;
+	float accelerationMag = length(acceleration);
+	if (carrierWedgeMaxAcceleration > 0 && accelerationMag > carrierWedgeMaxAcceleration)
+	{
+		acceleration *= carrierWedgeMaxAcceleration / accelerationMag;
+	}
+
+	if (debugCarrierWedge)
+	{
+		DebugVectorData[id.x] = acceleration;
+	}
+
+	Velocities[id.x] += acceleration * deltaTime;
+}
+
 [numthreads(NumThreads,1,1)]
 void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 {
@@ -1308,7 +1440,6 @@ void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
 
             float density_j = max(Densities[j][0], 0.0001);
 
-        	//float dc = (Phases[j] == myPhase) ? 0.0 : -1.0;
         	float dc = (BlobIDsRO[j] == BlobIDsRO[id.x])?  0.0: -1.0;
 
             float gradW = DensityDerivative(dst, smoothingRadius);
@@ -1332,10 +1463,10 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
     {
 	    if (debugVisualizationMode == 2)
 		    DebugData[id.x] = 0;
-	    if (debugVectorFieldMode != 0 && debugVectorFieldMode != 4)
+	    DebugVectorSign[id.x] = 0;
+	    if (debugVectorFieldMode != 0 && debugVectorFieldMode != 4 && debugVectorFieldMode != 5)
 	    {
 		    DebugVectorData[id.x] = 0;
-		    DebugVectorSign[id.x] = 0;
 	    }
 	    return;
     };
@@ -1364,7 +1495,7 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
         DebugData[id.x] = 0;
     }
 
-	if (debugVectorFieldMode != 0 && debugVectorFieldMode != 4)
+	if (debugVectorFieldMode != 0 && debugVectorFieldMode != 4 && debugVectorFieldMode != 5)
 	{
 		DebugVectorData[id.x] = 0;
 		DebugVectorSign[id.x] = 0;
@@ -1414,11 +1545,10 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 			float gjmag = length(gradCj);
 			uint neighbourPhase = PhasesRO[j];
 			bool neighbourIsGhost = IsGhost[j] != 0;
+			bool isSameBlob = BlobIDsRO[j] == myBlobId;
+			bool isOtherBlobSamePhase = !neighbourIsGhost && neighbourPhase == myPhase && !isSameBlob;
 			float2 normal_j = (gjmag > 1e-6) ? gradCj / gjmag : normal;
-			// With per-phase color fields, opposite-side neighbors have flipped normals.
-			// Reorient to particle i's phase field before divergence/curvature accumulation.
-			float2 normal_j_for_curvature = (BlobIDsRO[j] == BlobIDsRO[id.x]) ? normal_j : -normal_j;
-			bool isOtherBlobSamePhase = !neighbourIsGhost && neighbourPhase == myPhase && BlobIDsRO[j] != BlobIDsRO[id.x];
+
 			// short-range non-coalescence repulsion accumulation
 			if (!neighbourIsGhost && neighbourPhase == myPhase && gjmag > surfaceTensionThreshold && gradMag > surfaceTensionThreshold)
 			{
@@ -1429,6 +1559,15 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 						repulsionForce += -dir * PhaseNonCoalescenceStrength[myPhase] * overlapT;
 				}
 			}
+			if (isOtherBlobSamePhase)
+			{
+				continue;
+			}
+
+			// With per-phase color fields, opposite-side neighbors have flipped normals.
+			// Reorient to particle i's phase field before divergence/curvature accumulation.
+			float2 normal_j_for_curvature = isSameBlob ? normal_j : -normal_j;
+
 			if (neighbourIsGhost)
 			{
 				float sigma_ij = blobBlobSurfaceTension;
@@ -1443,19 +1582,8 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 				sigmaWeightedSum += sigma_ij * sigmaWeight;
 				sigmaWeightSum += sigmaWeight;
 			}
-			//explicit blob-blob surface tension
-			else if (BlobIDsRO[j] != BlobIDsRO[id.x])
-			{
-				float sigma_ij = blobBlobSurfaceTension;
-				float sigmaWeight = abs(gradW) / density_j;
-				sigmaWeightedSum += sigma_ij * sigmaWeight;
-				sigmaWeightSum += sigmaWeight;
-			}
 			curvature += dot(normal_j_for_curvature - normal, dir) * gradW / density_j;
-			if (!isOtherBlobSamePhase)
-			{
-				blobSelfCurvature += dot(normal_j_for_curvature - normal, dir) * gradW / density_j;
-			}
+			blobSelfCurvature += dot(normal_j_for_curvature - normal, dir) * gradW / density_j;
 		}
 	}
 
@@ -1463,6 +1591,7 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 	curvature = clamp(curvature, -maxSurfaceTensionCurvature, maxSurfaceTensionCurvature);
 	blobSelfCurvature = -blobSelfCurvature;
 	blobSelfCurvature = clamp(blobSelfCurvature, -maxSurfaceTensionCurvature, maxSurfaceTensionCurvature);
+	DebugVectorSign[id.x] = curvature;
 
 	if (debugVisualizationMode == 2)
 	{
@@ -1496,7 +1625,6 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 	else if (debugVectorFieldMode == 3)
 	{
 		DebugVectorData[id.x] = normal * curvature;
-		DebugVectorSign[id.x] = curvature;
 	}
 	
 	Velocities[id.x] += (surfaceTensionForce + repulsionForce) * deltaTime;

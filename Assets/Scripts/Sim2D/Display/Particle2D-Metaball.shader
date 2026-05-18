@@ -21,6 +21,7 @@ Shader "Instanced/Particle2DMetaball" {
 			StructuredBuffer<uint> BlobIDs;
 			StructuredBuffer<float> Temperatures;
 			StructuredBuffer<float2> DebugData;
+			StructuredBuffer<float> Curvatures;
 			StructuredBuffer<float2> DensityData;
 
 			float scale;
@@ -33,6 +34,11 @@ Shader "Instanced/Particle2DMetaball" {
 			float debugDensityMax;
 			float metaballSharpness;
 			float metaballIntensity;
+			float metaballBlurRadius;
+			float convexCurvatureMetaballBoost;
+			float convexCurvatureBoostMax;
+			float convexCurvatureBoostStartBlurRadius;
+			float convexCurvatureBoostBlurRange;
 			int debugMode;
 
 			struct v2f {
@@ -43,7 +49,15 @@ Shader "Instanced/Particle2DMetaball" {
 				nointerpolation float phase : TEXCOORD3;
 				float density : TEXCOORD5;
 				nointerpolation float3 blobCol : TEXCOORD6;
+				float curvature : TEXCOORD7;
 			};
+
+			float GetCurvatureMetaballBoost(float curvature)
+			{
+				float convexT = saturate(max(curvature, 0.0) / max(convexCurvatureBoostMax, 0.0001));
+				float blurT = saturate((metaballBlurRadius - convexCurvatureBoostStartBlurRadius) / max(convexCurvatureBoostBlurRange, 0.0001));
+				return 1.0 + convexT * convexCurvatureMetaballBoost * blurT;
+			}
 
 			float3 HashBlobColor(uint blobId)
 			{
@@ -80,6 +94,7 @@ Shader "Instanced/Particle2DMetaball" {
 				o.phase = Phases[instanceID];
 				o.density = density;
 				o.blobCol = HashBlobColor(BlobIDs[instanceID]);
+				o.curvature = Curvatures[instanceID];
 				return o;
 			}
 
@@ -90,6 +105,7 @@ Shader "Instanced/Particle2DMetaball" {
 				if (r2 >= 1.0) discard;
 
 				float kernel = exp(-r2 * max(metaballSharpness, 0.01)) * metaballIntensity;
+				kernel *= GetCurvatureMetaballBoost(i.curvature);
 				float maxAbsValue = max(debugGradientMax, 0.0001);
 
 				// Debug mode 6: blob id visualization uses RGB weighted colour + A weight.
@@ -157,17 +173,31 @@ Shader "Instanced/Particle2DMetaball" {
 			StructuredBuffer<float2> Positions2D;
 			StructuredBuffer<int> Phases;
 			StructuredBuffer<float2> DebugData;
+			StructuredBuffer<float> Curvatures;
 
 			float scale;
 			float metaballSharpness;
 			float metaballIntensity;
+			float metaballBlurRadius;
+			float convexCurvatureMetaballBoost;
+			float convexCurvatureBoostMax;
+			float convexCurvatureBoostStartBlurRadius;
+			float convexCurvatureBoostBlurRange;
 
 			struct v2f {
 				float4 pos : SV_POSITION;
 				float2 uv : TEXCOORD0;
 				float2 normalXY : TEXCOORD1;
 				nointerpolation float phase : TEXCOORD2;
+				float curvature : TEXCOORD3;
 			};
+
+			float GetCurvatureMetaballBoost(float curvature)
+			{
+				float convexT = saturate(max(curvature, 0.0) / max(convexCurvatureBoostMax, 0.0001));
+				float blurT = saturate((metaballBlurRadius - convexCurvatureBoostStartBlurRadius) / max(convexCurvatureBoostBlurRange, 0.0001));
+				return 1.0 + convexT * convexCurvatureMetaballBoost * blurT;
+			}
 
 			v2f vert(appdata_full v, uint instanceID : SV_InstanceID)
 			{
@@ -178,8 +208,10 @@ Shader "Instanced/Particle2DMetaball" {
 				v2f o;
 				o.pos = UnityObjectToClipPos(objectVertPos);
 				o.uv = v.texcoord;
-				o.normalXY = DebugData[instanceID] / 7;
+				float2 debugData = DebugData[instanceID];
+				o.normalXY = debugData / 7;
 				o.phase = Phases[instanceID];
+				o.curvature = Curvatures[instanceID];
 				return o;
 			}
 
@@ -190,6 +222,7 @@ Shader "Instanced/Particle2DMetaball" {
 				if (r2 >= 1.0) discard;
 
 				float kernel = exp(-r2 * max(metaballSharpness, 0.01)) * metaballIntensity;
+				kernel *= GetCurvatureMetaballBoost(i.curvature);
 				float2 packedNormal = saturate(i.normalXY * 0.5 + 0.5) * kernel;
 				return i.phase < 0.5 ? float4(packedNormal, 0, 0) : float4(0, 0, packedNormal);
 			}
