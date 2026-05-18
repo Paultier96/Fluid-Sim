@@ -480,7 +480,7 @@ namespace Seb.Fluid2D.Rendering
 			targetMaterial.SetFloat("velocityMax", velocityDisplayMax);
 			targetMaterial.SetFloat("tempMin", sim.ambientTemperature);
 			targetMaterial.SetFloat("tempMax", sim.HeatSourceTemperature);
-			targetMaterial.SetBuffer("DebugData", sim.csfGradientBuffer);
+			targetMaterial.SetBuffer("DebugData", sim.debugDataBuffer);
 			targetMaterial.SetFloat("debugGradientMax", debugGradientMax);
 			targetMaterial.SetFloat("debugCurvatureMax", sim.MaxDebugCurvature);
 			targetMaterial.SetFloat("debugViscosityMax", sim.MaxDebugViscosity);

@@ -2,6 +2,8 @@
 #pragma kernel UpdateSpatialHash     // 1
 #pragma kernel Reorder               // 2
 #pragma kernel ReorderCopyback       // 3
+#pragma kernel ReorderAll
+#pragma kernel ReorderAllCopyback
 #pragma kernel CalculateDensities    // 4
 #pragma kernel CalculatePressureForce // 5
 #pragma kernel CalculateViscosity    // 6
@@ -9,16 +11,9 @@
 #pragma kernel UpdatePositions       // 8
 #pragma kernel UpdateThermalExpansion // 9
 #pragma kernel UpdateTemperature     // 10
-#pragma kernel ReorderTemperature    // 11
-#pragma kernel ReorderTemperatureCopyback // 12
-#pragma kernel ReorderParticleTargetDensities // 13
-#pragma kernel ReorderParticleTargetDensitiesCopyback // 14
-#pragma kernel ReorderGhostFlags // 15
-#pragma kernel ReorderGhostFlagsCopyback // 16
 #pragma kernel CalculateCohesion // 17
 #pragma kernel CalculateCSF // 18
 #pragma kernel ComputeColorGradients // 19
-#pragma kernel ResetGhostTemperatures // 20
 #pragma kernel InitializeBlobIDs // 21
 #pragma kernel PropagateBlobIDs // 22
 #pragma kernel CopyBlobIDs // 23
@@ -29,6 +24,12 @@
 #pragma kernel CountBlobSizes // 28
 #pragma kernel MarkSingleParticleBlobs // 29
 #pragma kernel ApplyCarrierWedgeForce // 30
+#pragma kernel ReorderTemperature
+#pragma kernel ReorderTemperatureCopyback
+#pragma kernel ReorderParticleTargetDensities
+#pragma kernel ReorderParticleTargetDensitiesCopyback
+#pragma kernel ReorderGhostFlags
+#pragma kernel ReorderGhostFlagsCopyback
 
 // Includes
 #include "./FluidMaths2D.hlsl"
@@ -51,6 +52,12 @@ RWStructuredBuffer<uint> BlobIDsScratch;
 RWStructuredBuffer<uint> BlobSizes;
 RWStructuredBuffer<float> Temperatures;
 RWStructuredBuffer<float> ParticleTargetDensities;
+StructuredBuffer<float2> PositionsRO;
+StructuredBuffer<float2> PredictedPositionsRO;
+StructuredBuffer<float2> VelocitiesRO;
+StructuredBuffer<uint> IsGhostRO;
+StructuredBuffer<float> TemperaturesRO;
+StructuredBuffer<float> ParticleTargetDensitiesRO;
 StructuredBuffer<float> PhaseCohesionMatrix;
 const float blobBlobCohesion;
 const float blobFilmSeparationDistance;
@@ -69,7 +76,6 @@ const float maxSurfaceTensionCurvature;
 // Non-coalescence (interface repulsion) per-phase parameters
 StructuredBuffer<float> PhaseNonCoalescenceRadius;
 StructuredBuffer<float> PhaseNonCoalescenceStrength;
-StructuredBuffer<float> PhaseNonCoalescenceNormalDotThreshold;
 RWStructuredBuffer<float2> DebugData; // debug colour output (mode-dependent): gradient.xy, curvature.xx, or viscosity.xx
 RWStructuredBuffer<float2> DebugVectorData; // vector overlay output: surface tension force.xy, repulsion force.xy, curvature normal.xy, convection.xy, or carrier wedge acceleration.xy
 RWStructuredBuffer<float> DebugVectorSign; // signed scalar for vector overlay colouring, used by curvature combs
@@ -153,7 +159,7 @@ void GetEllipseSurfaceData(float2 pos, float2 center, float2 radii, out float2 c
 	float a2 = ab.x * ab.x;
 	float b2 = ab.y * ab.y;
 	float2 signLocal = float2((localPos.x < 0) ? -1.0 : 1.0, (localPos.y < 0) ? -1.0 : 1.0);
-	
+
 	// Handle center explicitly (direction undefined there).
 	if (p.x < 1e-8 && p.y < 1e-8)
 	{
@@ -331,7 +337,43 @@ float GetPhaseInteraction(uint a, uint b)
     return PhaseInteractionMatrix[a * NumPhases + b];
 }
 
-float2 ExternalForces(float2 pos, float2 velocity, float density, uint phase, uint particleIndex)
+bool IsInsideHeatSource(float2 pos)
+{
+	if (heatSourceShape == 0) // Rectangular
+	{
+		float2 relPos = pos - heatSourcePos;
+		float2 halfSize = heatSourceSize * 0.5;
+		return abs(relPos.x) < halfSize.x && abs(relPos.y) < halfSize.y;
+	}
+	if (heatSourceShape == 1) // Elliptical
+	{
+		float2 radii = max(heatSourceSize * 0.5, float2(1e-6, 1e-6));
+		float2 normalizedOffset = (pos - heatSourcePos) / radii;
+		return dot(normalizedOffset, normalizedOffset) < 1.0;
+	}
+	return false;
+}
+
+float SampleHeatSourceWeight(float2 pos)
+{
+	if (heatSourceShape == 0) // Rectangular
+	{
+		return IsInsideHeatSource(pos) ? 1.0 : 0.0;
+	}
+	if (heatSourceShape == 1) // Elliptical
+	{
+		float2 radii = max(heatSourceSize * 0.5, float2(1e-6, 1e-6));
+		float normalizedRadius = length((pos - heatSourcePos) / radii);
+		if (normalizedRadius < 1.0)
+		{
+			float smoothFalloff = 1.0 - smoothstep(0.0, 1.0, normalizedRadius);
+			return pow(saturate(smoothFalloff), max(heatSourceFalloffPower, 0.01));
+		}
+	}
+	return 0.0;
+}
+
+float2 ExternalForces(float2 pos, float2 velocity)
 {
     float2 gravityAccel = float2(0, gravity);
 
@@ -621,9 +663,7 @@ void ExternalForces(uint3 id : SV_DispatchThreadID)
     if (IsGhost[id.x] != 0)
         return;
 
-    uint phase = Phases[id.x];
-    float density = Densities[id.x][0];
-    float2 externalAcceleration = ExternalForces(Positions[id.x], Velocities[id.x], density, phase, id.x);
+    float2 externalAcceleration = ExternalForces(Positions[id.x], Velocities[id.x]);
     Velocities[id.x] += externalAcceleration * deltaTime;
 
     //const float predictionFactor = 1 / 120.0;//idk why
@@ -650,6 +690,14 @@ RWStructuredBuffer<uint> SortTarget_IsGhost;
 RWStructuredBuffer<uint> SortTarget_BlobIDs;
 RWStructuredBuffer<float> SortTarget_Temperatures;
 RWStructuredBuffer<float> SortTarget_ParticleTargetDensities;
+StructuredBuffer<float2> SortTarget_PositionsRO;
+StructuredBuffer<float2> SortTarget_PredictedPositionsRO;
+StructuredBuffer<float2> SortTarget_VelocitiesRO;
+StructuredBuffer<uint> SortTarget_PhasesRO;
+StructuredBuffer<uint> SortTarget_IsGhostRO;
+StructuredBuffer<uint> SortTarget_BlobIDsRO;
+StructuredBuffer<float> SortTarget_TemperaturesRO;
+StructuredBuffer<float> SortTarget_ParticleTargetDensitiesRO;
 
 
 
@@ -675,6 +723,37 @@ void ReorderCopyback (uint3 id : SV_DispatchThreadID)
 	PredictedPositions[id.x] = SortTarget_PredictedPositions[id.x];
 	Velocities[id.x] = SortTarget_Velocities[id.x];
     Phases[id.x] = SortTarget_Phases[id.x];
+}
+
+[numthreads(NumThreads,1,1)]
+void ReorderAll (uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= numSpatialParticles) return;
+
+	uint sortedIndex = SortedIndices[id.x];
+	SortTarget_Positions[id.x] = PositionsRO[sortedIndex];
+	SortTarget_PredictedPositions[id.x] = PredictedPositionsRO[sortedIndex];
+	SortTarget_Velocities[id.x] = VelocitiesRO[sortedIndex];
+	SortTarget_Phases[id.x] = PhasesRO[sortedIndex];
+	SortTarget_IsGhost[id.x] = IsGhostRO[sortedIndex];
+	SortTarget_BlobIDs[id.x] = BlobIDsRO[sortedIndex];
+	SortTarget_Temperatures[id.x] = TemperaturesRO[sortedIndex];
+	SortTarget_ParticleTargetDensities[id.x] = ParticleTargetDensitiesRO[sortedIndex];
+}
+
+[numthreads(NumThreads,1,1)]
+void ReorderAllCopyback (uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= numSpatialParticles) return;
+
+	Positions[id.x] = SortTarget_PositionsRO[id.x];
+	PredictedPositions[id.x] = SortTarget_PredictedPositionsRO[id.x];
+	Velocities[id.x] = SortTarget_VelocitiesRO[id.x];
+	Phases[id.x] = SortTarget_PhasesRO[id.x];
+	IsGhost[id.x] = SortTarget_IsGhostRO[id.x];
+	BlobIDs[id.x] = SortTarget_BlobIDsRO[id.x];
+	Temperatures[id.x] = SortTarget_TemperaturesRO[id.x];
+	ParticleTargetDensities[id.x] = SortTarget_ParticleTargetDensitiesRO[id.x];
 }
 
 [numthreads(NumThreads,1,1)]
@@ -909,11 +988,15 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
     if (id.x >= numParticles)
         return;
 
-    // Skip ghost particles
-    if (IsGhost[id.x] != 0)
-        return;
-
     float2 pos = PredictedPositions[id.x];
+
+    if (IsGhost[id.x] != 0)
+    {
+        float heatSourceWeight = SampleHeatSourceWeight(pos);
+        Temperatures[id.x] = lerp(ambientTemperature, heatSourceTemperature, heatSourceWeight);
+        return;
+    }
+
     float myTemp = Temperatures[id.x];
     uint myPhase = Phases[id.x];
 
@@ -1009,24 +1092,7 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
     }
 
     // Heat source over source area. Elliptical sources use smooth radial falloff.
-    float heatSourceWeight = 0;
-    if (heatSourceShape == 0) // Rectangular
-    {
-        float2 relPos = pos - heatSourcePos;
-        float2 halfSize = heatSourceSize * 0.5;
-        heatSourceWeight = (abs(relPos.x) < halfSize.x && abs(relPos.y) < halfSize.y) ? 1.0 : 0.0;
-    }
-    else if (heatSourceShape == 1) // Elliptical
-    {
-        float2 radii = max(heatSourceSize * 0.5, float2(1e-6, 1e-6));
-        float2 normalizedOffset = (pos - heatSourcePos) / radii;
-        float normalizedRadius = length(normalizedOffset);
-        if (normalizedRadius < 1.0)
-        {
-            float smoothFalloff = 1.0 - smoothstep(0.0, 1.0, normalizedRadius);
-            heatSourceWeight = pow(saturate(smoothFalloff), max(heatSourceFalloffPower, 0.01));
-        }
-    }
+    float heatSourceWeight = SampleHeatSourceWeight(pos);
     
     if (heatSourceWeight > 0)
         newTemp += (heatSourceTemperature - newTemp) * heatSourceTransferRate * heatSourceWeight * deltaTime / heatCapacity;
@@ -1404,6 +1470,7 @@ void ReorderGhostFlagsCopyback(uint3 id : SV_DispatchThreadID)
         return;
     IsGhost[id.x] = SortTarget_IsGhost[id.x];
 }
+
 [numthreads(NumThreads, 1, 1)]
 void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
 {
@@ -1520,14 +1587,14 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 	{
 		uint hash = HashCell2D(originCell + offsets2D[i]);
 		uint key = KeyFromHash(hash, numSpatialParticles);
-		uint currIndex = SpatialOffsets[key];
+		uint currIndex = SpatialOffsetsRO[key];
 
 		while (currIndex < numSpatialParticles)
 		{
 			uint j = currIndex++;
 			if (j == id.x) continue;
 
-			if (SpatialKeys[j] != key) break;
+			if (SpatialKeysRO[j] != key) break;
 
 			float2 pos_j = PredictedPositions[j];
 			float2 offset = pos_j - pos;
@@ -1628,39 +1695,4 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 	}
 	
 	Velocities[id.x] += (surfaceTensionForce + repulsionForce) * deltaTime;
-}
-
-[numthreads(NumThreads, 1, 1)]
-void ResetGhostTemperatures(uint3 id : SV_DispatchThreadID)
-{
-    if (id.x >= numParticles) return;
-    
-    if (IsGhost[id.x] != 0)
-    {
-        float2 pos = PredictedPositions[id.x];
-        
-        // Check if ghost is inside heat source
-        bool inHeatSource = false;
-        if (heatSourceShape == 0) // Rectangular
-        {
-            float2 relPos = pos - heatSourcePos;
-            float2 halfSize = heatSourceSize * 0.5;
-            inHeatSource = abs(relPos.x) < halfSize.x && abs(relPos.y) < halfSize.y;
-        }
-        else if (heatSourceShape == 1) // Elliptical
-        {
-            float2 radii = max(heatSourceSize * 0.5, float2(1e-6, 1e-6));
-            float2 normalizedOffset = (pos - heatSourcePos) / radii;
-            inHeatSource = dot(normalizedOffset, normalizedOffset) < 1.0;
-        }
-        
-        if (inHeatSource)
-        {
-            Temperatures[id.x] = heatSourceTemperature;
-        }
-        else
-        {
-            Temperatures[id.x] = ambientTemperature;
-        }
-    }
 }

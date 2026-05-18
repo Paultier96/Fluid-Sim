@@ -17,6 +17,7 @@ public class Camera2D : MonoBehaviour
     Camera cam;
     Vector3 previousPanMousePosition;
     bool isPanning;
+    bool wasMouseOverCamera;
 
     void Awake()
     {
@@ -27,7 +28,7 @@ public class Camera2D : MonoBehaviour
     {
         if (!controlsEnabled)
         {
-            isPanning = false;
+            ResetInteractionState();
             return;
         }
 
@@ -36,11 +37,24 @@ public class Camera2D : MonoBehaviour
             cam = GetComponent<Camera>();
         }
 
+        if (!HasInputFocus())
+        {
+            ResetInteractionState();
+            return;
+        }
+
         Vector3 mousePosition = Input.mousePosition;
         bool mouseOverCamera = cam.pixelRect.Contains(mousePosition);
         if (!mouseOverCamera)
         {
-            isPanning = false;
+            ResetInteractionState();
+            return;
+        }
+
+        if (!wasMouseOverCamera)
+        {
+            wasMouseOverCamera = true;
+            previousPanMousePosition = mousePosition;
             return;
         }
 
@@ -67,6 +81,38 @@ public class Camera2D : MonoBehaviour
         {
             Zoom(scroll, mousePosition);
         }
+    }
+
+    void OnApplicationFocus(bool hasFocus)
+    {
+        if (!hasFocus)
+        {
+            ResetInteractionState();
+        }
+    }
+
+    void OnApplicationPause(bool isPaused)
+    {
+        if (isPaused)
+        {
+            ResetInteractionState();
+        }
+    }
+
+    void ResetInteractionState()
+    {
+        isPanning = false;
+        wasMouseOverCamera = false;
+    }
+
+    bool HasInputFocus()
+    {
+#if UNITY_EDITOR
+        return UnityEditor.EditorWindow.focusedWindow != null &&
+            UnityEditor.EditorWindow.focusedWindow.GetType().Name == "GameView";
+#else
+        return Application.isFocused;
+#endif
     }
 
     void Pan(Vector3 mouseDelta)
