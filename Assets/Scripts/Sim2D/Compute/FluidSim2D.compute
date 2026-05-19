@@ -1,9 +1,7 @@
 #pragma kernel ExternalForces        // 0
 #pragma kernel UpdateSpatialHash     // 1
-#pragma kernel Reorder               // 2
-#pragma kernel ReorderCopyback       // 3
-#pragma kernel ReorderAll
-#pragma kernel ReorderAllCopyback
+#pragma kernel Reorder
+#pragma kernel ReorderCopyback
 #pragma kernel CalculateDensities    // 4
 #pragma kernel CalculatePressureForce // 5
 #pragma kernel CalculateViscosity    // 6
@@ -18,18 +16,10 @@
 #pragma kernel PropagateBlobIDs // 22
 #pragma kernel CopyBlobIDs // 23
 #pragma kernel CopyBlobIDsToPrevious // 24
-#pragma kernel ReorderBlobIDs // 25
-#pragma kernel ReorderBlobIDsCopyback // 26
 #pragma kernel ClearBlobSizes // 27
 #pragma kernel CountBlobSizes // 28
 #pragma kernel MarkSingleParticleBlobs // 29
 #pragma kernel ApplyCarrierWedgeForce // 30
-#pragma kernel ReorderTemperature
-#pragma kernel ReorderTemperatureCopyback
-#pragma kernel ReorderParticleTargetDensities
-#pragma kernel ReorderParticleTargetDensitiesCopyback
-#pragma kernel ReorderGhostFlags
-#pragma kernel ReorderGhostFlagsCopyback
 
 // Includes
 #include "./FluidMaths2D.hlsl"
@@ -699,34 +689,8 @@ StructuredBuffer<uint> SortTarget_BlobIDsRO;
 StructuredBuffer<float> SortTarget_TemperaturesRO;
 StructuredBuffer<float> SortTarget_ParticleTargetDensitiesRO;
 
-
-
 [numthreads(NumThreads,1,1)]
 void Reorder (uint3 id : SV_DispatchThreadID)
-{
-	if (id.x >= numSpatialParticles) return;
-
-	uint sortedIndex = SortedIndices[id.x];
-	SortTarget_Positions[id.x] = Positions[sortedIndex];
-	SortTarget_PredictedPositions[id.x] = PredictedPositions[sortedIndex];
-	SortTarget_Velocities[id.x] = Velocities[sortedIndex];
-	SortTarget_Phases[id.x] = Phases[sortedIndex];
-}
-
-
-[numthreads(NumThreads,1,1)]
-void ReorderCopyback (uint3 id : SV_DispatchThreadID)
-{
-	if (id.x >= numSpatialParticles) return;
-	
-	Positions[id.x] = SortTarget_Positions[id.x];
-	PredictedPositions[id.x] = SortTarget_PredictedPositions[id.x];
-	Velocities[id.x] = SortTarget_Velocities[id.x];
-    Phases[id.x] = SortTarget_Phases[id.x];
-}
-
-[numthreads(NumThreads,1,1)]
-void ReorderAll (uint3 id : SV_DispatchThreadID)
 {
 	if (id.x >= numSpatialParticles) return;
 
@@ -742,7 +706,7 @@ void ReorderAll (uint3 id : SV_DispatchThreadID)
 }
 
 [numthreads(NumThreads,1,1)]
-void ReorderAllCopyback (uint3 id : SV_DispatchThreadID)
+void ReorderCopyback (uint3 id : SV_DispatchThreadID)
 {
 	if (id.x >= numSpatialParticles) return;
 
@@ -754,21 +718,6 @@ void ReorderAllCopyback (uint3 id : SV_DispatchThreadID)
 	BlobIDs[id.x] = SortTarget_BlobIDsRO[id.x];
 	Temperatures[id.x] = SortTarget_TemperaturesRO[id.x];
 	ParticleTargetDensities[id.x] = SortTarget_ParticleTargetDensitiesRO[id.x];
-}
-
-[numthreads(NumThreads,1,1)]
-void ReorderBlobIDs (uint3 id : SV_DispatchThreadID)
-{
-	if (id.x >= numParticles) return;
-	uint sortedIndex = SortedIndices[id.x];
-	SortTarget_BlobIDs[id.x] = BlobIDs[sortedIndex];
-}
-
-[numthreads(NumThreads,1,1)]
-void ReorderBlobIDsCopyback (uint3 id : SV_DispatchThreadID)
-{
-	if (id.x >= numParticles) return;
-	BlobIDs[id.x] = SortTarget_BlobIDs[id.x];
 }
 
 [numthreads(NumThreads, 1, 1)]
@@ -1418,57 +1367,6 @@ void UpdateThermalExpansion(uint3 id : SV_DispatchThreadID)
     // Density decreases as temperature rises above reference
     float thermalDensity = baseDensity * (1.0 - expansionCoeff * (temp - ambientTemperature));
     ParticleTargetDensities[id.x] = max(thermalDensity, baseDensity * 0.1); // prevent negative density
-}
-
-[numthreads(NumThreads, 1, 1)]
-void ReorderTemperature(uint3 id : SV_DispatchThreadID)
-{
-    if (id.x >= numSpatialParticles)
-        return;
-    uint sortedIndex = SortedIndices[id.x];
-    SortTarget_Temperatures[id.x] = Temperatures[sortedIndex];
-}
-
-[numthreads(NumThreads, 1, 1)]
-void ReorderTemperatureCopyback(uint3 id : SV_DispatchThreadID)
-{
-    if (id.x >= numSpatialParticles)
-        return;
-    Temperatures[id.x] = SortTarget_Temperatures[id.x];
-}
-
-[numthreads(NumThreads, 1, 1)]
-void ReorderParticleTargetDensities(uint3 id : SV_DispatchThreadID)
-{
-    if (id.x >= numSpatialParticles)
-        return;
-    uint sortedIndex = SortedIndices[id.x];
-    SortTarget_ParticleTargetDensities[id.x] = ParticleTargetDensities[sortedIndex];
-}
-
-[numthreads(NumThreads, 1, 1)]
-void ReorderParticleTargetDensitiesCopyback(uint3 id : SV_DispatchThreadID)
-{
-    if (id.x >= numSpatialParticles)
-        return;
-    ParticleTargetDensities[id.x] = SortTarget_ParticleTargetDensities[id.x];
-}
-
-[numthreads(NumThreads, 1, 1)]
-void ReorderGhostFlags(uint3 id : SV_DispatchThreadID)
-{
-    if (id.x >= numSpatialParticles)
-        return;
-    uint sortedIndex = SortedIndices[id.x];
-    SortTarget_IsGhost[id.x] = IsGhost[sortedIndex];
-}
-
-[numthreads(NumThreads, 1, 1)]
-void ReorderGhostFlagsCopyback(uint3 id : SV_DispatchThreadID)
-{
-    if (id.x >= numSpatialParticles)
-        return;
-    IsGhost[id.x] = SortTarget_IsGhost[id.x];
 }
 
 [numthreads(NumThreads, 1, 1)]
