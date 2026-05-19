@@ -173,20 +173,20 @@ MonoBehaviour:
   smoothingRadius: 0.175
   pressureMultiplier: 1500
   nearPressureMultiplier: 30
-  interfaceViscosityMultiplier: 0.5
+  interfaceViscosityMultiplier: 0.25
   boundsSize: {x: 46.22222, y: 26}
   obstacleSize: {x: 14, y: 30.28}
   obstacleCentre: {x: 0, y: -25}
   edgeForce: 0
   edgeForceDst: 0.0875
-  wallPressureStrength: 1.5
+  wallPressureStrength: 0
   wallPressureRadius: 0
   useEllipticalBounds: 1
   ellipseBoundsSize: {x: 5, y: 30}
   ellipseBoundsCenter: {x: 0, y: -5.55}
   interactionRadius: 2.5
   interactionStrength: 75
-  buoyancyInversionStrength: 10
+  buoyancyInversionStrength: 8
   buoyancyInversionClamp: 1
   phases:
   - name: Wax
@@ -220,16 +220,15 @@ MonoBehaviour:
       m_ColorSpace: -1
       m_NumColorKeys: 5
       m_NumAlphaKeys: 2
-    targetDensity: 245
-    viscosity: 0.5
-    viscosityTemperatureSensitivity: 0.01
-    thermalExpansion: 0.003
-    surfaceTension: 120
-    thermalConductivity: 2
-    specificHeatCapacity: 10
+    targetDensity: 249
+    viscosity: 0.75
+    viscosityTemperatureSensitivity: 0.015
+    thermalExpansion: 0.004
+    surfaceTension: 200
+    thermalConductivity: 5
+    specificHeatCapacity: 60
     nonCoalescenceRadius: 4
     nonCoalescenceStrength: 0
-    nonCoalescenceNormalDotThreshold: 0.234
   - name: Water
     colourMap:
       serializedVersion: 2
@@ -262,15 +261,14 @@ MonoBehaviour:
       m_NumColorKeys: 5
       m_NumAlphaKeys: 2
     targetDensity: 234
-    viscosity: 0.83
+    viscosity: 0.15
     viscosityTemperatureSensitivity: 0
     thermalExpansion: 0.0005
     surfaceTension: 10
-    thermalConductivity: 50
-    specificHeatCapacity: 20
+    thermalConductivity: 500
+    specificHeatCapacity: 200
     nonCoalescenceRadius: 0
     nonCoalescenceStrength: 0
-    nonCoalescenceNormalDotThreshold: 0.7
   ghostPhase: 1
   phaseSeparation: 1
   phaseCohesionValues:
@@ -282,23 +280,27 @@ MonoBehaviour:
   blobFilmSeparationStrength: 0
   carrierWedgePhase: 1
   carrierWedgeDistance: 0.35
-  carrierWedgeStrength: 500
+  carrierWedgeStrength: 600
+  carrierWedgeCoilStrengthMultiplier: 0
   carrierWedgeMaxAcceleration: 0
   carrierWedgeMaxDirectionDot: 0.5
   blobIdUpdateInterval: 3000
   blobPropagationIterations: 200
-  restrictBlobMergingToCoil: 1
+  restrictBlobMergingToCoil: 0
   blobMergeCoil: {fileID: 2055861083}
+  coilVelocityDamping: 100
+  coilAttractionStrength: 25
+  coilVelocityDampingPhase: 0
   surfaceTensionThreshold: 0.1
-  blobBlobSurfaceTension: 200
+  blobBlobSurfaceTension: 0
   blobSelfSurfaceTension: 0
-  blobSelfSurfaceTensionPhase: -1
+  blobSelfSurfaceTensionPhase: 0
   maxSurfaceTensionCurvature: 10
   ambientTemperature: 10
   ghostCoolingMultiplier: 2
-  ambientCoolingRate: 0.005
-  wallCoolingRate: 1
-  wallCoolingDistance: 1
+  ambientCoolingRate: 0.075
+  wallCoolingRate: 4
+  wallCoolingDistance: 2
   heatSource: {fileID: 2055861083}
   compute: {fileID: 7200000, guid: 1c77ce8de78fddb419ed2d15cae41af0, type: 3}
   spawner2D: {fileID: 271053320}
@@ -352,7 +354,7 @@ MonoBehaviour:
   particleLightColor: {r: 1, g: 0.26729542, b: 0.66926533, a: 1}
   particleAmbientLight: 1
   particleDirectionalLightIntensity: 0
-  particleNormalStrength: 0.85
+  particleNormalStrength: 3
   particleNormalBlurCompensation: 0.43
   particleSpecularColor: {r: 1, g: 0.50628924, b: 0.7447482, a: 1}
   particleSpecularIntensity: 100
@@ -375,7 +377,8 @@ MonoBehaviour:
   densityThreshold: 0.18
   edgeSoftness: 2
   phaseBlendWidth: 2
-  phase0RenderBias: 0.99
+  phase0RenderBias: 0.95
+  phaseBiasNormalStrength: 0.7
   metaballSharpness: 1
   metaballIntensity: 20
   convexCurvatureMetaballBoost: 0
@@ -615,8 +618,8 @@ Transform:
   m_GameObject: {fileID: 2055861082}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: -8.5, z: 0}
-  m_LocalScale: {x: 9, y: 4, z: 1}
+  m_LocalPosition: {x: 0, y: -10, z: 0}
+  m_LocalScale: {x: 25, y: 10, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}

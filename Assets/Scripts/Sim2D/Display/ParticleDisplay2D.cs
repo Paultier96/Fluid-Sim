@@ -118,6 +118,8 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0.0001f)] public float phaseBlendWidth = 1f;
 		[Tooltip("Render-only phase boundary bias. 0 is neutral, positive values make phase 0 visually expand, negative values make phase 1 expand.")]
 		[Range(-0.99f, 0.99f)] public float phase0RenderBias = 0f;
+		[Tooltip("How strongly phase boundary bias redistributes normal strength. The visually expanded phase is weakened while the compressed phase is strengthened.")]
+		[Range(0f, 1f)] public float phaseBiasNormalStrength = 0.5f;
 		[Tooltip("Steepness of each particle's density kernel (exp(-r² × sharpness)). Higher values make particles contribute a tighter, more localised density spike.")]
 		[Min(0.01f)] public float metaballSharpness = 3.5f;
 		[Tooltip("Uniform scale applied to each particle's density contribution. Increase if particles are too sparse to merge.")]
@@ -684,6 +686,7 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetFloat("edgeSoftness", edgeSoftness);
 			compositeMaterial.SetFloat("phaseBlendWidth", phaseBlendWidth);
 			compositeMaterial.SetFloat("phase0RenderBias", phase0RenderBias);
+			compositeMaterial.SetFloat("phaseBiasNormalStrength", phaseBiasNormalStrength);
 			compositeMaterial.SetTexture("CombinedTex", combinedAccumulationTexture);
 			compositeMaterial.SetTexture("NormalTex", normalAccumulationTexture);
 			compositeMaterial.SetTexture("ColourMap", gradientTexture);

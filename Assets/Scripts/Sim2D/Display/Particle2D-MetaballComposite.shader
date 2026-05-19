@@ -37,6 +37,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			float edgeSoftness;
 			float phaseBlendWidth;
 			float phase0RenderBias;
+			float phaseBiasNormalStrength;
 			float metaballRefractionStrength;
 			float metaballRefractionEdgeFade;
 			int debugMode;
@@ -80,9 +81,9 @@ Shader "Hidden/Particle2DMetaballComposite" {
 				return saturate(t + (noise - 0.5) * ditherStrength);
 			}
 
-			float3 NormalFromXY(float2 normalXY)
+			float3 NormalFromXY(float2 normalXY, float normalStrengthMultiplier)
 			{
-				normalXY *= particleNormalStrength;
+				normalXY *= particleNormalStrength * max(normalStrengthMultiplier, 0.0);
 				float lenSq = dot(normalXY, normalXY);
 				if (lenSq > 0.999)
 				{
@@ -93,6 +94,17 @@ Shader "Hidden/Particle2DMetaballComposite" {
 				return normalize(float3(normalXY, normalZ));
 			}
 
+			float GetPhaseNormalStrength(bool usePhase1)
+			{
+				float signedBias = clamp(phase0RenderBias, -1.0, 1.0) * phaseBiasNormalStrength;
+				return usePhase1 ? 1.0 + signedBias : 1.0 - signedBias;
+			}
+
+			float BlobColourWeight(float3 blobColourSum)
+			{
+				return max(max(blobColourSum.r, blobColourSum.g), blobColourSum.b);
+			}
+
 			float3 GetPhaseNormal(float4 normalPacked, float density0, float density1, bool usePhase1)
 			{
 				float phaseDensity = usePhase1 ? density1 : density0;
@@ -100,7 +112,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 					? normalPacked.ba / max(density1, 0.0001)
 					: normalPacked.rg / max(density0, 0.0001);
 				float2 normalXY = phaseDensity > 0.0001 ? encodedNormalXY * 2.0 - 1.0 : 0.0;
-				return NormalFromXY(normalXY);
+				return NormalFromXY(normalXY, GetPhaseNormalStrength(usePhase1));
 			}
 
 			float3 GetBlendedPhaseNormal(float4 normalPacked, float density0, float density1, float phaseT)
@@ -140,7 +152,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			float4 frag(v2f i) : SV_Target
 			{
 				float4 combined = tex2D(CombinedTex, i.uv);
-				float density0 = combined.g;
+				float density0 = debugMode == 6 ? BlobColourWeight(combined.rgb) : combined.g;
 				float density1 = combined.a;
 				float density = max(density0, density1);
 				float alpha = smoothstep(max(densityThreshold - edgeSoftness, 0), densityThreshold + edgeSoftness, density);
@@ -161,8 +173,9 @@ Shader "Hidden/Particle2DMetaballComposite" {
 				{
 					if (debugMode == 6)
 					{
-						float3 blobCol = combined.rgb / max(combined.a, 0.0001);
-						return float4(saturate(blobCol), alpha);
+						float blobWeight = max(density0, 0.0001);
+						float3 blobCol = combined.rgb / blobWeight;
+						return float4(saturate(lerp(blobCol, float3(0, 0, 0), phaseT)), alpha);
 					}
 
 					if (debugMode == 1)

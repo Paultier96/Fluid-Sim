@@ -108,10 +108,12 @@ Shader "Instanced/Particle2DMetaball" {
 				kernel *= GetCurvatureMetaballBoost(i.curvature);
 				float maxAbsValue = max(debugGradientMax, 0.0001);
 
-				// Debug mode 6: blob id visualization uses RGB weighted colour + A weight.
+				// Debug mode 6: non-water blob IDs contribute colour; water/ignored ID contributes black weight.
 				if (debugMode == 6)
 				{
-					return float4(i.blobCol * kernel, kernel);
+					return max(max(i.blobCol.r, i.blobCol.g), i.blobCol.b) > 0
+						? float4(i.blobCol * kernel, 0)
+						: float4(0, 0, 0, kernel);
 				}
 				
 				// Debug mode 4: density visualization

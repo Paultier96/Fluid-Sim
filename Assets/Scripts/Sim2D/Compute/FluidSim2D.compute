@@ -55,6 +55,7 @@ const float blobFilmSeparationStrength;
 const int carrierWedgePhase;
 const float carrierWedgeDistance;
 const float carrierWedgeStrength;
+const float carrierWedgeCoilStrengthMultiplier;
 const float carrierWedgeMaxAcceleration;
 const float carrierWedgeMaxDirectionDot;
 StructuredBuffer<float> PhaseSurfaceTensionMatrix;
@@ -132,6 +133,9 @@ const bool restrictBlobMergingToCoil;
 const float2 blobMergeCoilPos;
 const float2 blobMergeCoilSize;
 const int blobMergeCoilShape; // 0 = rectangular, 1 = elliptical
+const float coilVelocityDamping;
+const float coilAttractionStrength;
+const int coilVelocityDampingPhase;
 
 const float2 obstacleSize;
 const float2 obstacleCentre;
@@ -229,6 +233,33 @@ bool IsInsideBlobMergeCoil(float2 pos)
 
 	float2 normalizedOffset = relPos / max(halfSize, float2(1e-6, 1e-6));
 	return dot(normalizedOffset, normalizedOffset) < 1.0;
+}
+
+float SampleBlobMergeCoilWeight(float2 pos)
+{
+	float2 halfSize = blobMergeCoilSize * 0.5;
+	if (halfSize.x <= 0 || halfSize.y <= 0) return 0.0;
+
+	float2 relPos = pos - blobMergeCoilPos;
+	float normalizedDistance = 0;
+	if (blobMergeCoilShape == 0)
+	{
+		normalizedDistance = max(abs(relPos.x) / max(halfSize.x, 1e-6), abs(relPos.y) / max(halfSize.y, 1e-6));
+	}
+	else
+	{
+		float2 normalizedOffset = relPos / max(halfSize, float2(1e-6, 1e-6));
+		normalizedDistance = length(normalizedOffset);
+	}
+
+	return 1.0 - smoothstep(0.0, 1.0, normalizedDistance);
+}
+
+float2 DirectionToBlobMergeCoilCenter(float2 pos)
+{
+	float2 toCenter = blobMergeCoilPos - pos;
+	float dst = length(toCenter);
+	return (dst > 1e-6) ? toCenter / dst : float2(0, 0);
 }
 
 float DensityKernel(float dst, float radius)
@@ -1152,7 +1183,8 @@ void ApplyCarrierWedgeForce(uint3 id : SV_DispatchThreadID)
 	if ((int)Phases[id.x] != carrierWedgePhase) return;
 
 	float2 pos = PredictedPositions[id.x];
-	if (restrictBlobMergingToCoil && IsInsideBlobMergeCoil(pos)) return;
+	float localStrengthMultiplier = IsInsideBlobMergeCoil(pos) ? saturate(carrierWedgeCoilStrengthMultiplier) : 1.0;
+	if (localStrengthMultiplier <= 0) return;
 
 	float searchDistance = min(carrierWedgeDistance, smoothingRadius * 2.5);
 	float sqrSearchDistance = searchDistance * searchDistance;
@@ -1191,11 +1223,12 @@ void ApplyCarrierWedgeForce(uint3 id : SV_DispatchThreadID)
 				if (sqrDst > sqrSearchDistance || sqrDst == 0) continue;
 
 				float2 contactPos = (neighbourPos + pos) * 0.5;
-				if (restrictBlobMergingToCoil && IsInsideBlobMergeCoil(contactPos)) continue;
+				float contactStrengthMultiplier = IsInsideBlobMergeCoil(contactPos) ? saturate(carrierWedgeCoilStrengthMultiplier) : 1.0;
+				if (contactStrengthMultiplier <= 0) continue;
 
 				float dst = sqrt(sqrDst);
 				float contactT = 1.0 - dst / max(searchDistance, 1e-6);
-				float weight = contactT * contactT;
+				float weight = contactT * contactT * contactStrengthMultiplier;
 
 				if (neighbourBlob == blobA)
 				{
@@ -1248,7 +1281,7 @@ void ApplyCarrierWedgeForce(uint3 id : SV_DispatchThreadID)
 
 	float contactAmount = saturate(min(weightA, weightB));
 	float angleAmount = saturate((carrierWedgeMaxDirectionDot - directionDot) / max(carrierWedgeMaxDirectionDot + 1.0, 1e-6));
-	float2 acceleration = wedgeDir * carrierWedgeStrength * contactAmount * angleAmount;
+	float2 acceleration = wedgeDir * carrierWedgeStrength * localStrengthMultiplier * contactAmount * angleAmount;
 	float accelerationMag = length(acceleration);
 	if (carrierWedgeMaxAcceleration > 0 && accelerationMag > carrierWedgeMaxAcceleration)
 	{
@@ -1345,6 +1378,29 @@ void UpdatePositions(uint3 id : SV_DispatchThreadID)
 
 	// Skip ghost particles
 	if (IsGhost[id.x] != 0) return;
+
+	if ((coilVelocityDamping > 0 || coilAttractionStrength > 0) && (coilVelocityDampingPhase < 0 || (int)Phases[id.x] == coilVelocityDampingPhase))
+	{
+		float coilWeight = SampleBlobMergeCoilWeight(Positions[id.x]);
+		if (coilWeight > 0)
+		{
+			float2 inwardDir = DirectionToBlobMergeCoilCenter(Positions[id.x]);
+			float inwardLen = length(inwardDir);
+			if (inwardLen > 0)
+			{
+				if (coilVelocityDamping > 0)
+				{
+					float outwardSpeed = max(0, -dot(Velocities[id.x], inwardDir));
+					float dampedOutwardSpeed = outwardSpeed * exp(-coilVelocityDamping * coilWeight * deltaTime);
+					Velocities[id.x] += inwardDir * (outwardSpeed - dampedOutwardSpeed);
+				}
+				if (coilAttractionStrength > 0)
+				{
+					Velocities[id.x] += inwardDir * coilAttractionStrength * coilWeight * deltaTime;
+				}
+			}
+		}
+	}
 
 	Positions[id.x] += Velocities[id.x] * deltaTime;
 	HandleCollisions(id.x);
