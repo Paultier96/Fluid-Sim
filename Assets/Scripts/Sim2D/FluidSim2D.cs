@@ -24,6 +24,12 @@ namespace Seb.Fluid2D.Simulation
             Water = 1
         }
 
+        public enum SurfaceTensionInterfaceMode
+        {
+            BlobAware = 0,
+            PhaseBased = 1
+        }
+
         [Header("Simulation Settings")]
         public float timeScale = 1;
         public float maxTimestepFPS = 60;
@@ -68,8 +74,10 @@ namespace Seb.Fluid2D.Simulation
         public PhaseConfig[] phases;
         
         [Header("Ghost Particles")]
-        [Tooltip("Liquid phase assigned to ghost boundary particles. Clamped to valid phase range at runtime.")]
+        [Tooltip("Liquid phase assigned to outer boundary ghost particles. Clamped to valid phase range at runtime.")]
         public LiquidPhase ghostPhase = LiquidPhase.Water;
+        [Tooltip("Liquid phase assigned to rectangular obstacle ghost particles. Use Wax to make wax wet/merge with the obstacle/coil area.")]
+        public LiquidPhase obstacleGhostPhase = LiquidPhase.Wax;
 
         [System.Serializable]
         public class PhaseConfig
@@ -81,15 +89,14 @@ namespace Seb.Fluid2D.Simulation
             [Tooltip("Fractional viscosity change per degree relative to ambient temperature. Positive values make hot fluid less viscous and cold fluid more viscous.")]
             public float viscosityTemperatureSensitivity = 0.0f;
             public float thermalExpansion = 0.0f;
-            public float surfaceTension = 0f;
             [Tooltip("Thermal conductivity controls heat diffusion rate between particles. Higher values = faster heat spreading.")]
             public float thermalConductivity = 0.5f;
             [Tooltip("Specific heat capacity: how much energy is required to raise temperature by one degree. Higher values = more thermal inertia (slower heating).")]
             [Min(0.01f)] public float specificHeatCapacity = 1.0f;
             // Non-coalescence tuning per-phase
             //[HideInInspector]
-            [Tooltip("Short-range radius (in world units) within which non-coalescence repulsion acts")]
-            public float nonCoalescenceRadius = 0.2f;
+            [Tooltip("Radius multiplier for non-coalescence repulsion. 1 = smoothing radius.")]
+            [Range(0f, 8f)] public float nonCoalescenceRadiusMultiplier = 1.0f;
 
             //[HideInInspector]
             [Tooltip("Multiplier for non-coalescence repulsion (scaled by phase surface tension)")]
@@ -102,16 +109,16 @@ namespace Seb.Fluid2D.Simulation
         public float[] phaseCohesionValues = new float[] { 0.5f, -0.1f, 0.5f };
         [Tooltip("Cohesion override for same-phase particles that belong to different blobs. Negative values repel.")]
         public float blobBlobCohesion = -0.1f;
-        [Tooltip("Minimum separation to preserve a resolved carrier-liquid film between same-phase blobs. Set to 0 to disable.")]
-        [Min(0f)] public float blobFilmSeparationDistance = 0f;
-        [Tooltip("Repulsion strength used when different same-phase blobs are closer than the film separation distance.")]
-        [Min(0f)] public float blobFilmSeparationStrength = 0f;
         [Tooltip("Carrier phase pushed into the gap between two nearby blob IDs. For the lava lamp setup this is usually the water phase.")]
         public LiquidPhase carrierWedgePhase = LiquidPhase.Water;
-        [Tooltip("Search distance for pushing carrier fluid into wax-blob gaps. The shader caps this at 2.5x smoothing radius.")]
-        [Min(0f)] public float carrierWedgeDistance = 0f;
+        [Tooltip("Search distance multiplier for pushing carrier fluid into wax-blob gaps. 1 = smoothing radius.")]
+        [Range(0f, 8f)] public float carrierWedgeDistanceMultiplier = 0f;
         [Tooltip("Acceleration strength that pushes carrier fluid into the gap between two different blob IDs.")]
         [Min(0f)] public float carrierWedgeStrength = 0f;
+        [Tooltip("When enabled, bulk carrier particles with weak color gradients skip the expensive carrier wedge neighbour scan.")]
+        public bool carrierWedgeInterfaceOnly = true;
+        [Tooltip("Minimum color-gradient magnitude required for carrier wedge when interface-only mode is enabled.")]
+        [Min(0f)] public float carrierWedgeInterfaceThreshold = 0.001f;
         [Tooltip("Multiplier applied to carrier wedge strength inside the blob merge coil area. 0 disables the wedge in the coil, 1 leaves it unchanged.")]
         [Range(0f, 1f)] public float carrierWedgeCoilStrengthMultiplier = 0f;
         [Tooltip("Optional cap for carrier wedge acceleration. Set to 0 for no cap.")]
@@ -136,6 +143,10 @@ namespace Seb.Fluid2D.Simulation
         public LiquidPhaseFilter coilVelocityDampingPhase = LiquidPhaseFilter.Wax;
 
         [Header("Surface Tension")]
+        [Tooltip("Blob-aware treats separate same-phase blobs as separate interfaces. Phase-based ignores blob IDs and only creates CSF interfaces between different phases.")]
+        public SurfaceTensionInterfaceMode surfaceTensionInterfaceMode = SurfaceTensionInterfaceMode.BlobAware;
+        [Tooltip("Base CSF surface tension used for phase interfaces.")]
+        [Min(0f)] public float surfaceTension = 0f;
         public float surfaceTensionThreshold = 0.1f;
         //[Min(0f)]
         public float blobBlobSurfaceTension = 800f;
@@ -166,18 +177,7 @@ namespace Seb.Fluid2D.Simulation
         {
             get
             {
-                float maxSurfaceTension = Mathf.Max(Mathf.Abs(blobBlobSurfaceTension), Mathf.Abs(blobSelfSurfaceTension));
-                if (phases != null)
-                {
-                    for (int i = 0; i < phases.Length; i++)
-                    {
-                        if (phases[i] != null)
-                        {
-                            maxSurfaceTension = Mathf.Max(maxSurfaceTension, Mathf.Abs(phases[i].surfaceTension));
-                        }
-                    }
-                }
-
+                float maxSurfaceTension = Mathf.Max(Mathf.Abs(surfaceTension), Mathf.Abs(blobBlobSurfaceTension), Mathf.Abs(blobSelfSurfaceTension));
                 return Mathf.Max(maxSurfaceTension * MaxDebugCurvature, 0.0001f);
             }
         }
@@ -248,8 +248,7 @@ namespace Seb.Fluid2D.Simulation
         ComputeBuffer phaseSpecificHeatCapacityBuffer;
         ComputeBuffer sortTarget_ParticleTargetDensities;
         ComputeBuffer phaseCohesionBuffer;
-        ComputeBuffer phaseSurfaceTensionBuffer;
-        ComputeBuffer phaseNonCoalescenceRadiusBuffer;
+        ComputeBuffer phaseNonCoalescenceRadiusMultiplierBuffer;
         ComputeBuffer phaseNonCoalescenceStrengthBuffer;
 
         ComputeBuffer predictedPositionBuffer;
@@ -301,6 +300,7 @@ namespace Seb.Fluid2D.Simulation
         public int numFluidParticles { get; private set; }
         public int numGhostParticles { get; private set; }
         int resolvedGhostPhase;
+        int resolvedObstacleGhostPhase;
 
         // Runtime-change tracking
         Rendering.ParticleDisplay2D particleDisplay;
@@ -346,7 +346,7 @@ namespace Seb.Fluid2D.Simulation
             numFluidParticles = spawnData.positions.Length;
 
             // Calculate fluid particle spacing
-            float fluidSpacing = Mathf.Sqrt(1f / 400);
+            float fluidSpacing = Mathf.Sqrt(1f / 300);
             
             // Calculate number of ghost layers needed to cover one smoothing radius
             int numGhostLayers = Mathf.CeilToInt(smoothingRadius / fluidSpacing);
@@ -356,13 +356,10 @@ namespace Seb.Fluid2D.Simulation
             ghostVelocities = new List<float2>();
             ghostPhases = new List<int>();
             resolvedGhostPhase = ClampPhaseIndex(ghostPhase);
-            spawner2D.GenerateGhostParticles(boundsSize, ellipseBoundsCenter, ellipseBoundsSize, useEllipticalBounds, fluidSpacing, numGhostLayers, resolvedGhostPhase, ghostPositions, ghostVelocities, ghostPhases, obstacleSize, obstacleCentre);
+            resolvedObstacleGhostPhase = ClampPhaseIndex(obstacleGhostPhase);
+            spawner2D.GenerateGhostParticles(boundsSize, ellipseBoundsCenter, ellipseBoundsSize, useEllipticalBounds, fluidSpacing, numGhostLayers, resolvedGhostPhase, resolvedObstacleGhostPhase, ghostPositions, ghostVelocities, ghostPhases, obstacleSize, obstacleCentre);
             numGhostParticles = ghostPositions.Count;
             numParticles = numFluidParticles + numGhostParticles;
-
-            Debug.Log($"Fluid particles: {numFluidParticles}, Ghost particles: {numGhostParticles}, Total: {numParticles}");
-            Debug.Log($"Fluid spacing: {fluidSpacing:F3}, Smoothing radius: {smoothingRadius:F3}, Ghost layers: {numGhostLayers}");
-
             spatialHash = new SpatialHash(numParticles);
 
             // Create buffers
@@ -397,7 +394,7 @@ namespace Seb.Fluid2D.Simulation
             for (int i = 0; i < numFluidParticles; i++)
                 initialTargetDensities[i] = phases[spawnData.phases[i]].targetDensity;
             for (int i = numFluidParticles; i < numParticles; i++)
-                initialTargetDensities[i] = phases[resolvedGhostPhase].targetDensity;
+                initialTargetDensities[i] = phases[ghostPhases[i - numFluidParticles]].targetDensity;
             particleTargetDensityBuffer.SetData(initialTargetDensities);
 
 
@@ -485,7 +482,7 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.SetBuffer(compute, debugVectorDataBuffer, "DebugVectorData", thermalBuoyancyKernel, carrierWedgeKernel, csfKernel);
             ComputeHelper.SetBuffer(compute, debugVectorSignBuffer, "DebugVectorSign", csfKernel);
             ComputeHelper.SetBuffer(compute, colorGradientBuffer, "ColorGradients", computeColorGradKernel);
-            ComputeHelper.SetBuffer(compute, colorGradientBuffer, "ColorGradientsRO", csfKernel);
+            ComputeHelper.SetBuffer(compute, colorGradientBuffer, "ColorGradientsRO", carrierWedgeKernel, csfKernel);
         }
         
         void SettleSimulation()
@@ -554,7 +551,6 @@ namespace Seb.Fluid2D.Simulation
             phaseThermalConductivityBuffer?.Release();
             phaseSpecificHeatCapacityBuffer?.Release();
             phaseCohesionBuffer?.Release();
-            phaseSurfaceTensionBuffer?.Release();
             phaseCohesionBuffer             = null;
             phaseTargetDensityBuffer        = new ComputeBuffer(phaseCount, sizeof(float));
             phaseViscosityBuffer            = new ComputeBuffer(phaseCount, sizeof(float));
@@ -563,7 +559,6 @@ namespace Seb.Fluid2D.Simulation
             phaseThermalExpansionBuffer     = new ComputeBuffer(phaseCount, sizeof(float));
             phaseThermalConductivityBuffer  = new ComputeBuffer(phaseCount, sizeof(float));
             phaseSpecificHeatCapacityBuffer = new ComputeBuffer(phaseCount, sizeof(float));
-            phaseSurfaceTensionBuffer       = new ComputeBuffer(phaseCount * phaseCount, sizeof(float));
         }
 
         void UploadAndBindPhaseData()
@@ -583,14 +578,13 @@ namespace Seb.Fluid2D.Simulation
             phaseThermalExpansionBuffer.SetData(phases.Select(p => p.thermalExpansion).ToArray());
             phaseThermalConductivityBuffer.SetData(phases.Select(p => p.thermalConductivity).ToArray());
             phaseSpecificHeatCapacityBuffer.SetData(phases.Select(p => p.specificHeatCapacity).ToArray());
-            phaseSurfaceTensionBuffer.SetData(BuildSurfaceTensionMatrix());
 
             // Non-coalescence per-phase parameters
-            phaseNonCoalescenceRadiusBuffer?.Release();
+            phaseNonCoalescenceRadiusMultiplierBuffer?.Release();
             phaseNonCoalescenceStrengthBuffer?.Release();
-            phaseNonCoalescenceRadiusBuffer = new ComputeBuffer(phaseCount, sizeof(float));
+            phaseNonCoalescenceRadiusMultiplierBuffer = new ComputeBuffer(phaseCount, sizeof(float));
             phaseNonCoalescenceStrengthBuffer = new ComputeBuffer(phaseCount, sizeof(float));
-            phaseNonCoalescenceRadiusBuffer.SetData(phases.Select(p => p.nonCoalescenceRadius).ToArray());
+            phaseNonCoalescenceRadiusMultiplierBuffer.SetData(phases.Select(p => p.nonCoalescenceRadiusMultiplier).ToArray());
             phaseNonCoalescenceStrengthBuffer.SetData(phases.Select(p => p.nonCoalescenceStrength).ToArray());
 
             particleDisplay?.SetPhaseColors(phases.Select(p => p.colourMap).ToArray());
@@ -602,7 +596,7 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.SetBuffer(compute, phaseThermalExpansionBuffer,     "PhaseThermalExpansion",     updateThermalExpansionKernel);
             ComputeHelper.SetBuffer(compute, phaseThermalConductivityBuffer,  "PhaseThermalConductivity",  updateTemperatureKernel);
             ComputeHelper.SetBuffer(compute, phaseSpecificHeatCapacityBuffer, "PhaseSpecificHeatCapacity", updateTemperatureKernel);
-            ComputeHelper.SetBuffer(compute, phaseNonCoalescenceRadiusBuffer, "PhaseNonCoalescenceRadius", csfKernel);
+            ComputeHelper.SetBuffer(compute, phaseNonCoalescenceRadiusMultiplierBuffer, "PhaseNonCoalescenceRadiusMultiplier", csfKernel);
             ComputeHelper.SetBuffer(compute, phaseNonCoalescenceStrengthBuffer, "PhaseNonCoalescenceStrength", csfKernel);
             
             int triangularSize = phaseCount * (phaseCount + 1) / 2;
@@ -614,23 +608,6 @@ namespace Seb.Fluid2D.Simulation
             if (phaseCohesionValues != null && phaseCohesionValues.Length == triangularSize)
                 phaseCohesionBuffer.SetData(phaseCohesionValues);
             ComputeHelper.SetBuffer(compute, phaseCohesionBuffer, "PhaseCohesionMatrix", cohesionKernel);
-            ComputeHelper.SetBuffer(compute, phaseSurfaceTensionBuffer, "PhaseSurfaceTensionMatrix", csfKernel);
-        }
-
-        float[] BuildSurfaceTensionMatrix()
-        {
-            int phaseCount = phases.Length;
-            float[] matrix = new float[phaseCount * phaseCount];
-            for (int y = 0; y < phaseCount; y++)
-            {
-                float sigmaY = phases[y].surfaceTension;
-                for (int x = 0; x < phaseCount; x++)
-                {
-                    float sigmaX = phases[x].surfaceTension;
-                    matrix[y * phaseCount + x] = (x == y) ? sigmaX : 0.5f * (sigmaX + sigmaY);
-                }
-            }
-            return matrix;
         }
 
         void RunSimulationFrame(float frameTime)
@@ -661,8 +638,8 @@ namespace Seb.Fluid2D.Simulation
             {
                 RecomputeBlobIDs();
             }
-            bool needsCarrierWedgeDebugClear = particleDisplay != null && particleDisplay.ComputeVectorFieldMode == 5;
-            if ((carrierWedgeStrength > 0 && carrierWedgeDistance > 0) || needsCarrierWedgeDebugClear)
+            bool needsNonCoalescenceDebug = particleDisplay != null && particleDisplay.ComputeVectorFieldMode == 2;
+            if ((carrierWedgeStrength > 0 && carrierWedgeDistanceMultiplier > 0) || needsNonCoalescenceDebug)
             {
                 ComputeHelper.Dispatch(compute, numParticles, kernelIndex: carrierWedgeKernel);
             }
@@ -769,6 +746,8 @@ namespace Seb.Fluid2D.Simulation
             
             compute.SetFloat("buoyancyInversionStrength", buoyancyInversionStrength);
             compute.SetFloat("buoyancyInversionClamp", Mathf.Max(0f, buoyancyInversionClamp));
+            compute.SetFloat("surfaceTension", surfaceTension);
+            compute.SetInt("surfaceTensionInterfaceMode", (int)surfaceTensionInterfaceMode);
             compute.SetFloat("surfaceTensionThreshold", surfaceTensionThreshold);
             compute.SetFloat("blobBlobSurfaceTension", blobBlobSurfaceTension);
             compute.SetFloat("blobSelfSurfaceTension", blobSelfSurfaceTension);
@@ -788,11 +767,11 @@ namespace Seb.Fluid2D.Simulation
             compute.SetFloat("interactionInputStrength", currInteractStrength);
             compute.SetFloat("interactionInputRadius", interactionRadius);
             compute.SetFloat("blobBlobCohesion", blobBlobCohesion);
-            compute.SetFloat("blobFilmSeparationDistance", blobFilmSeparationDistance);
-            compute.SetFloat("blobFilmSeparationStrength", blobFilmSeparationStrength);
             compute.SetInt("carrierWedgePhase", ClampPhaseIndex(carrierWedgePhase));
-            compute.SetFloat("carrierWedgeDistance", carrierWedgeDistance);
+            compute.SetFloat("carrierWedgeDistanceMultiplier", carrierWedgeDistanceMultiplier);
             compute.SetFloat("carrierWedgeStrength", carrierWedgeStrength);
+            compute.SetBool("carrierWedgeInterfaceOnly", carrierWedgeInterfaceOnly);
+            compute.SetFloat("carrierWedgeInterfaceThreshold", carrierWedgeInterfaceThreshold);
             compute.SetFloat("carrierWedgeCoilStrengthMultiplier", carrierWedgeCoilStrengthMultiplier);
             compute.SetFloat("carrierWedgeMaxAcceleration", carrierWedgeMaxAcceleration);
             compute.SetFloat("carrierWedgeMaxDirectionDot", carrierWedgeMaxDirectionDot);
@@ -858,7 +837,7 @@ namespace Seb.Fluid2D.Simulation
             for (int i = 0; i < numFluidParticles; i++)
                 initialTargetDensities[i] = phases[spawnData.phases[i]].targetDensity;
             for (int i = numFluidParticles; i < numParticles; i++)
-                initialTargetDensities[i] = phases[resolvedGhostPhase].targetDensity;
+                initialTargetDensities[i] = phases[ghostPhases[i - numFluidParticles]].targetDensity;
             particleTargetDensityBuffer.SetData(initialTargetDensities);
             blobStepCounter = 0;
         }
@@ -916,8 +895,7 @@ namespace Seb.Fluid2D.Simulation
             if (phaseSpecificHeatCapacityBuffer != null) phaseSpecificHeatCapacityBuffer.Release();
             if (sortTarget_ParticleTargetDensities != null) sortTarget_ParticleTargetDensities.Release();
             if (phaseCohesionBuffer != null) phaseCohesionBuffer.Release();
-            if (phaseSurfaceTensionBuffer != null) phaseSurfaceTensionBuffer.Release();
-            if (phaseNonCoalescenceRadiusBuffer != null) phaseNonCoalescenceRadiusBuffer.Release();
+            if (phaseNonCoalescenceRadiusMultiplierBuffer != null) phaseNonCoalescenceRadiusMultiplierBuffer.Release();
             if (phaseNonCoalescenceStrengthBuffer != null) phaseNonCoalescenceStrengthBuffer.Release();
             if (debugDataBuffer != null) debugDataBuffer.Release();
             if (debugVectorDataBuffer != null) debugVectorDataBuffer.Release();

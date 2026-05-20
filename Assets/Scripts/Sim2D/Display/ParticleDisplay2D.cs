@@ -34,11 +34,10 @@ namespace Seb.Fluid2D.Rendering
 		{
 			None = 0,
 			SurfaceTensionForce = 1,
-			RepulsionForce = 2,
+			NonCoalescenceForces = 2,
 			Velocity = 3,
 			CurvatureNormal = 4,
 			Convection = 5,
-			CarrierWedge = 6,
 		}
 
 		[Tooltip("The fluid simulation to visualize.")]
@@ -562,14 +561,14 @@ namespace Seb.Fluid2D.Rendering
 						return sim.MaxDebugConvection;
 					}
 
-					if (vectorFieldSource == VectorFieldSource.CarrierWedge)
+					if (vectorFieldSource == VectorFieldSource.NonCoalescenceForces)
 					{
 						if (sim.carrierWedgeMaxAcceleration > 0)
 						{
-							return sim.carrierWedgeMaxAcceleration;
+							return Mathf.Max(sim.carrierWedgeMaxAcceleration, vectorMaxMagnitude);
 						}
 
-						return Mathf.Max(0.0001f, Mathf.Abs(sim.carrierWedgeStrength));
+						return Mathf.Max(0.0001f, Mathf.Abs(sim.carrierWedgeStrength), vectorMaxMagnitude);
 					}
 				}
 
@@ -586,7 +585,7 @@ namespace Seb.Fluid2D.Rendering
 					return 1;
 				}
 
-				if (vectorFieldSource == VectorFieldSource.RepulsionForce)
+				if (vectorFieldSource == VectorFieldSource.NonCoalescenceForces)
 				{
 					return 2;
 				}
@@ -599,11 +598,6 @@ namespace Seb.Fluid2D.Rendering
 				if (vectorFieldSource == VectorFieldSource.Convection)
 				{
 					return 4;
-				}
-
-				if (vectorFieldSource == VectorFieldSource.CarrierWedge)
-				{
-					return 5;
 				}
 
 				return 0;

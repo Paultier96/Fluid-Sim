@@ -78,7 +78,7 @@ public class Spawner2D : MonoBehaviour
 		return Mathf.CeilToInt(perimeter / spacing);
 	}
 
-	public void GenerateGhostParticles(Vector2 boundsSize, Vector2 ellipseBoundsCenter, Vector2 ellipseBoundsSize, bool useEllipticalBounds, float spacing, int numLayers, int ghostPhase, List<float2> outPositions, List<float2> outVelocities, List<int> outPhases, Vector2 obstacleSize = default, Vector2 obstacleCentre = default)
+	public void GenerateGhostParticles(Vector2 boundsSize, Vector2 ellipseBoundsCenter, Vector2 ellipseBoundsSize, bool useEllipticalBounds, float spacing, int numLayers, int boundsGhostPhase, int obstacleGhostPhase, List<float2> outPositions, List<float2> outVelocities, List<int> outPhases, Vector2 obstacleSize = default, Vector2 obstacleCentre = default)
 	{
 		outPositions.Clear();
 		outVelocities.Clear();
@@ -86,11 +86,11 @@ public class Spawner2D : MonoBehaviour
 
 		if (useEllipticalBounds)
 		{
-			GenerateEllipseGhostParticles(ellipseBoundsCenter, ellipseBoundsSize, spacing, numLayers, ghostPhase, outPositions, outVelocities, outPhases, obstacleSize, obstacleCentre);
+			GenerateEllipseGhostParticles(ellipseBoundsCenter, ellipseBoundsSize, spacing, numLayers, boundsGhostPhase, obstacleGhostPhase, outPositions, outVelocities, outPhases, obstacleSize, obstacleCentre);
 		}
 		else
 		{
-			GenerateRectangleGhostParticles(boundsSize, spacing, numLayers, ghostPhase, outPositions, outVelocities, outPhases);
+			GenerateRectangleGhostParticles(boundsSize, spacing, numLayers, boundsGhostPhase, outPositions, outVelocities, outPhases);
 		}
 	}
 
@@ -128,7 +128,7 @@ public class Spawner2D : MonoBehaviour
 		}
 	}
 
-void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing, int numLayers, int ghostPhase, 
+void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing, int numLayers, int boundsGhostPhase, int obstacleGhostPhase,
     List<float2> outPositions, List<float2> outVelocities, List<int> outPhases, Vector2 obstacleSize = default, Vector2 obstacleCentre = default)
 {
     float a = radii.x;
@@ -183,7 +183,7 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
 
             outPositions.Add(ghostPos);
             outVelocities.Add(float2.zero);
-            outPhases.Add(ghostPhase);
+            outPhases.Add(boundsGhostPhase);
         }
     }
 
@@ -218,7 +218,7 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
                 {
                     outPositions.Add(ghostPos);
                     outVelocities.Add(float2.zero);
-                    outPhases.Add(ghostPhase);
+                    outPhases.Add(obstacleGhostPhase);
                 }
             }
             
@@ -232,7 +232,7 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
                 {
                     outPositions.Add(ghostPos);
                     outVelocities.Add(float2.zero);
-                    outPhases.Add(ghostPhase);
+                    outPhases.Add(obstacleGhostPhase);
                 }
             }
             
@@ -246,7 +246,7 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
                 {
                     outPositions.Add(ghostPos);
                     outVelocities.Add(float2.zero);
-                    outPhases.Add(ghostPhase);
+                    outPhases.Add(obstacleGhostPhase);
                 }
             }
             
@@ -260,7 +260,7 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
                 {
                     outPositions.Add(ghostPos);
                     outVelocities.Add(float2.zero);
-                    outPhases.Add(ghostPhase);
+                    outPhases.Add(obstacleGhostPhase);
                 }
             }
         }

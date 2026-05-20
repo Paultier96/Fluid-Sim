@@ -165,7 +165,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bf901970f9cf132479a879d7a4acde3d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  timeScale: 1
+  timeScale: 3
   maxTimestepFPS: 120
   iterationsPerFrame: 3
   gravity: -13
@@ -220,14 +220,13 @@ MonoBehaviour:
       m_ColorSpace: -1
       m_NumColorKeys: 5
       m_NumAlphaKeys: 2
-    targetDensity: 249
+    targetDensity: 250
     viscosity: 0.75
     viscosityTemperatureSensitivity: 0.015
-    thermalExpansion: 0.004
-    surfaceTension: 200
+    thermalExpansion: 0.0032
     thermalConductivity: 5
     specificHeatCapacity: 60
-    nonCoalescenceRadius: 4
+    nonCoalescenceRadiusMultiplier: 2
     nonCoalescenceStrength: 0
   - name: Water
     colourMap:
@@ -264,23 +263,23 @@ MonoBehaviour:
     viscosity: 0.15
     viscosityTemperatureSensitivity: 0
     thermalExpansion: 0.0005
-    surfaceTension: 10
     thermalConductivity: 500
     specificHeatCapacity: 200
-    nonCoalescenceRadius: 0
+    nonCoalescenceRadiusMultiplier: 0
     nonCoalescenceStrength: 0
   ghostPhase: 1
+  obstacleGhostPhase: 0
   phaseSeparation: 1
   phaseCohesionValues:
   - 1
   - -0.5
   - 1
   blobBlobCohesion: -0.5
-  blobFilmSeparationDistance: 0
-  blobFilmSeparationStrength: 0
   carrierWedgePhase: 1
-  carrierWedgeDistance: 0.35
-  carrierWedgeStrength: 600
+  carrierWedgeDistanceMultiplier: 2
+  carrierWedgeStrength: 650
+  carrierWedgeInterfaceOnly: 1
+  carrierWedgeInterfaceThreshold: 0.001
   carrierWedgeCoilStrengthMultiplier: 0
   carrierWedgeMaxAcceleration: 0
   carrierWedgeMaxDirectionDot: 0.5
@@ -291,6 +290,8 @@ MonoBehaviour:
   coilVelocityDamping: 100
   coilAttractionStrength: 25
   coilVelocityDampingPhase: 0
+  surfaceTensionInterfaceMode: 1
+  surfaceTension: 200
   surfaceTensionThreshold: 0.1
   blobBlobSurfaceTension: 0
   blobSelfSurfaceTension: 0
@@ -576,6 +577,54 @@ MonoBehaviour:
   minZoom: 0.1
   maxZoom: 100
   zoomTowardMouse: 1
+--- !u!1 &1214473942
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1214473944}
+  - component: {fileID: 1214473943}
+  m_Layer: 0
+  m_Name: PerformanceOverlay
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1214473943
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1214473942}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 55a7c1d608a384b46b59eeeeb4118b75, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Simulation.PerformanceOverlay
+  showOverlay: 1
+  sampleWindow: 5
+  resetKey: 289
+  screenOffset: {x: 12, y: 12}
+--- !u!4 &1214473944
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1214473942}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -0.43566, y: 17.27651, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &2055861082
 GameObject:
   m_ObjectHideFlags: 0
@@ -631,3 +680,4 @@ SceneRoots:
   - {fileID: 963194228}
   - {fileID: 271053318}
   - {fileID: 2055861084}
+  - {fileID: 1214473944}
