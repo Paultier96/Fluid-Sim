@@ -165,8 +165,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bf901970f9cf132479a879d7a4acde3d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  timeScale: 3
-  maxTimestepFPS: 120
+  timeScale: 1
+  maxTimestepFPS: 1200
   iterationsPerFrame: 3
   gravity: -13
   collisionDamping: 0.5
@@ -188,6 +188,7 @@ MonoBehaviour:
   interactionStrength: 75
   buoyancyInversionStrength: 8
   buoyancyInversionClamp: 1
+  particleResolutionFactor: 1
   phases:
   - name: Wax
     colourMap:
@@ -317,20 +318,20 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 895837b52d5fc53409ded3589d4da696, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  spawnDensity: 500
+  spawnDensity: 400
   initialVelocity: {x: 0, y: 0}
   jitterStr: 0.03
   spawnRegions:
-  - position: {x: 0, y: -3.75}
-    size: {x: 5, y: 10}
+  - position: {x: 0, y: -5.8}
+    size: {x: 10, y: 8}
     debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
     phaseID: 0
-  - position: {x: 0, y: 8.67}
-    size: {x: 10, y: 10}
+  - position: {x: 0, y: 4.3}
+    size: {x: 10, y: 12}
     debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
     phaseID: 1
   showSpawnBoundsGizmos: 1
-  spawnParticleCount: 75264
+  spawnParticleCount: 80160
 --- !u!114 &271053322
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -345,7 +346,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
-  renderMode: 1
+  renderMode: 0
   directParticleShader: {fileID: 4800000, guid: 441b7193936682446b30d2140d15792a, type: 3}
   metaballShader: {fileID: 4800000, guid: 85b87c70f093d411791140a3aca6ced6, type: 3}
   scale: 0.07

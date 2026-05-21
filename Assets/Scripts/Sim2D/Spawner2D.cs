@@ -14,9 +14,10 @@ public class Spawner2D : MonoBehaviour
 	[Header("Debug Info")]
 	public int spawnParticleCount;
 
-	public ParticleSpawnData GetSpawnData()
+	public ParticleSpawnData GetSpawnData(float? spawnDensityOverride = null)
 	{
 		var rng = new Unity.Mathematics.Random(42);
+		float resolvedSpawnDensity = Mathf.Max(0f, spawnDensityOverride ?? spawnDensity);
 
 		List<float2> allPoints = new();
 		List<float2> allVelocities = new();
@@ -26,7 +27,7 @@ public class Spawner2D : MonoBehaviour
 		for (int regionIndex = 0; regionIndex < spawnRegions.Length; regionIndex++)
 		{
 			SpawnRegion region = spawnRegions[regionIndex];
-			float2[] points = SpawnInRegion(region);
+			float2[] points = SpawnInRegion(region, resolvedSpawnDensity);
 
 			for (int i = 0; i < points.Length; i++)
 			{
@@ -267,12 +268,12 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
     }
 }
 
-	float2[] SpawnInRegion(SpawnRegion region)
+	float2[] SpawnInRegion(SpawnRegion region, float resolvedSpawnDensity)
 	{
 		Vector2 centre = region.position;
 		Vector2 size = region.size;
 		int i = 0;
-		Vector2Int numPerAxis = CalculateSpawnCountPerAxisBox2D(region.size, spawnDensity);
+		Vector2Int numPerAxis = CalculateSpawnCountPerAxisBox2D(region.size, resolvedSpawnDensity);
 		float2[] points = new float2[numPerAxis.x * numPerAxis.y];
 
 		for (int y = 0; y < numPerAxis.y; y++)

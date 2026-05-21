@@ -107,7 +107,7 @@ namespace Seb.Fluid2D.Rendering
 		public Shader blurShader;
 		[Tooltip("Resolution of the metaball render textures relative to the screen. Lower values improve performance at the cost of sharpness.")]
 		[Range(0.25f, 1f)] public float renderTextureScale = 0.5f;
-		[Tooltip("Radius in pixels (at render texture resolution) of the Gaussian blur. Larger values make particles merge at greater distances.")]
+		[Tooltip("Radius in pixels (at render texture particleResolutionFactor) of the Gaussian blur. Larger values make particles merge at greater distances.")]
 		[Min(0)] public float blurRadius = 6;
 		[Tooltip("Blurred density value at which the fluid surface appears. Increase to shrink the visible fluid; decrease to expand it.")]
 		[Min(0)] public float densityThreshold = 0.18f;
@@ -477,7 +477,7 @@ namespace Seb.Fluid2D.Rendering
 
 		void ApplySharedParticleSettings(Material targetMaterial)
 		{
-			targetMaterial.SetFloat("scale", scale);
+			targetMaterial.SetFloat("scale", EffectiveParticleScale);
 			targetMaterial.SetFloat("velocityMax", velocityDisplayMax);
 			targetMaterial.SetFloat("tempMin", sim.ambientTemperature);
 			targetMaterial.SetFloat("tempMax", sim.HeatSourceTemperature);
@@ -512,6 +512,15 @@ namespace Seb.Fluid2D.Rendering
 			targetMaterial.SetFloat("convexCurvatureBoostMax", convexCurvatureBoostMax);
 			targetMaterial.SetFloat("convexCurvatureBoostStartBlurRadius", convexCurvatureBoostStartBlurRadius);
 			targetMaterial.SetFloat("convexCurvatureBoostBlurRange", convexCurvatureBoostBlurRange);
+		}
+
+		float EffectiveParticleScale
+		{
+			get
+			{
+				float resolutionFactor = sim != null ? Mathf.Max(0.0001f, sim.particleResolutionFactor) : 1f;
+				return scale / Mathf.Sqrt(resolutionFactor);
+			}
 		}
 
 		void ApplyVectorFieldSettings()

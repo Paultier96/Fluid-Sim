@@ -70,6 +70,10 @@ namespace Seb.Fluid2D.Simulation
         [Tooltip("Clamp for normalized density contrast used by thermal buoyancy to prevent spikes.")]
         public float buoyancyInversionClamp = 1.0f;
 
+        [Tooltip("Resolution scale relative to the authored values. Scales particle count, target densities, and smoothing radius consistently.")]
+        [Range(0.01f, 10f)]
+        public float particleResolutionFactor = 1;
+
         [Header("Phases")]
         public PhaseConfig[] phases;
         
@@ -342,14 +346,15 @@ namespace Seb.Fluid2D.Simulation
             float deltaTime = 1 / 60f;
             Time.fixedDeltaTime = deltaTime;
 
-            spawnData = spawner2D.GetSpawnData();
+            float resolvedResolutionFactor = ResolvedResolutionFactor;
+            spawnData = spawner2D.GetSpawnData(spawner2D.spawnDensity * resolvedResolutionFactor);
             numFluidParticles = spawnData.positions.Length;
 
             // Calculate fluid particle spacing
-            float fluidSpacing = Mathf.Sqrt(1f / 300);
+            float fluidSpacing = Mathf.Sqrt(1f / (300f * resolvedResolutionFactor));
             
             // Calculate number of ghost layers needed to cover one smoothing radius
-            int numGhostLayers = Mathf.CeilToInt(smoothingRadius / fluidSpacing);
+            int numGhostLayers = Mathf.CeilToInt(EffectiveSmoothingRadius / fluidSpacing);
 
             // Generate ghost particles with proper layering
             ghostPositions = new List<float2>();
@@ -392,9 +397,9 @@ namespace Seb.Fluid2D.Simulation
             // Initialize to base phase densities for fluid particles; ghosts get rest density
             float[] initialTargetDensities = new float[numParticles];
             for (int i = 0; i < numFluidParticles; i++)
-                initialTargetDensities[i] = phases[spawnData.phases[i]].targetDensity;
+                initialTargetDensities[i] = EffectiveTargetDensity(spawnData.phases[i]);
             for (int i = numFluidParticles; i < numParticles; i++)
-                initialTargetDensities[i] = phases[ghostPhases[i - numFluidParticles]].targetDensity;
+                initialTargetDensities[i] = EffectiveTargetDensity(ghostPhases[i - numFluidParticles]);
             particleTargetDensityBuffer.SetData(initialTargetDensities);
 
 
@@ -571,7 +576,7 @@ namespace Seb.Fluid2D.Simulation
                 for (int x = 0; x < phaseCount; x++)
                     interactionFlat[y * phaseCount + x] = x == y ? 1.0f : phaseSeparation;
 
-            phaseTargetDensityBuffer.SetData(phases.Select(p => p.targetDensity).ToArray());
+            phaseTargetDensityBuffer.SetData(phases.Select(p => EffectiveTargetDensity(p)).ToArray());
             phaseViscosityBuffer.SetData(phases.Select(p => p.viscosity).ToArray());
             phaseViscosityTemperatureSensitivityBuffer.SetData(phases.Select(p => p.viscosityTemperatureSensitivity).ToArray());
             phaseInteractionBuffer.SetData(interactionFlat);
@@ -684,7 +689,8 @@ namespace Seb.Fluid2D.Simulation
             compute.SetFloat("deltaTime", deltaTime);
             compute.SetFloat("gravity", gravity);
             compute.SetFloat("collisionDamping", collisionDamping);
-            compute.SetFloat("smoothingRadius", smoothingRadius);
+            float effectiveSmoothingRadius = EffectiveSmoothingRadius;
+            compute.SetFloat("smoothingRadius", effectiveSmoothingRadius);
             compute.SetFloat("pressureMultiplier", pressureMultiplier);
             compute.SetFloat("nearPressureMultiplier", nearPressureMultiplier);
             compute.SetFloat("interfaceViscosityMultiplier", interfaceViscosityMultiplier);
@@ -695,11 +701,11 @@ namespace Seb.Fluid2D.Simulation
             compute.SetVector("ellipseBoundsSize", ellipseBoundsSize);
             compute.SetVector("ellipseBoundsCenter", ellipseBoundsCenter);
 
-            compute.SetFloat("Poly6ScalingFactor", 4 / (Mathf.PI * Mathf.Pow(smoothingRadius, 8)));
-            compute.SetFloat("SpikyPow3ScalingFactor", 10 / (Mathf.PI * Mathf.Pow(smoothingRadius, 5)));
-            compute.SetFloat("SpikyPow2ScalingFactor", 6 / (Mathf.PI * Mathf.Pow(smoothingRadius, 4)));
-            compute.SetFloat("SpikyPow3DerivativeScalingFactor", 30 / (Mathf.Pow(smoothingRadius, 5) * Mathf.PI));
-            compute.SetFloat("SpikyPow2DerivativeScalingFactor", 12 / (Mathf.Pow(smoothingRadius, 4) * Mathf.PI));
+            compute.SetFloat("Poly6ScalingFactor", 4 / (Mathf.PI * Mathf.Pow(effectiveSmoothingRadius, 8)));
+            compute.SetFloat("SpikyPow3ScalingFactor", 10 / (Mathf.PI * Mathf.Pow(effectiveSmoothingRadius, 5)));
+            compute.SetFloat("SpikyPow2ScalingFactor", 6 / (Mathf.PI * Mathf.Pow(effectiveSmoothingRadius, 4)));
+            compute.SetFloat("SpikyPow3DerivativeScalingFactor", 30 / (Mathf.Pow(effectiveSmoothingRadius, 5) * Mathf.PI));
+            compute.SetFloat("SpikyPow2DerivativeScalingFactor", 12 / (Mathf.Pow(effectiveSmoothingRadius, 4) * Mathf.PI));
             compute.SetFloat("edgeForce", edgeForce);
             compute.SetFloat("edgeForceDst", edgeForceDst);
             compute.SetFloat("wallPressureStrength", wallPressureStrength);
@@ -792,6 +798,20 @@ namespace Seb.Fluid2D.Simulation
             return Mathf.Clamp((int)phase, 0, phases.Length - 1);
         }
 
+        float ResolvedResolutionFactor => Mathf.Max(0.0001f, particleResolutionFactor);
+
+        float EffectiveSmoothingRadius => smoothingRadius / Mathf.Sqrt(ResolvedResolutionFactor);
+
+        float EffectiveTargetDensity(int phaseIndex)
+        {
+            return EffectiveTargetDensity(phases[Mathf.Clamp(phaseIndex, 0, phases.Length - 1)]);
+        }
+
+        float EffectiveTargetDensity(PhaseConfig phase)
+        {
+            return phase.targetDensity * ResolvedResolutionFactor;
+        }
+
         void SetInitialBufferData(Spawner2D.ParticleSpawnData spawnData)
         {
             // Combine fluid and ghost particles into single arrays
@@ -835,9 +855,9 @@ namespace Seb.Fluid2D.Simulation
 
             float[] initialTargetDensities = new float[numParticles];
             for (int i = 0; i < numFluidParticles; i++)
-                initialTargetDensities[i] = phases[spawnData.phases[i]].targetDensity;
+                initialTargetDensities[i] = EffectiveTargetDensity(spawnData.phases[i]);
             for (int i = numFluidParticles; i < numParticles; i++)
-                initialTargetDensities[i] = phases[ghostPhases[i - numFluidParticles]].targetDensity;
+                initialTargetDensities[i] = EffectiveTargetDensity(ghostPhases[i - numFluidParticles]);
             particleTargetDensityBuffer.SetData(initialTargetDensities);
             blobStepCounter = 0;
         }
