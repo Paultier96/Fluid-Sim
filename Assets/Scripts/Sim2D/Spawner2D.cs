@@ -134,6 +134,7 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
 {
     float a = radii.x;
     float b = radii.y;
+    float ghostLayerThickness = spacing * numLayers;
     int lutSize = 1000;
     float[] lutT = new float[lutSize + 1];
     float[] lutArc = new float[lutSize + 1];
@@ -196,6 +197,13 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
         float2 normal = math.normalize(new float2(b * cosT, a * sinT));
         return ellipsePoint + normal * offset;
     }
+
+    bool IsInsideEllipseExpandedByGhostLayer(float2 rel)
+    {
+        float expandedA = a + ghostLayerThickness;
+        float expandedB = b + ghostLayerThickness;
+        return (rel.x * rel.x) / (expandedA * expandedA) + (rel.y * rel.y) / (expandedB * expandedB) < 1.0f;
+    }
     
     // Also spawn ghosts around the obstacle boundary (if obstacle exists)
     // Place them inside the obstacle so they act as boundary conditions
@@ -215,11 +223,25 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
                 float2 ghostPos = new float2(x, obstacleCentre.y + obsHalfY - layerDist);
                 float2 rel = ghostPos - (float2)center;
                 float normalized = (rel.x * rel.x) / (a * a) + (rel.y * rel.y) / (b * b);
-                if (normalized < 1.09f)
+                if (IsInsideEllipseExpandedByGhostLayer(rel))
                 {
                     outPositions.Add(ghostPos);
                     outVelocities.Add(float2.zero);
-                    outPhases.Add(obstacleGhostPhase);
+                    if (normalized < 1)
+                    {
+	                    if (layer < 3)
+	                    {
+		                    outPhases.Add(obstacleGhostPhase);
+	                    }
+	                    else
+	                    {
+		                    outPhases.Add(1-obstacleGhostPhase);
+	                    }
+                    }
+                    else
+                    {
+	                    outPhases.Add(1-obstacleGhostPhase);
+                    }
                 }
             }
             

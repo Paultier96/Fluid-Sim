@@ -165,14 +165,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: bf901970f9cf132479a879d7a4acde3d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  timeScale: 1
-  maxTimestepFPS: 1200
+  timeScale: 5
+  maxTimestepFPS: 120
   iterationsPerFrame: 3
   gravity: -13
   collisionDamping: 0.5
   smoothingRadius: 0.175
   pressureMultiplier: 1500
   nearPressureMultiplier: 30
+  negativePressureScale: 0
   interfaceViscosityMultiplier: 0.25
   boundsSize: {x: 46.22222, y: 26}
   obstacleSize: {x: 14, y: 30.28}
@@ -277,8 +278,9 @@ MonoBehaviour:
   - 1
   blobBlobCohesion: -0.5
   carrierWedgePhase: 1
-  carrierWedgeDistanceMultiplier: 2
+  carrierWedgeDistanceMultiplier: 2.5
   carrierWedgeStrength: 650
+  carrierWedgeViscosityMultiplier: 1
   carrierWedgeInterfaceOnly: 1
   carrierWedgeInterfaceThreshold: 0.001
   carrierWedgeCoilStrengthMultiplier: 0
@@ -289,7 +291,7 @@ MonoBehaviour:
   restrictBlobMergingToCoil: 0
   blobMergeCoil: {fileID: 2055861083}
   coilVelocityDamping: 100
-  coilAttractionStrength: 25
+  coilAttractionStrength: 0
   coilVelocityDampingPhase: 0
   surfaceTensionInterfaceMode: 1
   surfaceTension: 200
@@ -323,15 +325,15 @@ MonoBehaviour:
   jitterStr: 0.03
   spawnRegions:
   - position: {x: 0, y: -5.8}
-    size: {x: 10, y: 8}
+    size: {x: 10, y: 6.5}
     debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
     phaseID: 0
-  - position: {x: 0, y: 4.3}
-    size: {x: 10, y: 12}
+  - position: {x: 0, y: 4}
+    size: {x: 9, y: 13}
     debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
     phaseID: 1
   showSpawnBoundsGizmos: 1
-  spawnParticleCount: 80160
+  spawnParticleCount: 73060
 --- !u!114 &271053322
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -346,7 +348,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
-  renderMode: 0
+  renderMode: 1
   directParticleShader: {fileID: 4800000, guid: 441b7193936682446b30d2140d15792a, type: 3}
   metaballShader: {fileID: 4800000, guid: 85b87c70f093d411791140a3aca6ced6, type: 3}
   scale: 0.07
@@ -372,13 +374,18 @@ MonoBehaviour:
   particleTransmissionPower: 4.5
   particleEdgeDarkening: 1
   particleEdgeDarkeningPower: 0.5
+  particleSubsurfaceColor: {r: 0.039546248, g: 0, b: 0.11953845, a: 1}
+  particleSubsurfaceIntensity: 20
+  particleSubsurfacePower: 2
+  particleSubsurfaceThickness: 0.25
+  particleSubsurfaceEdgeBoost: 0.6
   compositeShader: {fileID: 4800000, guid: db6a0932797cd49b1a42ac6d2c30ac61, type: 3}
   blurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
   renderTextureScale: 1
   blurRadius: 10
   densityThreshold: 0.18
-  edgeSoftness: 2
-  phaseBlendWidth: 2
+  edgeSoftness: 0.05
+  phaseBlendWidth: 0.0001
   phase0RenderBias: 0.95
   phaseBiasNormalStrength: 0.7
   metaballSharpness: 1
@@ -387,8 +394,18 @@ MonoBehaviour:
   convexCurvatureBoostMax: 5
   convexCurvatureBoostStartBlurRadius: 6
   convexCurvatureBoostBlurRange: 12
-  metaballRefractionStrength: 0.04
+  metaballRefractionStrength: 0.03
   metaballRefractionEdgeFade: 0.0001
+  metaballIridescenceIntensity: 4
+  metaballIridescenceScale: 1.2
+  customBloomEnabled: 1
+  customBloomRenderTextureScale: 1
+  customBloomThreshold: 1.75
+  customBloomSoftKnee: 0.5
+  customBloomIntensity: 0.025
+  customBloomResponse: 1
+  customBloomRadius: 20
+  customBloomIterations: 3
   debugMode: 0
   debugGradientMax: 30
   debugDensityMin: 220
@@ -608,7 +625,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Simulation.PerformanceOverlay
   showOverlay: 1
-  sampleWindow: 5
+  sim: {fileID: 271053319}
+  sampleWindow: 2
   resetKey: 289
   screenOffset: {x: 12, y: 12}
 --- !u!4 &1214473944

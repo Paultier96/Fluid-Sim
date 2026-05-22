@@ -119,6 +119,8 @@ namespace Seb.Fluid2D.Simulation
         [Range(0f, 8f)] public float carrierWedgeDistanceMultiplier = 0f;
         [Tooltip("Acceleration strength that pushes carrier fluid into the gap between two different blob IDs.")]
         [Min(0f)] public float carrierWedgeStrength = 0f;
+        [Tooltip("Multiplier applied to carrier viscosity inside a valid wedge. 1 = no local viscosity boost.")]
+        [Min(1f)] public float carrierWedgeViscosityMultiplier = 1f;
         [Tooltip("When enabled, bulk carrier particles with weak color gradients skip the expensive carrier wedge neighbour scan.")]
         public bool carrierWedgeInterfaceOnly = true;
         [Tooltip("Minimum color-gradient magnitude required for carrier wedge when interface-only mode is enabled.")]
@@ -303,6 +305,8 @@ namespace Seb.Fluid2D.Simulation
         public int numParticles { get; private set; }
         public int numFluidParticles { get; private set; }
         public int numGhostParticles { get; private set; }
+        public float CurrentPlaybackSpeed { get; private set; }
+        public float CurrentSimulationDeltaTime { get; private set; }
         int resolvedGhostPhase;
         int resolvedObstacleGhostPhase;
 
@@ -424,7 +428,7 @@ namespace Seb.Fluid2D.Simulation
             compute.SetInt("numParticles", numParticles);
             compute.SetInt("numSpatialParticles", numParticles);
             compute.SetInt("NumPhases", phases.Length);
-            SettleSimulation();
+            //SettleSimulation();
         }
 
         void BindParticleBuffers()
@@ -487,7 +491,7 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.SetBuffer(compute, debugVectorDataBuffer, "DebugVectorData", thermalBuoyancyKernel, carrierWedgeKernel, csfKernel);
             ComputeHelper.SetBuffer(compute, debugVectorSignBuffer, "DebugVectorSign", csfKernel);
             ComputeHelper.SetBuffer(compute, colorGradientBuffer, "ColorGradients", computeColorGradKernel);
-            ComputeHelper.SetBuffer(compute, colorGradientBuffer, "ColorGradientsRO", carrierWedgeKernel, csfKernel);
+            ComputeHelper.SetBuffer(compute, colorGradientBuffer, "ColorGradientsRO", viscosityKernel, carrierWedgeKernel, csfKernel);
         }
         
         void SettleSimulation()
@@ -509,15 +513,25 @@ namespace Seb.Fluid2D.Simulation
 
             if (!isPaused)
             {
-                float maxDeltaTime = maxTimestepFPS > 0 ? 1 / maxTimestepFPS : float.PositiveInfinity;
+                float effectiveMaxTimestepFPS = maxTimestepFPS * Mathf.Sqrt(ResolvedResolutionFactor);
+                float maxDeltaTime = effectiveMaxTimestepFPS > 0 ? 1 / effectiveMaxTimestepFPS : float.PositiveInfinity;
                 float dt = Mathf.Min(Time.deltaTime * timeScale, maxDeltaTime);
+                CurrentSimulationDeltaTime = dt;
+                CurrentPlaybackSpeed = Time.unscaledDeltaTime > 0 ? dt / Time.unscaledDeltaTime : 0f;
                 RunSimulationFrame(dt);
+            }
+            else
+            {
+                CurrentSimulationDeltaTime = 0f;
+                CurrentPlaybackSpeed = 0f;
             }
 
             if (pauseNextFrame)
             {
                 isPaused = true;
                 pauseNextFrame = false;
+                CurrentSimulationDeltaTime = 0f;
+                CurrentPlaybackSpeed = 0f;
             }
 
             HandleInput();
@@ -634,11 +648,11 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: updateTemperatureKernel);
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: updateThermalExpansionKernel);
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: densityKernel);
+            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: computeColorGradKernel);
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: thermalBuoyancyKernel);
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: pressureKernel);
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: viscosityKernel);
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: cohesionKernel);
-            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: computeColorGradKernel);
             if (ShouldRecomputeBlobIDs())
             {
                 RecomputeBlobIDs();
@@ -752,11 +766,12 @@ namespace Seb.Fluid2D.Simulation
             
             compute.SetFloat("buoyancyInversionStrength", buoyancyInversionStrength);
             compute.SetFloat("buoyancyInversionClamp", Mathf.Max(0f, buoyancyInversionClamp));
-            compute.SetFloat("surfaceTension", surfaceTension);
+            float surfaceTensionScale = 1f / Mathf.Sqrt(ResolvedResolutionFactor);
+            compute.SetFloat("surfaceTension", surfaceTension * surfaceTensionScale);
             compute.SetInt("surfaceTensionInterfaceMode", (int)surfaceTensionInterfaceMode);
             compute.SetFloat("surfaceTensionThreshold", surfaceTensionThreshold);
-            compute.SetFloat("blobBlobSurfaceTension", blobBlobSurfaceTension);
-            compute.SetFloat("blobSelfSurfaceTension", blobSelfSurfaceTension);
+            compute.SetFloat("blobBlobSurfaceTension", blobBlobSurfaceTension * surfaceTensionScale);
+            compute.SetFloat("blobSelfSurfaceTension", blobSelfSurfaceTension * surfaceTensionScale);
             compute.SetInt("blobSelfSurfaceTensionPhase", PhaseFilterToIndex(blobSelfSurfaceTensionPhase));
             compute.SetFloat("maxSurfaceTensionCurvature", maxSurfaceTensionCurvature);
             compute.SetInt("debugVisualizationMode", particleDisplay != null ? (int)particleDisplay.debugMode : 0);
@@ -776,6 +791,7 @@ namespace Seb.Fluid2D.Simulation
             compute.SetInt("carrierWedgePhase", ClampPhaseIndex(carrierWedgePhase));
             compute.SetFloat("carrierWedgeDistanceMultiplier", carrierWedgeDistanceMultiplier);
             compute.SetFloat("carrierWedgeStrength", carrierWedgeStrength);
+            compute.SetFloat("carrierWedgeViscosityMultiplier", carrierWedgeViscosityMultiplier);
             compute.SetBool("carrierWedgeInterfaceOnly", carrierWedgeInterfaceOnly);
             compute.SetFloat("carrierWedgeInterfaceThreshold", carrierWedgeInterfaceThreshold);
             compute.SetFloat("carrierWedgeCoilStrengthMultiplier", carrierWedgeCoilStrengthMultiplier);

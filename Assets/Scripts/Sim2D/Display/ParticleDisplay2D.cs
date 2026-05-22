@@ -99,6 +99,16 @@ namespace Seb.Fluid2D.Rendering
 		[Range(0f, 1f)] public float particleEdgeDarkening = 0.2f;
 		[Tooltip("Edge darkening exponent. Higher values keep the darkening tighter to the edge.")]
 		[Min(0.1f)] public float particleEdgeDarkeningPower = 2f;
+		[Tooltip("Warm colour added to phase 0 to fake wax subsurface scattering.")]
+		[ColorUsage(false, true)] public Color particleSubsurfaceColor = new Color(1.0f, 0.45f, 0.18f, 1f);
+		[Tooltip("Strength of the phase 0 fake subsurface scattering term.")]
+		[Min(0f)] public float particleSubsurfaceIntensity = 0f;
+		[Tooltip("Directional exponent for subsurface backscatter. Higher values make it more light-direction dependent.")]
+		[Min(0.1f)] public float particleSubsurfacePower = 2f;
+		[Tooltip("Density range above the visible threshold used as fake thickness for subsurface scattering.")]
+		[Min(0.0001f)] public float particleSubsurfaceThickness = 0.25f;
+		[Tooltip("How much subsurface scattering is boosted near thin edge regions.")]
+		[Range(0f, 1f)] public float particleSubsurfaceEdgeBoost = 0.6f;
 
 		[Header("Metaball Rendering")]
 		[Tooltip("Shader that blits the blurred accumulation texture onto the camera, applying the density threshold and colour lookup.")]
@@ -107,7 +117,7 @@ namespace Seb.Fluid2D.Rendering
 		public Shader blurShader;
 		[Tooltip("Resolution of the metaball render textures relative to the screen. Lower values improve performance at the cost of sharpness.")]
 		[Range(0.25f, 1f)] public float renderTextureScale = 0.5f;
-		[Tooltip("Radius in pixels (at render texture particleResolutionFactor) of the Gaussian blur. Larger values make particles merge at greater distances.")]
+		[Tooltip("Radius in pixels at resolution factor 1 of the Gaussian blur. Larger values make particles merge at greater distances.")]
 		[Min(0)] public float blurRadius = 6;
 		[Tooltip("Blurred density value at which the fluid surface appears. Increase to shrink the visible fluid; decrease to expand it.")]
 		[Min(0)] public float densityThreshold = 0.18f;
@@ -135,6 +145,28 @@ namespace Seb.Fluid2D.Rendering
 		public float metaballRefractionStrength = 0.01f;
 		[Tooltip("Density distance over which refraction fades in from the visible edge. Higher values push refraction farther inward.")]
 		[Min(0.0001f)] public float metaballRefractionEdgeFade = 0.05f;
+		[Tooltip("Strength of fake thin-film iridescence in normal metaball rendering.")]
+		[Min(0f)] public float metaballIridescenceIntensity = 0f;
+		[Tooltip("Number of hue cycles across the iridescence phase. Higher values make tighter rainbow bands.")]
+		[Min(0f)] public float metaballIridescenceScale = 2.0f;
+
+		[Header("Metaball Bloom")]
+		[Tooltip("Adds a metaball-only bloom pass from HDR lighting values without running full-scene post processing.")]
+		public bool customBloomEnabled;
+		[Tooltip("Resolution of the bloom textures relative to the metaball render textures.")]
+		[Range(0.125f, 1f)] public float customBloomRenderTextureScale = 0.5f;
+		[Tooltip("Gamma-space colour threshold where metaball bloom starts, matching Unity bloom's threshold convention.")]
+		[Min(0f)] public float customBloomThreshold = 1.0f;
+		[Tooltip("Soft transition fraction around the bloom threshold. 0 is hard, 1 is fully soft.")]
+		[Range(0f, 1f)] public float customBloomSoftKnee = 0.5f;
+		[Tooltip("Strength of the blurred bloom added back over the metaballs.")]
+		[Min(0f)] public float customBloomIntensity = 1.0f;
+		[Tooltip("Power curve applied to extracted bloom brightness. 1 is neutral; higher values keep the core bright while making the falloff drop faster.")]
+		[Min(0.01f)] public float customBloomResponse = 1.0f;
+		[Tooltip("Tent upsample scale for the metaball bloom pyramid. 8 is Unity-like; larger values spread each upsample more.")]
+		[Min(0f)] public float customBloomRadius = 8.0f;
+		[Tooltip("Number of downsampled pyramid levels used for metaball-only bloom.")]
+		[Range(1, 4)] public int customBloomIterations = 3;
 
 		[Header("Debug")]
 		[Tooltip("Selects what to show in debug mode. Press 0-6 to switch modes at runtime.")]
@@ -206,6 +238,9 @@ namespace Seb.Fluid2D.Rendering
 		RenderTexture combinedBlurTexture;
 		RenderTexture normalAccumulationTexture;
 		RenderTexture normalBlurTexture;
+		const int MaxCustomBloomLevels = 4;
+		RenderTexture[] bloomDownTextures = new RenderTexture[MaxCustomBloomLevels];
+		RenderTexture[] bloomUpTextures = new RenderTexture[MaxCustomBloomLevels];
 		CommandBuffer metaballCommandBuffer;
 		bool commandBufferAttached;
 		bool needsUpdate;
@@ -518,8 +553,18 @@ namespace Seb.Fluid2D.Rendering
 		{
 			get
 			{
+				return scale * ParticleResolutionLengthScale;
+			}
+		}
+
+		float EffectiveConfiguredBlurRadius => blurRadius * ParticleResolutionLengthScale;
+
+		float ParticleResolutionLengthScale
+		{
+			get
+			{
 				float resolutionFactor = sim != null ? Mathf.Max(0.0001f, sim.particleResolutionFactor) : 1f;
-				return scale / Mathf.Sqrt(resolutionFactor);
+				return 1f / Mathf.Sqrt(resolutionFactor);
 			}
 		}
 
@@ -547,8 +592,9 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
-		float DebugDensityMin => Mathf.Min(debugDensityMin, debugDensityMax - 0.0001f);
-		float DebugDensityMax => Mathf.Max(debugDensityMax, debugDensityMin + 0.0001f);
+		float DensityDebugScale => sim != null ? Mathf.Max(0.0001f, sim.particleResolutionFactor) : 1f;
+		float DebugDensityMin => Mathf.Min(debugDensityMin, debugDensityMax - 0.0001f) * DensityDebugScale;
+		float DebugDensityMax => Mathf.Max(debugDensityMax, debugDensityMin + 0.0001f) * DensityDebugScale;
 		float EffectiveVectorMaxMagnitude
 		{
 			get
@@ -698,10 +744,19 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetTexture("DebugSignedHeatMap", debugSignedHeatMapTexture);
 			float effectiveBlurRadius = GetEffectiveBlurRadius(cam);
 			float effectiveRefractionStrength = metaballRefractionStrength * GetZoomScale(cam);
-			metaballMaterial.SetFloat("metaballBlurRadius", blurRadius);
+			float effectiveBloomSampleScale = Mathf.Max(0.5f, customBloomRadius / 8f);
+			float effectiveConfiguredBlurRadius = EffectiveConfiguredBlurRadius;
+			metaballMaterial.SetFloat("metaballBlurRadius", effectiveConfiguredBlurRadius);
 			compositeMaterial.SetFloat("metaballRefractionStrength", effectiveRefractionStrength);
 			compositeMaterial.SetFloat("metaballRefractionEdgeFade", metaballRefractionEdgeFade);
-			float effectiveNormalStrength = GetEffectiveNormalStrength(blurRadius);
+			compositeMaterial.SetFloat("metaballIridescenceIntensity", metaballIridescenceIntensity);
+			compositeMaterial.SetFloat("metaballIridescenceScale", metaballIridescenceScale);
+			compositeMaterial.SetFloat("customBloomThreshold", customBloomThreshold);
+			compositeMaterial.SetFloat("customBloomSoftKnee", customBloomSoftKnee);
+			compositeMaterial.SetFloat("customBloomIntensity", customBloomIntensity);
+			compositeMaterial.SetFloat("customBloomResponse", customBloomResponse);
+			compositeMaterial.SetFloat("customBloomSampleScale", Mathf.Max(0.5f, effectiveBloomSampleScale));
+			float effectiveNormalStrength = GetEffectiveNormalStrength(effectiveConfiguredBlurRadius);
 			compositeMaterial.SetInt("debugMode", (int)ParticleShaderDebugMode);
 			compositeMaterial.SetFloat("ditherStrength", ditherStrength);
 			compositeMaterial.SetVector("particleLightDirection", particleLightDirection);
@@ -723,6 +778,11 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetFloat("particleTransmissionPower", particleTransmissionPower);
 			compositeMaterial.SetFloat("particleEdgeDarkening", particleEdgeDarkening);
 			compositeMaterial.SetFloat("particleEdgeDarkeningPower", particleEdgeDarkeningPower);
+			compositeMaterial.SetColor("particleSubsurfaceColor", particleSubsurfaceColor);
+			compositeMaterial.SetFloat("particleSubsurfaceIntensity", particleSubsurfaceIntensity);
+			compositeMaterial.SetFloat("particleSubsurfacePower", particleSubsurfacePower);
+			compositeMaterial.SetFloat("particleSubsurfaceThickness", particleSubsurfaceThickness);
+			compositeMaterial.SetFloat("particleSubsurfaceEdgeBoost", particleSubsurfaceEdgeBoost);
 
 			blurMaterial.SetFloat("blurRadius", effectiveBlurRadius);
 
@@ -743,7 +803,31 @@ namespace Seb.Fluid2D.Rendering
 			metaballCommandBuffer.SetGlobalVector("blurDirection", new Vector2(0, 1));
 			metaballCommandBuffer.Blit(normalBlurTexture, normalAccumulationTexture, blurMaterial);
 
-			metaballCommandBuffer.Blit(null, BuiltinRenderTextureType.CameraTarget, compositeMaterial);
+			if (customBloomEnabled)
+			{
+				int bloomLevels = GetCustomBloomLevelCount();
+				metaballCommandBuffer.SetRenderTarget(bloomDownTextures[0]);
+				metaballCommandBuffer.ClearRenderTarget(false, true, Color.clear);
+				metaballCommandBuffer.Blit(null, bloomDownTextures[0], compositeMaterial, 1);
+				for (int i = 1; i < bloomLevels; i++)
+				{
+					metaballCommandBuffer.Blit(bloomDownTextures[i - 1], bloomDownTextures[i], compositeMaterial, 3);
+				}
+				RenderTexture lastBloom = bloomDownTextures[bloomLevels - 1];
+				for (int i = bloomLevels - 2; i >= 0; i--)
+				{
+					metaballCommandBuffer.SetGlobalTexture("BloomTex", bloomDownTextures[i]);
+					metaballCommandBuffer.Blit(lastBloom, bloomUpTextures[i], compositeMaterial, 4);
+					lastBloom = bloomUpTextures[i];
+				}
+				metaballCommandBuffer.SetGlobalTexture("BloomTex", lastBloom);
+			}
+
+			metaballCommandBuffer.Blit(null, BuiltinRenderTextureType.CameraTarget, compositeMaterial, 0);
+			if (customBloomEnabled)
+			{
+				metaballCommandBuffer.Blit(null, BuiltinRenderTextureType.CameraTarget, compositeMaterial, 2);
+			}
 			AppendVectorFieldDraw(metaballCommandBuffer);
 		}
 
@@ -777,9 +861,11 @@ namespace Seb.Fluid2D.Rendering
 			if (!commandBufferAttached)
 			{
 				mainCamera.RemoveCommandBuffer(CameraEvent.AfterEverything, metaballCommandBuffer);
+				mainCamera.RemoveCommandBuffer(CameraEvent.AfterForwardAlpha, metaballCommandBuffer);
 				RemoveCommandBuffersByName(mainCamera, CameraEvent.AfterEverything, MetaballCommandBufferName);
+				RemoveCommandBuffersByName(mainCamera, CameraEvent.AfterForwardAlpha, MetaballCommandBufferName);
 				RemoveCommandBuffersByName(mainCamera, CameraEvent.BeforeImageEffects, MetaballCommandBufferName);
-				mainCamera.AddCommandBuffer(CameraEvent.AfterEverything, metaballCommandBuffer);
+				mainCamera.AddCommandBuffer(CameraEvent.AfterForwardAlpha, metaballCommandBuffer);
 				commandBufferAttached = true;
 			}
 		}
@@ -904,6 +990,33 @@ namespace Seb.Fluid2D.Rendering
 			ComputeHelper.CreateRenderTexture(ref normalAccumulationTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Normal Accumulation");
 			ComputeHelper.CreateRenderTexture(ref normalBlurTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Normal Blur");
 
+			if (customBloomEnabled)
+			{
+				int bloomLevels = GetCustomBloomLevelCount();
+				int bloomWidth = Mathf.Max(1, Mathf.RoundToInt(width * customBloomRenderTextureScale));
+				int bloomHeight = Mathf.Max(1, Mathf.RoundToInt(height * customBloomRenderTextureScale));
+				for (int i = 0; i < MaxCustomBloomLevels; i++)
+				{
+					if (i < bloomLevels)
+					{
+						int mipWidth = Mathf.Max(1, bloomWidth >> i);
+						int mipHeight = Mathf.Max(1, bloomHeight >> i);
+						ComputeHelper.CreateRenderTexture(ref bloomDownTextures[i], mipWidth, mipHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Bloom Down " + i);
+						ComputeHelper.CreateRenderTexture(ref bloomUpTextures[i], mipWidth, mipHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Bloom Up " + i);
+					}
+					else
+					{
+						ComputeHelper.Release(bloomDownTextures[i], bloomUpTextures[i]);
+						bloomDownTextures[i] = null;
+						bloomUpTextures[i] = null;
+					}
+				}
+			}
+			else
+			{
+				ReleaseBloomTextures();
+			}
+
 			// Also ensure Jump Flood textures (used by compute shader)
 			ComputeHelper.CreateRenderTexture(ref jfaSeedA, width, height, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "JFA Seed A");
 			ComputeHelper.CreateRenderTexture(ref jfaSeedB, width, height, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "JFA Seed B");
@@ -921,6 +1034,26 @@ namespace Seb.Fluid2D.Rendering
 			if (jfaResult != null && (jfaResult.width != width || jfaResult.height != height))
 			{
 				jfaResult = null;
+			}
+		}
+
+		int GetCustomBloomLevelCount()
+		{
+			return Mathf.Clamp(customBloomIterations, 1, MaxCustomBloomLevels);
+		}
+
+		void ReleaseBloomTextures()
+		{
+			if (bloomDownTextures == null || bloomUpTextures == null)
+			{
+				return;
+			}
+
+			for (int i = 0; i < MaxCustomBloomLevels; i++)
+			{
+				ComputeHelper.Release(bloomDownTextures[i], bloomUpTextures[i]);
+				bloomDownTextures[i] = null;
+				bloomUpTextures[i] = null;
 			}
 		}
 
@@ -944,8 +1077,10 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			cam.RemoveCommandBuffer(CameraEvent.AfterEverything, metaballCommandBuffer);
+			cam.RemoveCommandBuffer(CameraEvent.AfterForwardAlpha, metaballCommandBuffer);
 			cam.RemoveCommandBuffer(CameraEvent.BeforeImageEffects, metaballCommandBuffer);
 			RemoveCommandBuffersByName(cam, CameraEvent.AfterEverything, MetaballCommandBufferName);
+			RemoveCommandBuffersByName(cam, CameraEvent.AfterForwardAlpha, MetaballCommandBufferName);
 			RemoveCommandBuffersByName(cam, CameraEvent.BeforeImageEffects, MetaballCommandBufferName);
 		}
 
@@ -980,7 +1115,7 @@ namespace Seb.Fluid2D.Rendering
 
 		float GetEffectiveBlurRadius(Camera cam)
 		{
-			return blurRadius * GetZoomScale(cam) * Mathf.Max(renderTextureScale, 0.0001f);
+			return EffectiveConfiguredBlurRadius * GetZoomScale(cam) * Mathf.Max(renderTextureScale, 0.0001f);
 		}
 
 		float GetZoomScale(Camera cam)
@@ -1126,6 +1261,7 @@ namespace Seb.Fluid2D.Rendering
 			ComputeHelper.Release(vectorArgsBuffer);
 			ComputeHelper.Release(combinedAccumulationTexture, combinedBlurTexture);
 			ComputeHelper.Release(normalAccumulationTexture, normalBlurTexture);
+			ReleaseBloomTextures();
 			// Release jump flood textures
 			ComputeHelper.Release(jfaSeedA, jfaSeedB, jfaTemp);
 			RemoveCommandBuffer();
@@ -1148,6 +1284,14 @@ namespace Seb.Fluid2D.Rendering
 			if (jumpFloodPassMaterial != null)
 			{
 				DestroyImmediate(jumpFloodPassMaterial);
+			}
+			if (compositeMaterial != null)
+			{
+				DestroyImmediate(compositeMaterial);
+			}
+			if (blurMaterial != null)
+			{
+				DestroyImmediate(blurMaterial);
 			}
 		}
     }

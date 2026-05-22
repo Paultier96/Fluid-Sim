@@ -53,6 +53,7 @@ const float blobBlobCohesion;
 const int carrierWedgePhase;
 const float carrierWedgeDistanceMultiplier;
 const float carrierWedgeStrength;
+const float carrierWedgeViscosityMultiplier;
 const bool carrierWedgeInterfaceOnly;
 const float carrierWedgeInterfaceThreshold;
 const float carrierWedgeCoilStrengthMultiplier;
@@ -846,6 +847,117 @@ void CopyBlobIDsToPrevious(uint3 id : SV_DispatchThreadID)
 	BlobIDsPrevious[id.x] = BlobIDs[id.x];
 }
 
+bool TryGetCarrierWedge(uint particleIndex, float2 pos, out float2 wedgeDir, out float wedgeAmount)
+{
+	wedgeDir = 0;
+	wedgeAmount = 0;
+
+	float carrierWedgeDistance = carrierWedgeDistanceMultiplier * smoothingRadius;
+	if (carrierWedgeDistance <= 0) return false;
+	if (carrierWedgeInterfaceOnly && length(ColorGradientsRO[particleIndex]) < carrierWedgeInterfaceThreshold) return false;
+
+	float localStrengthMultiplier = IsInsideBlobMergeCoil(pos) ? saturate(carrierWedgeCoilStrengthMultiplier) : 1.0;
+	if (localStrengthMultiplier <= 0) return false;
+
+	float searchDistance = min(carrierWedgeDistance, smoothingRadius * 8.0);
+	float sqrSearchDistance = searchDistance * searchDistance;
+	int2 originCell = GetCell2D(pos, smoothingRadius);
+	int cellRange = min((int)ceil(searchDistance / max(smoothingRadius, 1e-6)), 8);
+
+	uint blobA = IgnoredPhaseBlobID;
+	uint blobB = IgnoredPhaseBlobID;
+	float2 weightedPosA = 0;
+	float2 weightedPosB = 0;
+	float weightA = 0;
+	float weightB = 0;
+
+	for (int y = -cellRange; y <= cellRange; y++)
+	{
+		for (int x = -cellRange; x <= cellRange; x++)
+		{
+			uint hash = HashCell2D(originCell + int2(x, y));
+			uint key = KeyFromHash(hash, numSpatialParticles);
+			uint currIndex = SpatialOffsets[key];
+
+			while (currIndex < numSpatialParticles)
+			{
+				uint neighbourIndex = currIndex++;
+				if (neighbourIndex == particleIndex) continue;
+				if (SpatialKeys[neighbourIndex] != key) break;
+				if (IsGhost[neighbourIndex] != 0) continue;
+				if ((int)Phases[neighbourIndex] == carrierWedgePhase) continue;
+
+				uint neighbourBlob = BlobIDsRO[neighbourIndex];
+				if (neighbourBlob >= UnassignedBlobID) continue;
+
+				float2 neighbourPos = PredictedPositions[neighbourIndex];
+				float2 offset = neighbourPos - pos;
+				float sqrDst = dot(offset, offset);
+				if (sqrDst > sqrSearchDistance || sqrDst == 0) continue;
+
+				float2 contactPos = (neighbourPos + pos) * 0.5;
+				float contactStrengthMultiplier = IsInsideBlobMergeCoil(contactPos) ? saturate(carrierWedgeCoilStrengthMultiplier) : 1.0;
+				if (contactStrengthMultiplier <= 0) continue;
+
+				float dst = sqrt(sqrDst);
+				float contactT = 1.0 - dst / max(searchDistance, 1e-6);
+				float weight = contactT * contactT * contactStrengthMultiplier;
+
+				if (neighbourBlob == blobA)
+				{
+					weightedPosA += neighbourPos * weight;
+					weightA += weight;
+				}
+				else if (neighbourBlob == blobB)
+				{
+					weightedPosB += neighbourPos * weight;
+					weightB += weight;
+				}
+				else if (weightA <= 0 || weight > weightA)
+				{
+					blobB = blobA;
+					weightedPosB = weightedPosA;
+					weightB = weightA;
+					blobA = neighbourBlob;
+					weightedPosA = neighbourPos * weight;
+					weightA = weight;
+				}
+				else if (weightB <= 0 || weight > weightB)
+				{
+					blobB = neighbourBlob;
+					weightedPosB = neighbourPos * weight;
+					weightB = weight;
+				}
+			}
+		}
+	}
+
+	if (weightA <= 1e-6 || weightB <= 1e-6 || blobA == blobB) return false;
+
+	float2 centroidA = weightedPosA / weightA;
+	float2 centroidB = weightedPosB / weightB;
+	float2 toA = centroidA - pos;
+	float2 toB = centroidB - pos;
+	float lenA = length(toA);
+	float lenB = length(toB);
+	if (lenA <= 1e-6 || lenB <= 1e-6) return false;
+
+	float2 dirA = toA / lenA;
+	float2 dirB = toB / lenB;
+	float directionDot = dot(dirA, dirB);
+	if (directionDot > carrierWedgeMaxDirectionDot) return false;
+
+	wedgeDir = dirA + dirB;
+	float wedgeLen = length(wedgeDir);
+	if (wedgeLen <= 1e-6) return false;
+	wedgeDir /= wedgeLen;
+
+	float contactAmount = saturate(min(weightA, weightB));
+	float angleAmount = saturate((carrierWedgeMaxDirectionDot - directionDot) / max(carrierWedgeMaxDirectionDot + 1.0, 1e-6));
+	wedgeAmount = contactAmount * angleAmount * localStrengthMultiplier;
+	return wedgeAmount > 0;
+}
+
 [numthreads(NumThreads, 1, 1)]
 void ClearBlobSizes(uint3 id : SV_DispatchThreadID)
 {
@@ -1182,108 +1294,12 @@ void ApplyCarrierWedgeForce(uint3 id : SV_DispatchThreadID)
 	if (carrierWedgeStrength <= 0 || carrierWedgeDistance <= 0) return;
 	if (IsGhost[id.x] != 0) return;
 	if ((int)Phases[id.x] != carrierWedgePhase) return;
-	if (carrierWedgeInterfaceOnly && length(ColorGradientsRO[id.x]) < carrierWedgeInterfaceThreshold) return;
 
 	float2 pos = PredictedPositions[id.x];
-	float localStrengthMultiplier = IsInsideBlobMergeCoil(pos) ? saturate(carrierWedgeCoilStrengthMultiplier) : 1.0;
-	if (localStrengthMultiplier <= 0) return;
-
-	float searchDistance = min(carrierWedgeDistance, smoothingRadius * 8.0);
-	float sqrSearchDistance = searchDistance * searchDistance;
-	int2 originCell = GetCell2D(pos, smoothingRadius);
-	int cellRange = min((int)ceil(searchDistance / max(smoothingRadius, 1e-6)), 8);
-
-	uint blobA = IgnoredPhaseBlobID;
-	uint blobB = IgnoredPhaseBlobID;
-	float2 weightedPosA = 0;
-	float2 weightedPosB = 0;
-	float weightA = 0;
-	float weightB = 0;
-
-	for (int y = -cellRange; y <= cellRange; y++)
-	{
-		for (int x = -cellRange; x <= cellRange; x++)
-		{
-			uint hash = HashCell2D(originCell + int2(x, y));
-			uint key = KeyFromHash(hash, numSpatialParticles);
-			uint currIndex = SpatialOffsets[key];
-
-			while (currIndex < numSpatialParticles)
-			{
-				uint neighbourIndex = currIndex++;
-				if (neighbourIndex == id.x) continue;
-				if (SpatialKeys[neighbourIndex] != key) break;
-				if (IsGhost[neighbourIndex] != 0) continue;
-				if ((int)Phases[neighbourIndex] == carrierWedgePhase) continue;
-
-				uint neighbourBlob = BlobIDsRO[neighbourIndex];
-				if (neighbourBlob >= UnassignedBlobID) continue;
-
-				float2 neighbourPos = PredictedPositions[neighbourIndex];
-				float2 offset = neighbourPos - pos;
-				float sqrDst = dot(offset, offset);
-				if (sqrDst > sqrSearchDistance || sqrDst == 0) continue;
-
-				float2 contactPos = (neighbourPos + pos) * 0.5;
-				float contactStrengthMultiplier = IsInsideBlobMergeCoil(contactPos) ? saturate(carrierWedgeCoilStrengthMultiplier) : 1.0;
-				if (contactStrengthMultiplier <= 0) continue;
-
-				float dst = sqrt(sqrDst);
-				float contactT = 1.0 - dst / max(searchDistance, 1e-6);
-				float weight = contactT * contactT * contactStrengthMultiplier;
-
-				if (neighbourBlob == blobA)
-				{
-					weightedPosA += neighbourPos * weight;
-					weightA += weight;
-				}
-				else if (neighbourBlob == blobB)
-				{
-					weightedPosB += neighbourPos * weight;
-					weightB += weight;
-				}
-				else if (weightA <= 0 || weight > weightA)
-				{
-					blobB = blobA;
-					weightedPosB = weightedPosA;
-					weightB = weightA;
-					blobA = neighbourBlob;
-					weightedPosA = neighbourPos * weight;
-					weightA = weight;
-				}
-				else if (weightB <= 0 || weight > weightB)
-				{
-					blobB = neighbourBlob;
-					weightedPosB = neighbourPos * weight;
-					weightB = weight;
-				}
-			}
-		}
-	}
-
-	if (weightA <= 1e-6 || weightB <= 1e-6 || blobA == blobB) return;
-
-	float2 centroidA = weightedPosA / weightA;
-	float2 centroidB = weightedPosB / weightB;
-	float2 toA = centroidA - pos;
-	float2 toB = centroidB - pos;
-	float lenA = length(toA);
-	float lenB = length(toB);
-	if (lenA <= 1e-6 || lenB <= 1e-6) return;
-
-	float2 dirA = toA / lenA;
-	float2 dirB = toB / lenB;
-	float directionDot = dot(dirA, dirB);
-	if (directionDot > carrierWedgeMaxDirectionDot) return;
-
-	float2 wedgeDir = dirA + dirB;
-	float wedgeLen = length(wedgeDir);
-	if (wedgeLen <= 1e-6) return;
-	wedgeDir /= wedgeLen;
-
-	float contactAmount = saturate(min(weightA, weightB));
-	float angleAmount = saturate((carrierWedgeMaxDirectionDot - directionDot) / max(carrierWedgeMaxDirectionDot + 1.0, 1e-6));
-	float2 acceleration = wedgeDir * carrierWedgeStrength * localStrengthMultiplier * contactAmount * angleAmount;
+	float2 wedgeDir;
+	float wedgeAmount;
+	if (!TryGetCarrierWedge(id.x, pos, wedgeDir, wedgeAmount)) return;
+	float2 acceleration = wedgeDir * carrierWedgeStrength * wedgeAmount;
 	float accelerationMag = length(acceleration);
 	if (carrierWedgeMaxAcceleration > 0 && accelerationMag > carrierWedgeMaxAcceleration)
 	{
@@ -1321,9 +1337,19 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 	uint myPhase = Phases[id.x];
 	float myTemp = Temperatures[id.x];
 	float myViscosity = GetTemperatureAdjustedViscosity(myPhase, myTemp);
+	float wedgeViscosityMultiplier = 1.0;
+	if ((int)myPhase == carrierWedgePhase && carrierWedgeViscosityMultiplier > 1.0)
+	{
+		float2 wedgeDir;
+		float wedgeAmount;
+		if (TryGetCarrierWedge(id.x, pos, wedgeDir, wedgeAmount))
+		{
+			wedgeViscosityMultiplier = lerp(1.0, carrierWedgeViscosityMultiplier, wedgeAmount);
+		}
+	}
 	if (debugVisualizationMode == 3)
 	{
-		DebugData[id.x] = myViscosity.xx;
+		DebugData[id.x] = (myViscosity * wedgeViscosityMultiplier).xx;
 	}
 
 
@@ -1357,6 +1383,7 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 			float neighbourTemp = Temperatures[neighbourIndex];
 			float neighbourViscosity = GetTemperatureAdjustedViscosity(neighbourPhase, neighbourTemp);
 			float blendedViscosity = (myViscosity + neighbourViscosity) * 0.5;
+			blendedViscosity *= wedgeViscosityMultiplier;
 			bool differentPhase = neighbourPhase != myPhase;
 			bool differentBlobSamePhase = !differentPhase && BlobIDsRO[neighbourIndex] != BlobIDsRO[id.x];
 			if (differentPhase || differentBlobSamePhase)
