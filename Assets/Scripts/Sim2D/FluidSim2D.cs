@@ -42,8 +42,8 @@ namespace Seb.Fluid2D.Simulation
         [Tooltip("Multiplier applied to viscous velocity exchange across phase boundaries and between separate same-phase blobs. Lower values make interfaces more slippery.")]
         [Range(0f, 1f)] public float interfaceViscosityMultiplier = 1f;
         public Vector2 boundsSize;
-        public Vector2 obstacleSize;
-        public Vector2 obstacleCentre;
+        [Tooltip("Horizontal lower boundary used with elliptical bounds. The final fluid domain is the ellipse above this Y value.")]
+        public float obstacleY = -10f;
         [Tooltip("magnitude of repulsive acceleration at zero distance")]
         public float edgeForce;
         [Tooltip("distance from boundary over which repulsion fades to zero")]
@@ -366,7 +366,7 @@ namespace Seb.Fluid2D.Simulation
             ghostPhases = new List<int>();
             resolvedGhostPhase = ClampPhaseIndex(ghostPhase);
             resolvedObstacleGhostPhase = ClampPhaseIndex(obstacleGhostPhase);
-            spawner2D.GenerateGhostParticles(boundsSize, ellipseBoundsCenter, ellipseBoundsSize, useEllipticalBounds, fluidSpacing, numGhostLayers, resolvedGhostPhase, resolvedObstacleGhostPhase, ghostPositions, ghostVelocities, ghostPhases, obstacleSize, obstacleCentre);
+            spawner2D.GenerateGhostParticles(boundsSize, ellipseBoundsCenter, ellipseBoundsSize, useEllipticalBounds, fluidSpacing, numGhostLayers, resolvedGhostPhase, resolvedObstacleGhostPhase, ghostPositions, ghostVelocities, ghostPhases, obstacleY);
             numGhostParticles = ghostPositions.Count;
             numParticles = numFluidParticles + numGhostParticles;
             spatialHash = new SpatialHash(numParticles);
@@ -709,8 +709,7 @@ namespace Seb.Fluid2D.Simulation
             compute.SetFloat("nearPressureMultiplier", nearPressureMultiplier);
             compute.SetFloat("interfaceViscosityMultiplier", interfaceViscosityMultiplier);
             compute.SetVector("boundsSize", boundsSize);
-            compute.SetVector("obstacleSize", obstacleSize);
-            compute.SetVector("obstacleCentre", obstacleCentre);
+            compute.SetFloat("obstacleY", obstacleY);
             compute.SetBool("useEllipticalBounds", useEllipticalBounds);
             compute.SetVector("ellipseBoundsSize", ellipseBoundsSize);
             compute.SetVector("ellipseBoundsCenter", ellipseBoundsCenter);
@@ -955,8 +954,11 @@ namespace Seb.Fluid2D.Simulation
                 // Draw rectangular bounds
                 Gizmos.DrawWireCube(Vector2.zero, boundsSize);
             }
-            
-            Gizmos.DrawWireCube(obstacleCentre, obstacleSize);
+            if (useEllipticalBounds)
+            {
+                Gizmos.color = new Color(1, 0.65f, 0, 0.8f);
+                DrawHorizontalBoundaryLineGizmo();
+            }
 
             if (Application.isPlaying)
             {
@@ -984,6 +986,22 @@ namespace Seb.Fluid2D.Simulation
                 Gizmos.DrawLine(lastPoint, newPoint);
                 lastPoint = newPoint;
             }
+        }
+
+        void DrawHorizontalBoundaryLineGizmo()
+        {
+            float relY = obstacleY - ellipseBoundsCenter.y;
+            float radiusY = Mathf.Max(ellipseBoundsSize.y, 0.0001f);
+            float normalizedY = relY / radiusY;
+            if (Mathf.Abs(normalizedY) >= 1f)
+            {
+                return;
+            }
+
+            float halfWidth = ellipseBoundsSize.x * Mathf.Sqrt(1f - normalizedY * normalizedY);
+            Vector3 left = new Vector3(ellipseBoundsCenter.x - halfWidth, obstacleY, 0);
+            Vector3 right = new Vector3(ellipseBoundsCenter.x + halfWidth, obstacleY, 0);
+            Gizmos.DrawLine(left, right);
         }
     }
 }

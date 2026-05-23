@@ -139,8 +139,7 @@ const float coilVelocityDamping;
 const float coilAttractionStrength;
 const int coilVelocityDampingPhase;
 
-const float2 obstacleSize;
-const float2 obstacleCentre;
+const float obstacleY;
 
 // Elliptical bounds parameters (when using elliptical bounds instead of rectangular)
 const float2 ellipseBoundsSize;  // Semi-axes (radii) of the ellipse
@@ -447,6 +446,13 @@ float2 ExternalForces(float2 pos, float2 velocity)
                     boundaryRepel += -outwardNormal * strength;
                 }
             }
+
+            float floorDist = pos.y - obstacleY;
+            if (floorDist >= 0 && floorDist < edgeForceDst)
+            {
+                float strength = edgeForce * (edgeForceDst - floorDist) / edgeForceDst;
+                boundaryRepel.y += strength;
+            }
         }
         else
         {
@@ -487,6 +493,14 @@ float2 CalculateWallPressureSupportForce(float2 pos, float density, float pressu
         if (signedDist >= 0) return 0; // outside boundary: collision handling will resolve this case
         wallDist = -signedDist;
         inwardNormal = -outwardNormal;
+
+        float floorDist = pos.y - obstacleY;
+        if (floorDist < wallDist)
+        {
+            if (floorDist <= 0) return 0;
+            wallDist = floorDist;
+            inwardNormal = float2(0, 1);
+        }
     }
     else
     {
@@ -645,6 +659,15 @@ void HandleCollisions(uint particleIndex)
 			vel -= 2.0 * dot(vel, normal) * normal;
 			vel *= collisionDamping;
 		}
+
+		if (pos.y < obstacleY)
+		{
+			pos.y = obstacleY;
+			if (vel.y < 0)
+			{
+				vel.y *= -1 * collisionDamping;
+			}
+		}
 	}
 	else
 	{
@@ -660,22 +683,6 @@ void HandleCollisions(uint particleIndex)
 		if (edgeDst.y <= 0)
 		{
 			pos.y = halfSize.y * sign(pos.y);
-			vel.y *= -1 * collisionDamping;
-		}
-	}
-
-	//Collide particle against the test obstacle (rectangular, always enabled)
-	const float2 obstacleHalfSize = obstacleSize * 0.5;
-	float2 obstacleEdgeDst = obstacleHalfSize - abs(pos - obstacleCentre);
-	
-	if (obstacleEdgeDst.x >= 0 && obstacleEdgeDst.y >= 0)
-	{
-		if (obstacleEdgeDst.x < obstacleEdgeDst.y) {
-			pos.x = obstacleHalfSize.x * sign(pos.x - obstacleCentre.x) + obstacleCentre.x;
-			vel.x *= -1 * collisionDamping;
-		}
-		else {
-			pos.y = obstacleHalfSize.y * sign(pos.y - obstacleCentre.y) + obstacleCentre.y;
 			vel.y *= -1 * collisionDamping;
 		}
 	}
@@ -1177,6 +1184,12 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
             if (signedDist < 0)
             {
                 wallDist = -signedDist;
+            }
+
+            float floorDist = pos.y - obstacleY;
+            if (floorDist >= 0)
+            {
+                wallDist = min(wallDist, floorDist);
             }
         }
         else

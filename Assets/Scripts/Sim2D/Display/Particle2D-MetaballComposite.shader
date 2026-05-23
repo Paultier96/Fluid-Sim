@@ -326,6 +326,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			{
 				discard;
 			}
+
 			return float4(colour, alpha);
 		}
 
@@ -432,5 +433,6 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			#pragma fragment fragBloomUpsample
 			ENDCG
 		}
+
 	}
 }

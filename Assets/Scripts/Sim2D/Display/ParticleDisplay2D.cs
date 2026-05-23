@@ -149,6 +149,12 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0f)] public float metaballIridescenceIntensity = 0f;
 		[Tooltip("Number of hue cycles across the iridescence phase. Higher values make tighter rainbow bands.")]
 		[Min(0f)] public float metaballIridescenceScale = 2.0f;
+		[Tooltip("Blends analytic ellipse/cut-boundary normals into ghost particles in the metaball normal pass. Negative values flip the direction.")]
+		[Range(-1f, 1f)] public float metaballGhostBoundaryNormalStrength = 1f;
+		[Tooltip("World-space distance around the horizontal cut corners used to blend ellipse and cut normals.")]
+		[Min(0.0001f)] public float metaballGhostBoundaryCornerBlendWidth = 0.75f;
+		[Tooltip("World-space band around the analytic boundary where fake ghost normals are applied.")]
+		[Min(0.0001f)] public float metaballGhostBoundaryNormalWidth = 1f;
 
 		[Header("Metaball Bloom")]
 		[Tooltip("Adds a metaball-only bloom pass from HDR lighting values without running full-scene post processing.")]
@@ -547,6 +553,13 @@ namespace Seb.Fluid2D.Rendering
 			targetMaterial.SetFloat("convexCurvatureBoostMax", convexCurvatureBoostMax);
 			targetMaterial.SetFloat("convexCurvatureBoostStartBlurRadius", convexCurvatureBoostStartBlurRadius);
 			targetMaterial.SetFloat("convexCurvatureBoostBlurRange", convexCurvatureBoostBlurRange);
+			targetMaterial.SetInt("useEllipticalBounds", sim.useEllipticalBounds ? 1 : 0);
+			targetMaterial.SetVector("ellipseBoundsCenter", new Vector4(sim.ellipseBoundsCenter.x, sim.ellipseBoundsCenter.y, 0f, 0f));
+			targetMaterial.SetVector("ellipseBoundsSize", new Vector4(sim.ellipseBoundsSize.x, sim.ellipseBoundsSize.y, 0f, 0f));
+			targetMaterial.SetFloat("obstacleY", sim.obstacleY);
+			targetMaterial.SetFloat("metaballGhostBoundaryNormalStrength", metaballGhostBoundaryNormalStrength);
+			targetMaterial.SetFloat("metaballGhostBoundaryCornerBlendWidth", metaballGhostBoundaryCornerBlendWidth);
+			targetMaterial.SetFloat("metaballGhostBoundaryNormalWidth", metaballGhostBoundaryNormalWidth);
 		}
 
 		float EffectiveParticleScale

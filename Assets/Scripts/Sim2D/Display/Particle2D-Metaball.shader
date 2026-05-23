@@ -176,6 +176,7 @@ Shader "Instanced/Particle2DMetaball" {
 			StructuredBuffer<int> Phases;
 			StructuredBuffer<float2> DebugData;
 			StructuredBuffer<float> Curvatures;
+			StructuredBuffer<uint> IsGhost;
 
 			float scale;
 			float metaballSharpness;
@@ -185,6 +186,13 @@ Shader "Instanced/Particle2DMetaball" {
 			float convexCurvatureBoostMax;
 			float convexCurvatureBoostStartBlurRadius;
 			float convexCurvatureBoostBlurRange;
+			float2 ellipseBoundsCenter;
+			float2 ellipseBoundsSize;
+			float obstacleY;
+			float metaballGhostBoundaryNormalStrength;
+			float metaballGhostBoundaryCornerBlendWidth;
+			float metaballGhostBoundaryNormalWidth;
+			int useEllipticalBounds;
 
 			struct v2f {
 				float4 pos : SV_POSITION;
@@ -192,6 +200,8 @@ Shader "Instanced/Particle2DMetaball" {
 				float2 normalXY : TEXCOORD1;
 				nointerpolation float phase : TEXCOORD2;
 				float curvature : TEXCOORD3;
+				float2 worldPos : TEXCOORD4;
+				nointerpolation float isGhost : TEXCOORD5;
 			};
 
 			float GetCurvatureMetaballBoost(float curvature)
@@ -201,9 +211,52 @@ Shader "Instanced/Particle2DMetaball" {
 				return 1.0 + convexT * convexCurvatureMetaballBoost * blurT;
 			}
 
+			float2 BoundaryDistances(float2 worldPos)
+			{
+				float2 radii = max(abs(ellipseBoundsSize), 0.0001);
+				float2 rel = worldPos - ellipseBoundsCenter;
+				float2 q = rel / radii;
+				float qLen = max(length(q), 0.0001);
+				float ellipseGradientLength = length(float2(q.x / radii.x, q.y / radii.y)) / qLen;
+				float ellipseDistance = (qLen - 1.0) / max(ellipseGradientLength, 0.0001);
+				float insideEllipseX = step(abs(q.x), 1.0);
+				float cutDistance = (obstacleY - worldPos.y) * insideEllipseX;
+				return float2(ellipseDistance, cutDistance);
+			}
+
+			float AnalyticBoundaryMask(float2 worldPos)
+			{
+				float2 distances = BoundaryDistances(worldPos);
+				float outsideDistance = max(distances.x, distances.y);
+				float width = max(metaballGhostBoundaryNormalWidth, 0.0001);
+				return smoothstep(-width, 0.0, outsideDistance);
+			}
+
+			float AnalyticBoundaryRoundT(float2 worldPos)
+			{
+				float2 distances = BoundaryDistances(worldPos);
+				float outsideDistance = max(distances.x, distances.y);
+				return saturate(outsideDistance / max(metaballGhostBoundaryNormalWidth, 0.0001));
+			}
+
+			float2 AnalyticBoundaryNormal(float2 worldPos)
+			{
+				float2 radii = max(abs(ellipseBoundsSize), 0.0001);
+				float2 rel = worldPos - ellipseBoundsCenter;
+				float2 q = rel / radii;
+				float2 ellipseNormal = length(q) > 0.0001
+					? normalize(float2(q.x / radii.x, q.y / radii.y))
+					: float2(0.0, 1.0);
+				float cutT = 1.0 - smoothstep(0.0, max(metaballGhostBoundaryCornerBlendWidth, 0.0001), abs(worldPos.y - obstacleY));
+				float insideEllipseX = step(abs(q.x), 1.0);
+				float2 cutNormal = float2(0.0, -1.0);
+				return normalize(lerp(ellipseNormal, cutNormal, cutT * insideEllipseX));
+			}
+
 			v2f vert(appdata_full v, uint instanceID : SV_InstanceID)
 			{
-				float3 centreWorld = float3(Positions2D[instanceID], 0);
+				float2 centre = Positions2D[instanceID];
+				float3 centreWorld = float3(centre, 0);
 				float3 worldVertPos = centreWorld + mul(unity_ObjectToWorld, v.vertex * scale);
 				float3 objectVertPos = mul(unity_WorldToObject, float4(worldVertPos.xyz, 1));
 
@@ -214,6 +267,8 @@ Shader "Instanced/Particle2DMetaball" {
 				o.normalXY = debugData / 7;
 				o.phase = Phases[instanceID];
 				o.curvature = Curvatures[instanceID];
+				o.worldPos = worldVertPos.xy;
+				o.isGhost = IsGhost[instanceID] != 0 ? 1.0 : 0.0;
 				return o;
 			}
 
@@ -225,7 +280,16 @@ Shader "Instanced/Particle2DMetaball" {
 
 				float kernel = exp(-r2 * max(metaballSharpness, 0.01)) * metaballIntensity;
 				kernel *= GetCurvatureMetaballBoost(i.curvature);
-				float2 packedNormal = saturate(i.normalXY * 0.5 + 0.5) * kernel;
+				float2 normalXY = i.normalXY;
+				if (useEllipticalBounds != 0 && abs(metaballGhostBoundaryNormalStrength) > 0.0001)
+				{
+					float2 analyticNormal = AnalyticBoundaryNormal(i.worldPos) * sign(metaballGhostBoundaryNormalStrength);
+					float boundaryMask = AnalyticBoundaryMask(i.worldPos);
+					float roundT = sin(AnalyticBoundaryRoundT(i.worldPos) * 1.57079633);
+					float analyticT = boundaryMask * saturate(abs(metaballGhostBoundaryNormalStrength));
+					normalXY = lerp(normalXY, analyticNormal * roundT, analyticT);
+				}
+				float2 packedNormal = saturate(normalXY * 0.5 + 0.5) * kernel;
 				return i.phase < 0.5 ? float4(packedNormal, 0, 0) : float4(0, 0, packedNormal);
 			}
 

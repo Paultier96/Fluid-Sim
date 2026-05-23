@@ -173,11 +173,9 @@ MonoBehaviour:
   smoothingRadius: 0.175
   pressureMultiplier: 1500
   nearPressureMultiplier: 30
-  negativePressureScale: 0
   interfaceViscosityMultiplier: 0.25
   boundsSize: {x: 46.22222, y: 26}
-  obstacleSize: {x: 14, y: 30.28}
-  obstacleCentre: {x: 0, y: -25}
+  obstacleY: -10
   edgeForce: 0
   edgeForceDst: 0.0875
   wallPressureStrength: 0
@@ -225,7 +223,7 @@ MonoBehaviour:
     targetDensity: 250
     viscosity: 0.75
     viscosityTemperatureSensitivity: 0.015
-    thermalExpansion: 0.0032
+    thermalExpansion: 0.0035
     thermalConductivity: 5
     specificHeatCapacity: 60
     nonCoalescenceRadiusMultiplier: 2
@@ -294,7 +292,7 @@ MonoBehaviour:
   coilAttractionStrength: 0
   coilVelocityDampingPhase: 0
   surfaceTensionInterfaceMode: 1
-  surfaceTension: 200
+  surfaceTension: 100
   surfaceTensionThreshold: 0.1
   blobBlobSurfaceTension: 0
   blobSelfSurfaceTension: 0
@@ -302,8 +300,8 @@ MonoBehaviour:
   maxSurfaceTensionCurvature: 10
   ambientTemperature: 10
   ghostCoolingMultiplier: 2
-  ambientCoolingRate: 0.075
-  wallCoolingRate: 4
+  ambientCoolingRate: 0.05
+  wallCoolingRate: 2
   wallCoolingDistance: 2
   heatSource: {fileID: 2055861083}
   compute: {fileID: 7200000, guid: 1c77ce8de78fddb419ed2d15cae41af0, type: 3}
@@ -398,14 +396,17 @@ MonoBehaviour:
   metaballRefractionEdgeFade: 0.0001
   metaballIridescenceIntensity: 4
   metaballIridescenceScale: 1.2
+  metaballGhostBoundaryNormalStrength: 0.122
+  metaballGhostBoundaryCornerBlendWidth: 1
+  metaballGhostBoundaryNormalWidth: 0.3
   customBloomEnabled: 1
   customBloomRenderTextureScale: 1
   customBloomThreshold: 1.75
   customBloomSoftKnee: 0.5
-  customBloomIntensity: 0.025
+  customBloomIntensity: 0.04
   customBloomResponse: 1
-  customBloomRadius: 20
-  customBloomIterations: 3
+  customBloomRadius: 0
+  customBloomIterations: 4
   debugMode: 0
   debugGradientMax: 30
   debugDensityMin: 220
