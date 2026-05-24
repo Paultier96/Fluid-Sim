@@ -352,15 +352,15 @@ MonoBehaviour:
   scale: 0.07
   gradientResolution: 64
   velocityDisplayMax: 15
-  particleLightDirection: {x: -2.5, y: 2.5, z: 2.5}
+  particleLightDirection: {x: -2.5, y: 2.5, z: 2}
   particleLightColor: {r: 1, g: 0.26729542, b: 0.66926533, a: 1}
   particleAmbientLight: 1
   particleDirectionalLightIntensity: 0
-  particleNormalStrength: 3
-  particleNormalBlurCompensation: 0.43
-  particleSpecularColor: {r: 1, g: 0.50628924, b: 0.7447482, a: 1}
-  particleSpecularIntensity: 100
-  particleSpecularPower: 2000
+  particleNormalStrength: 1.1
+  particleNormalBlurCompensation: 0.99
+  particleSpecularColor: {r: 1, g: 1, b: 1, a: 1}
+  particleSpecularIntensity: 10
+  particleSpecularPower: 500
   particleFresnelColor: {r: 0.75, g: 0.9, b: 1, a: 1}
   particleFresnelIntensity: 0.2
   particleFresnelPower: 3
@@ -383,9 +383,9 @@ MonoBehaviour:
   blurRadius: 10
   densityThreshold: 0.18
   edgeSoftness: 0.05
-  phaseBlendWidth: 0.0001
+  phaseBlendWidth: 1
   phase0RenderBias: 0.95
-  phaseBiasNormalStrength: 0.7
+  phaseBiasNormalStrength: 2.25
   metaballSharpness: 1
   metaballIntensity: 20
   convexCurvatureMetaballBoost: 0
@@ -394,23 +394,24 @@ MonoBehaviour:
   convexCurvatureBoostBlurRange: 12
   metaballRefractionStrength: 0.03
   metaballRefractionEdgeFade: 0.0001
-  metaballIridescenceIntensity: 4
-  metaballIridescenceScale: 1.2
-  metaballGhostBoundaryNormalStrength: 0.122
-  metaballGhostBoundaryCornerBlendWidth: 1
-  metaballGhostBoundaryNormalWidth: 0.3
+  metaballIridescenceIntensity: 74.65
+  metaballIridescenceScale: 2.5
+  metaballGhostBoundaryNormalStrength: 0.539
+  metaballGhostBoundaryCornerBlendWidth: 3
+  metaballGhostBoundaryNormalWidth: 0.5
   customBloomEnabled: 1
   customBloomRenderTextureScale: 1
-  customBloomThreshold: 1.75
+  customBloomThreshold: 1.2
   customBloomSoftKnee: 0.5
-  customBloomIntensity: 0.04
+  customBloomIntensity: 0.075
   customBloomResponse: 1
-  customBloomRadius: 0
+  customBloomRadius: 20
   customBloomIterations: 4
   debugMode: 0
   debugGradientMax: 30
   debugDensityMin: 220
   debugDensityMax: 400
+  debugNormalShowClipping: 1
   heatMap:
     serializedVersion: 2
     key0: {r: 0, g: 0, b: 0, a: 1}

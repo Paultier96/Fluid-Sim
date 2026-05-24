@@ -30,6 +30,7 @@ Shader "Instanced/Particle2D" {
 			float debugViscosityMax;
 			float debugDensityMin;
 			float debugDensityMax;
+			int debugNormalShowClipping;
 			int debugMode;
 
 
@@ -147,13 +148,15 @@ Shader "Instanced/Particle2D" {
 					{
 						// Reconstruct Z
 						float2 normalizedDebugData = debugData / 7;
-					    float z = sqrt(saturate(1.0 - dot(normalizedDebugData, normalizedDebugData)));
+						float normalLenSq = dot(normalizedDebugData, normalizedDebugData);
 						float3 normal = float3(normalizedDebugData, 1);
-					    float3 encodedNormal = saturate(0.5 + normal / 2.0);
+						float3 encodedNormal = saturate(0.5 + normal / 2.0);
+						float clipped = debugNormalShowClipping != 0 ? step(1.0, normalLenSq) : 0.0;
+						float3 debugColour = lerp(encodedNormal, float3(0.0, 1.0, 0.0), clipped);
 						#if defined(UNITY_COLORSPACE_GAMMA)
-							o.colour = encodedNormal;
+							o.colour = debugColour;
 						#else
-							o.colour = GammaToLinearSpace(encodedNormal);
+							o.colour = GammaToLinearSpace(debugColour);
 						#endif
 					}
 

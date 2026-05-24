@@ -127,8 +127,8 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0.0001f)] public float phaseBlendWidth = 1f;
 		[Tooltip("Render-only phase boundary bias. 0 is neutral, positive values make phase 0 visually expand, negative values make phase 1 expand.")]
 		[Range(-0.99f, 0.99f)] public float phase0RenderBias = 0f;
-		[Tooltip("How strongly phase boundary bias redistributes normal strength. The visually expanded phase is weakened while the compressed phase is strengthened.")]
-		[Range(0f, 1f)] public float phaseBiasNormalStrength = 0.5f;
+		[Tooltip("How strongly phase boundary bias redistributes normal strength. The compressed phase is boosted strongly while the visually expanded phase is weakened mildly.")]
+		[Range(0f, 10f)] public float phaseBiasNormalStrength = 0.5f;
 		[Tooltip("Steepness of each particle's density kernel (exp(-r² × sharpness)). Higher values make particles contribute a tighter, more localised density spike.")]
 		[Min(0.01f)] public float metaballSharpness = 3.5f;
 		[Tooltip("Uniform scale applied to each particle's density contribution. Increase if particles are too sparse to merge.")]
@@ -152,7 +152,7 @@ namespace Seb.Fluid2D.Rendering
 		[Tooltip("Blends analytic ellipse/cut-boundary normals into ghost particles in the metaball normal pass. Negative values flip the direction.")]
 		[Range(-1f, 1f)] public float metaballGhostBoundaryNormalStrength = 1f;
 		[Tooltip("World-space distance around the horizontal cut corners used to blend ellipse and cut normals.")]
-		[Min(0.0001f)] public float metaballGhostBoundaryCornerBlendWidth = 0.75f;
+		public float metaballGhostBoundaryCornerBlendWidth = 0.75f;
 		[Tooltip("World-space band around the analytic boundary where fake ghost normals are applied.")]
 		[Min(0.0001f)] public float metaballGhostBoundaryNormalWidth = 1f;
 
@@ -183,6 +183,8 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0f)] public float debugDensityMin = 0f;
 		[Tooltip("Upper density value used for density debug colour mapping.")]
 		[Min(0.0001f)] public float debugDensityMax = 500f;
+		[Tooltip("Marks clipped normals in the normal debug view with magenta.")]
+		public bool debugNormalShowClipping = true;
 		[Tooltip("Colour gradient used by viscosity, density, and temperature debug views.")]
 		public Gradient heatMap;
 		[FormerlySerializedAs("debugSignedHeatMapGradient")] [Tooltip("Signed colour gradient used by curvature debug views. The centre represents zero; left is negative, right is positive.")]
@@ -528,6 +530,7 @@ namespace Seb.Fluid2D.Rendering
 			targetMaterial.SetFloat("debugViscosityMax", sim.MaxDebugViscosity);
 			targetMaterial.SetFloat("debugDensityMin", DebugDensityMin);
 			targetMaterial.SetFloat("debugDensityMax", DebugDensityMax);
+			ApplyNormalClipDebugSettings(targetMaterial);
 			targetMaterial.SetInt("debugMode", (int)ParticleShaderDebugMode);
 			targetMaterial.SetVector("particleLightDirection", particleLightDirection);
 			targetMaterial.SetColor("particleLightColor", particleLightColor);
@@ -644,6 +647,12 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 		DebugVisualization ParticleShaderDebugMode => debugMode;
+
+		void ApplyNormalClipDebugSettings(Material targetMaterial)
+		{
+			targetMaterial.SetInt("debugNormalShowClipping", debugNormalShowClipping ? 1 : 0);
+		}
+
 		public int ComputeVectorFieldMode
 		{
 			get
@@ -771,6 +780,7 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetFloat("customBloomSampleScale", Mathf.Max(0.5f, effectiveBloomSampleScale));
 			float effectiveNormalStrength = GetEffectiveNormalStrength(effectiveConfiguredBlurRadius);
 			compositeMaterial.SetInt("debugMode", (int)ParticleShaderDebugMode);
+			ApplyNormalClipDebugSettings(compositeMaterial);
 			compositeMaterial.SetFloat("ditherStrength", ditherStrength);
 			compositeMaterial.SetVector("particleLightDirection", particleLightDirection);
 			compositeMaterial.SetColor("particleLightColor", particleLightColor);

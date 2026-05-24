@@ -40,6 +40,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 		float metaballIridescenceIntensity;
 		float metaballIridescenceScale;
 		int debugMode;
+		int debugNormalShowClipping;
 		float ditherStrength;
 		float customBloomThreshold;
 		float customBloomSoftKnee;
@@ -90,9 +91,14 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			return saturate(t + (noise - 0.5) * ditherStrength);
 		}
 
+		float2 ApplyNormalStrength(float2 normalXY, float normalStrengthMultiplier)
+		{
+			return normalXY * particleNormalStrength * max(normalStrengthMultiplier, 0.0);
+		}
+
 		float3 NormalFromXY(float2 normalXY, float normalStrengthMultiplier)
 		{
-			normalXY *= particleNormalStrength * max(normalStrengthMultiplier, 0.0);
+			normalXY = ApplyNormalStrength(normalXY, normalStrengthMultiplier);
 			float lenSq = dot(normalXY, normalXY);
 			if (lenSq > 0.999)
 			{
@@ -105,8 +111,18 @@ Shader "Hidden/Particle2DMetaballComposite" {
 
 		float GetPhaseNormalStrength(bool usePhase1)
 		{
-			float signedBias = clamp(phase0RenderBias, -1.0, 1.0) * phaseBiasNormalStrength;
-			return usePhase1 ? 1.0 + signedBias : 1.0 - signedBias;
+			float bias = clamp(phase0RenderBias, -1.0, 1.0);
+			float biasAmount = abs(bias) * max(phaseBiasNormalStrength, 0.0);
+			if (biasAmount <= 0.0001)
+			{
+				return 1.0;
+			}
+
+			bool phase0Expanded = bias > 0.0;
+			bool phaseExpanded = usePhase1 ? !phase0Expanded : phase0Expanded;
+			float compressedStrength = 1.0 + biasAmount;
+			float expandedStrength = rcp(1.0 + biasAmount * 0.25);
+			return phaseExpanded ? expandedStrength : compressedStrength;
 		}
 
 		float BlobColourWeight(float3 blobColourSum)
@@ -119,14 +135,24 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			return debugMode == 6 ? BlobColourWeight(combined.rgb) : combined.g;
 		}
 
-		float3 GetPhaseNormal(float4 normalPacked, float density0, float density1, bool usePhase1)
+		float2 GetPhaseNormalXY(float4 normalPacked, float density0, float density1, bool usePhase1)
 		{
 			float phaseDensity = usePhase1 ? density1 : density0;
 			float2 encodedNormalXY = usePhase1
 				? normalPacked.ba / max(density1, 0.0001)
 				: normalPacked.rg / max(density0, 0.0001);
-			float2 normalXY = phaseDensity > 0.0001 ? encodedNormalXY * 2.0 - 1.0 : 0.0;
-			return NormalFromXY(normalXY, GetPhaseNormalStrength(usePhase1));
+			return phaseDensity > 0.0001 ? encodedNormalXY * 2.0 - 1.0 : 0.0;
+		}
+
+		float3 GetPhaseNormal(float4 normalPacked, float density0, float density1, bool usePhase1)
+		{
+			return NormalFromXY(GetPhaseNormalXY(normalPacked, density0, density1, usePhase1), GetPhaseNormalStrength(usePhase1));
+		}
+
+		float PhaseNormalClipAmount(float4 normalPacked, float density0, float density1, bool usePhase1)
+		{
+			float2 normalXY = ApplyNormalStrength(GetPhaseNormalXY(normalPacked, density0, density1, usePhase1), GetPhaseNormalStrength(usePhase1));
+			return debugNormalShowClipping != 0 ? step(1.0, dot(normalXY, normalXY)) : 0.0;
 		}
 
 		float3 GetBlendedPhaseNormal(float4 normalPacked, float density0, float density1, float phaseT)
@@ -151,6 +177,13 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			return lerp(colour0, colour1, phaseT);
 		}
 
+		float3 SamplePhaseGradientColour(float data, bool usePhase1, float noise)
+		{
+			return usePhase1
+				? tex2D(ColourMap2, float2(Dither01(data, noise), 0.5)).rgb
+				: tex2D(ColourMap,  float2(Dither01(data, noise), 0.5)).rgb;
+		}
+
 		float3 IridescenceRamp(float phase)
 		{
 			float3 offsets = float3(0.0, 0.33, 0.67);
@@ -172,10 +205,8 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			return lerp(colour, colour * (0.65 + rainbow * 0.7), amount);
 		}
 
-		float3 ApplyParticleLighting(float3 colour, float2 uv, float density0, float density1, float phaseT)
+		float3 ApplyParticleLighting(float3 colour, float3 normal, float density, float subsurfacePhaseMask)
 		{
-			float4 normalPacked = tex2D(NormalTex, uv);
-			float3 normal = GetBlendedPhaseNormal(normalPacked, density0, density1, phaseT);
 			float lightDirLength = max(length(particleLightDirection), 0.0001);
 			float3 lightDir = particleLightDirection / lightDirLength;
 			float directionalLight = saturate(dot(normal, lightDir)) * particleDirectionalLightIntensity;
@@ -189,10 +220,8 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			float directionalGlow = pow(saturate(dot(normal.xy, glowDir)), max(particleGlowPower, 0.1)) * saturate(1.0 - normal.z) * particleGlowIntensity;
 			float transmission = pow(saturate(dot(-normal, float3(lightDir.xy,0))), max(particleTransmissionPower, 0.1)) * particleTransmissionIntensity;
 			float edgeT = pow(saturate(1.0 - normal.z), max(particleEdgeDarkeningPower, 0.1)) * particleEdgeDarkening;
-			float density = max(density0, density1);
 			float thickness = saturate((density - densityThreshold) / max(particleSubsurfaceThickness, 0.0001));
 			float thinRegion = 1.0 - thickness;
-			float subsurfacePhaseMask = 1.0 - phaseT;
 			float subsurfaceBacklight = pow(saturate(dot(-normal, float3(lightDir.xy, 0.0))), max(particleSubsurfacePower, 0.1));
 			float subsurfaceThicknessMask = lerp(thickness, thinRegion, particleSubsurfaceEdgeBoost);
 			float subsurface = subsurfacePhaseMask * subsurfaceBacklight * subsurfaceThicknessMask * particleSubsurfaceIntensity;
@@ -246,10 +275,15 @@ Shader "Hidden/Particle2DMetaballComposite" {
 					float4 normalPacked = tex2D(NormalTex, i.uv);
 					float3 normal = GetBlendedPhaseNormal(normalPacked, density0, density1, phaseT);
 					float3 encodedNormal = saturate(0.5 + normal / 2.0);
+					float clipped = lerp(
+						PhaseNormalClipAmount(normalPacked, density0, density1, false),
+						PhaseNormalClipAmount(normalPacked, density0, density1, true),
+						step(0.5, phaseT));
+					float3 debugColour = lerp(encodedNormal, float3(0.0, 1.0, 0.0), clipped);
 					#if defined(UNITY_COLORSPACE_GAMMA)
-						litColour = encodedNormal;
+						litColour = debugColour;
 					#else
-						litColour = GammaToLinearSpace(encodedNormal);
+						litColour = GammaToLinearSpace(debugColour);
 					#endif
 					return true;
 				}
@@ -296,9 +330,16 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			float4 refractedCombined = tex2D(CombinedTex, refractedUv);
 			float refractedData0 = refractedCombined.g > 0.0001 ? refractedCombined.r / refractedCombined.g : data0;
 			float refractedData1 = refractedCombined.a > 0.0001 ? refractedCombined.b / refractedCombined.a : data1;
-			float3 refractedColour = SampleGradientColour(refractedUv, refractedData0, refractedData1, phaseT, noise);
-			litColour = ApplyParticleLighting(refractedColour, i.uv, density0, density1, phaseT);
-			litColour = ApplyIridescence(litColour, normal);
+			float3 normal0 = GetPhaseNormal(normalPacked, density0, density1, false);
+			float3 normal1 = GetPhaseNormal(normalPacked, density0, density1, true);
+			float3 colour0 = SamplePhaseGradientColour(refractedData0, false, noise);
+			float3 colour1 = SamplePhaseGradientColour(refractedData1, true, noise);
+			float maxDensity = max(density0, density1);
+			float3 lit0 = ApplyParticleLighting(colour0, normal0, maxDensity, 1.0);
+			float3 lit1 = ApplyParticleLighting(colour1, normal1, maxDensity, 0.0);
+			lit0 = ApplyIridescence(lit0, normal0);
+			lit1 = ApplyIridescence(lit1, normal1);
+			litColour = lerp(lit0, lit1, phaseT);
 			return true;
 		}
 
