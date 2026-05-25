@@ -40,7 +40,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 		float metaballIridescenceIntensity;
 		float metaballIridescenceScale;
 		int debugMode;
-		int debugNormalShowClipping;
+		int debugShowClipping;
 		float ditherStrength;
 		float customBloomThreshold;
 		float customBloomSoftKnee;
@@ -89,6 +89,26 @@ Shader "Hidden/Particle2DMetaballComposite" {
 		float Dither01(float t, float noise)
 		{
 			return saturate(t + (noise - 0.5) * ditherStrength);
+		}
+
+		float3 HeatMapClipColour(float t)
+		{
+			float3 clipColour = t < 0.0 ? float3(0.0, 1.0, 1.0) : float3(1.0, 0.0, 1.0);
+			#if defined(UNITY_COLORSPACE_GAMMA)
+				return clipColour;
+			#else
+				return GammaToLinearSpace(clipColour);
+			#endif
+		}
+
+		float3 SampleDebugHeatMap(sampler2D gradientTex, float rawT, float sampleT)
+		{
+			float3 colour = tex2D(gradientTex, float2(saturate(sampleT), 0.5)).rgb;
+			if (debugShowClipping != 0 && (rawT < 0.0 || rawT > 1.0))
+			{
+				return HeatMapClipColour(rawT);
+			}
+			return colour;
 		}
 
 		float2 ApplyNormalStrength(float2 normalXY, float normalStrengthMultiplier)
@@ -152,7 +172,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 		float PhaseNormalClipAmount(float4 normalPacked, float density0, float density1, bool usePhase1)
 		{
 			float2 normalXY = ApplyNormalStrength(GetPhaseNormalXY(normalPacked, density0, density1, usePhase1), GetPhaseNormalStrength(usePhase1));
-			return debugNormalShowClipping != 0 ? step(1.0, dot(normalXY, normalXY)) : 0.0;
+			return debugShowClipping != 0 ? step(1.0, dot(normalXY, normalXY)) : 0.0;
 		}
 
 		float3 GetBlendedPhaseNormal(float4 normalPacked, float density0, float density1, float phaseT)
@@ -291,28 +311,32 @@ Shader "Hidden/Particle2DMetaballComposite" {
 				if (debugMode == 2)
 				{
 					float curvature = data0;
-					litColour = tex2D(DebugSignedHeatMap, float2(saturate(0.5 + curvature * 0.5), 0.5)).rgb;
+					float heatT = 0.5 + curvature * 0.5;
+					litColour = SampleDebugHeatMap(DebugSignedHeatMap, heatT, heatT);
 					return true;
 				}
 
 				if (debugMode == 3)
 				{
-					float viscosity = Dither01(lerp(data0, data1, phaseT), noise);
-					litColour = tex2D(DebugHeatMap, float2(viscosity, 0.5)).rgb;
+					float viscosityRaw = lerp(data0, data1, phaseT);
+					float viscosity = Dither01(viscosityRaw, noise);
+					litColour = SampleDebugHeatMap(DebugHeatMap, viscosityRaw, viscosity);
 					return true;
 				}
 
 				if (debugMode == 4)
 				{
-					float densityVal = Dither01(lerp(data0, data1, phaseT), noise);
-					litColour = tex2D(DebugHeatMap, float2(densityVal, 0.5)).rgb;
+					float densityRaw = lerp(data0, data1, phaseT);
+					float densityVal = Dither01(densityRaw, noise);
+					litColour = SampleDebugHeatMap(DebugHeatMap, densityRaw, densityVal);
 					return true;
 				}
 
 				if (debugMode == 5)
 				{
-					float tempVal = Dither01(lerp(data0, data1, phaseT), noise);
-					litColour = tex2D(DebugHeatMap, float2(tempVal, 0.5)).rgb;
+					float tempRaw = lerp(data0, data1, phaseT);
+					float tempVal = Dither01(tempRaw, noise);
+					litColour = SampleDebugHeatMap(DebugHeatMap, tempRaw, tempVal);
 					return true;
 				}
 

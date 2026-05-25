@@ -2,8 +2,7 @@ Shader "Custom/JumpFloodDisplay"
 {
     Properties
     {
-        _SeedTex ("Seed Texture", 2D) = "white" {}
-        _EdgeWidth ("Edge Width", Float) = 0.003
+        _PayloadTex ("Payload Texture", 2D) = "black" {}
     }
     SubShader
     {
@@ -19,13 +18,14 @@ Shader "Custom/JumpFloodDisplay"
             #pragma fragment frag
             #include "UnityCG.cginc"
 
-            Texture2D _SeedTex;
-            SamplerState sampler_SeedTex;
-            sampler2D ColourMap;
-            sampler2D ColourMap2;
-            float _EdgeWidth;
-            float tempMin;
-            float tempMax;
+            Texture2D _PayloadTex;
+            SamplerState sampler_PayloadTex;
+            float4x4 _InverseViewProjection;
+            float2 ellipseBoundsCenter;
+            float2 ellipseBoundsSize;
+            float2 boundsSize;
+            float obstacleY;
+            int useEllipticalBounds;
 
             struct appdata
             {
@@ -47,21 +47,50 @@ Shader "Custom/JumpFloodDisplay"
                 return o;
             }
 
+            float2 WorldFromUV(float2 uv)
+            {
+                float4 clip = float4(uv * 2.0 - 1.0, 0.0, 1.0);
+                float4 world = mul(_InverseViewProjection, clip);
+                return world.xy / max(world.w, 0.0001);
+            }
+
+            float EllipseCutSignedDistance(float2 worldPos)
+            {
+                float2 radii = max(abs(ellipseBoundsSize), 0.0001);
+                float2 rel = worldPos - ellipseBoundsCenter;
+                float2 q = rel / radii;
+                float qLen = max(length(q), 0.0001);
+                float ellipseGradientLength = length(float2(q.x / radii.x, q.y / radii.y)) / qLen;
+                float ellipseDistance = (1.0 - qLen) / max(ellipseGradientLength, 0.0001);
+                float cutDistance = worldPos.y - obstacleY;
+                return min(ellipseDistance, cutDistance);
+            }
+
+            float RectSignedDistance(float2 worldPos)
+            {
+                float2 halfSize = max(abs(boundsSize) * 0.5, 0.0001);
+                float2 distanceToEdge = halfSize - abs(worldPos);
+                return min(distanceToEdge.x, distanceToEdge.y);
+            }
+
+            float BoundsMask(float2 worldPos)
+            {
+                float signedDistance = useEllipticalBounds != 0
+                    ? EllipseCutSignedDistance(worldPos)
+                    : RectSignedDistance(worldPos);
+                float aa = max(fwidth(signedDistance), 0.0001);
+                return smoothstep(0.0, aa, signedDistance);
+            }
+
             float4 frag(v2f i) : SV_Target
             {
                 float2 seedUV = i.uv;
-                #ifdef UNITY_UV_STARTS_AT_TOP
-                    seedUV.y = 1.0 - seedUV.y;
-                #endif
-                float4 seed = _SeedTex.Sample(sampler_SeedTex, seedUV);
-                if (seed.w < 0.0)
+                float4 payload = _PayloadTex.Sample(sampler_PayloadTex, seedUV);
+                if (payload.a < 0.0)
                     return float4(0,0,0,1);
 
-                float t = seed.z; // normalized temperature
-                int phase = (int)round(seed.w);
-
-                float3 color = (phase == 0) ? tex2D(ColourMap, float2(t,0.5)).rgb : tex2D(ColourMap2, float2(t,0.5)).rgb;
-                return float4(color, 1);
+                float mask = BoundsMask(WorldFromUV(i.uv));
+                return float4(payload.rgb * mask, 1);
             }
             ENDCG
         }

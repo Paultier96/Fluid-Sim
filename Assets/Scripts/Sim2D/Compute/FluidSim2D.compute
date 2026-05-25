@@ -116,6 +116,7 @@ int NumPhases;
 int debugVisualizationMode;
 int debugVectorFieldMode;
 const float ambientTemperature;
+const float crossPhaseThermalDiffusion;
 StructuredBuffer<float> PhaseThermalConductivity;
 StructuredBuffer<float> PhaseSpecificHeatCapacity;
 const float heatCoolingRate;
@@ -1147,7 +1148,7 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
 
             // Only diffuse within same phase - cross-phase heat transfer is slower
             uint neighbourPhase = Phases[neighbourIndex];
-            float phaseWeight = (myPhase == neighbourPhase) ? 1.0 : 0.999;
+            float phaseWeight = (myPhase == neighbourPhase) ? 1.0 : crossPhaseThermalDiffusion;
             
             // Boost cooling to ghost particles at boundaries
             float ghostMultiplier = (IsGhost[neighbourIndex] != 0) ? ghostCoolingMultiplier : 1.0;

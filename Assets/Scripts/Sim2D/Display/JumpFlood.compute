@@ -8,8 +8,11 @@
 
 // Buffers from simulation
 StructuredBuffer<float2> Positions2D;
+StructuredBuffer<float2> DensityData;
 StructuredBuffer<float> Temperatures;
+StructuredBuffer<float2> DebugData;
 StructuredBuffer<int> Phases;
+StructuredBuffer<uint> BlobIDs;
 int _ParticleCount;
 
 // Simulation bounds -> map world pos to [0,1]
@@ -20,6 +23,13 @@ matrix _VP;
 // Temperature mapping
 float _TempMin;
 float _TempMax;
+float debugGradientMax;
+float debugCurvatureMax;
+float debugViscosityMax;
+float debugDensityMin;
+float debugDensityMax;
+int debugShowClipping;
+int debugMode;
 
 // Texture dimensions
 int _Width;
@@ -30,8 +40,15 @@ int _Step;
 
 // Textures
 RWTexture2D<float4> Result;       // used by Clear and Seed (write)
+RWTexture2D<float4> ResultPayload;
 Texture2D<float4> _SrcTex;        // read-only source for JumpFlood
+Texture2D<float4> _SrcPayloadTex;
 RWTexture2D<float4> _DstTex;      // write destination for JumpFlood
+RWTexture2D<float4> _DstPayloadTex;
+Texture2D<float4> ColourMap;
+Texture2D<float4> ColourMap2;
+Texture2D<float4> DebugHeatMap;
+Texture2D<float4> DebugSignedHeatMap;
 
 [numthreads(16,16,1)]
 void Clear(uint3 id : SV_DispatchThreadID)
@@ -40,6 +57,101 @@ void Clear(uint3 id : SV_DispatchThreadID)
     if (pix.x >= _Width || pix.y >= _Height) return;
     // sentinel: w < 0 means no site
     Result[pix] = float4(-1.0, -1.0, 0.0, -1.0);
+    ResultPayload[pix] = float4(0.0, 0.0, 0.0, -1.0);
+}
+
+float3 SampleGradient(Texture2D<float4> gradientTex, float t)
+{
+    uint width;
+    uint height;
+    gradientTex.GetDimensions(width, height);
+    int x = (int)round(saturate(t) * max((int)width - 1, 0));
+    return gradientTex.Load(int3(x, 0, 0)).rgb;
+}
+
+float3 ApplyHeatMapClipMarker(float t, float3 colour)
+{
+    if (debugShowClipping == 0)
+    {
+        return colour;
+    }
+
+    if (t < 0.0)
+    {
+        return float3(0.0, 1.0, 1.0);
+    }
+    if (t > 1.0)
+    {
+        return float3(1.0, 0.0, 1.0);
+    }
+    return colour;
+}
+
+float3 HashBlobColor(uint blobId)
+{
+    if (blobId == 0xFFFFFFFFu)
+    {
+        return float3(0, 0, 0);
+    }
+
+    uint hueSlot = blobId * 7u;
+    uint tier = blobId / 12u;
+    float hue = frac((hueSlot % 12u) / 12.0 + (tier + 1u) * 0.0527864045);
+    float saturation = 0.86 + 0.10 * frac(tier * 0.318309886);
+    float value = 0.82 + 0.18 * frac(tier * 0.754877666 + 0.31);
+    float3 rgb = saturate(abs(frac(hue + float3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0);
+    return value * lerp(float3(1.0, 1.0, 1.0), rgb, saturation);
+}
+
+float3 ResolveSeedColor(int i, float tempNorm, float phase)
+{
+    if (debugMode == 0)
+    {
+        return phase == 0.0 ? SampleGradient(ColourMap, saturate(tempNorm)) : SampleGradient(ColourMap2, saturate(tempNorm));
+    }
+
+    float2 debugData = DebugData[i];
+    if (debugMode == 1)
+    {
+        float2 normalizedDebugData = debugData / 7.0;
+        float normalLenSq = dot(normalizedDebugData, normalizedDebugData);
+        float3 normal = float3(normalizedDebugData, 1.0);
+        float3 encodedNormal = saturate(0.5 + normal / 2.0);
+        float clipped = debugShowClipping != 0 ? step(1.0, normalLenSq) : 0.0;
+        return lerp(encodedNormal, float3(0.0, 1.0, 0.0), clipped);
+    }
+
+    if (debugMode == 2)
+    {
+        float t = debugData.x / max(debugCurvatureMax, 0.0001);
+        float heatT = 0.5 + t * 0.5;
+        return ApplyHeatMapClipMarker(heatT, SampleGradient(DebugSignedHeatMap, saturate(heatT)));
+    }
+
+    if (debugMode == 3)
+    {
+        float t = debugData.x / max(debugViscosityMax, 0.0001);
+        return ApplyHeatMapClipMarker(t, SampleGradient(DebugHeatMap, saturate(t)));
+    }
+
+    if (debugMode == 4)
+    {
+        float density = DensityData[i].x;
+        float t = (density - debugDensityMin) / max(debugDensityMax - debugDensityMin, 0.0001);
+        return ApplyHeatMapClipMarker(t, SampleGradient(DebugHeatMap, saturate(t)));
+    }
+
+    if (debugMode == 5)
+    {
+        return ApplyHeatMapClipMarker(tempNorm, SampleGradient(DebugHeatMap, saturate(tempNorm)));
+    }
+
+    if (debugMode == 6)
+    {
+        return HashBlobColor(BlobIDs[i]);
+    }
+
+    return float3(0.0, 0.0, 0.0);
 }
 
 // Seed: one thread per particle. writes seed data into the pixel corresponding to the particle's position.
@@ -60,12 +172,13 @@ void Seed(uint3 id : SV_DispatchThreadID)
     int2 coord = int2(uv.x * (_Width - 1), uv.y * (_Height - 1));
 
     float tnorm = 0.0;
-    if (_TempMax > _TempMin) tnorm = saturate((Temperatures[i] - _TempMin) / (_TempMax - _TempMin));
+    if (_TempMax > _TempMin) tnorm = (Temperatures[i] - _TempMin) / (_TempMax - _TempMin);
 
     float phase = (float)Phases[i];
 
     // store: xy = seed position in pixel space, z = tempNorm, w = phase
     Result[coord] = float4((float)coord.x, (float)coord.y, tnorm, phase);
+    ResultPayload[coord] = float4(ResolveSeedColor(i, tnorm, phase), 1.0);
 }
 
 [numthreads(16,16,1)]
@@ -78,6 +191,7 @@ void JumpFlood(uint3 id : SV_DispatchThreadID)
 
     // read current seed data at this pixel
     float4 best = _SrcTex.Load(int3(pix, 0));
+    float4 bestPayload = _SrcPayloadTex.Load(int3(pix, 0));
     float bestDist = 1e20;
     if (best.w >= 0.0)
     {
@@ -100,9 +214,11 @@ void JumpFlood(uint3 id : SV_DispatchThreadID)
             {
                 bestDist = d2;
                 best = cand;
+                bestPayload = _SrcPayloadTex.Load(int3(n, 0));
             }
         }
     }
 
     _DstTex[pix] = best;
+    _DstPayloadTex[pix] = bestPayload;
 }

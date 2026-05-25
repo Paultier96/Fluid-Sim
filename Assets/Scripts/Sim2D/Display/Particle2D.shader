@@ -30,7 +30,7 @@ Shader "Instanced/Particle2D" {
 			float debugViscosityMax;
 			float debugDensityMin;
 			float debugDensityMax;
-			int debugNormalShowClipping;
+			int debugShowClipping;
 			int debugMode;
 
 
@@ -48,24 +48,6 @@ Shader "Instanced/Particle2D" {
 			float4 phase1Color;
 			float tempMin;
 			float tempMax;
-			float3 particleLightDirection;
-			float4 particleLightColor;
-			float particleAmbientLight;
-			float particleDirectionalLightIntensity;
-			float4 particleSpecularColor;
-			float particleSpecularIntensity;
-			float particleSpecularPower;
-			float4 particleFresnelColor;
-			float particleFresnelIntensity;
-			float particleFresnelPower;
-			float2 particleGlowDirection;
-			float4 particleGlowColor;
-			float particleGlowIntensity;
-			float particleGlowPower;
-			float particleTransmissionIntensity;
-			float particleTransmissionPower;
-			float particleEdgeDarkening;
-			float particleEdgeDarkeningPower;
 
 			struct v2f
 			{
@@ -88,6 +70,22 @@ Shader "Instanced/Particle2D" {
 				float value = 0.82 + 0.18 * frac(tier * 0.754877666 + 0.31);
 				float3 rgb = saturate(abs(frac(hue + float3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0);
 				return value * lerp(float3(1.0, 1.0, 1.0), rgb, saturation);
+			}
+
+			float3 ApplyHeatMapClipMarker(float t, float3 colour)
+			{
+				if (debugShowClipping == 0)
+				{
+					return colour;
+				}
+
+				float3 clipColour = t < 0.0 ? float3(0.0, 1.0, 1.0) : float3(1.0, 0.0, 1.0);
+				float clipped = (t < 0.0 || t > 1.0) ? 1.0 : 0.0;
+				#if defined(UNITY_COLORSPACE_GAMMA)
+					return lerp(colour, clipColour, clipped);
+				#else
+					return lerp(colour, GammaToLinearSpace(clipColour), clipped);
+				#endif
 			}
 
 			v2f vert (appdata_full v, uint instanceID : SV_InstanceID)
@@ -115,30 +113,7 @@ Shader "Instanced/Particle2D" {
 						o.colour= ColourMap2.SampleLevel(linear_clamp_sampler, float2(tempT, 0.5), 0);
 					}
 
-					float2 normalizedDebugData = DebugData[instanceID] / 7;
-					float z = sqrt(saturate(1.0 - dot(normalizedDebugData, normalizedDebugData)));
-					float3 normal = float3(normalizedDebugData, z);
-					float lightDirLength = max(length(particleLightDirection), 0.0001);
-					float3 lightDir = particleLightDirection / lightDirLength;
-					float directionalLight = saturate(dot(normal, lightDir)) * particleDirectionalLightIntensity;
-					float3 lighting = particleAmbientLight + particleLightColor.rgb * directionalLight;
-					float3 viewDir = float3(0.0, 0.0, 1.0);
-					float3 halfVector = lightDir + viewDir;
-					float3 halfDir = halfVector / max(length(halfVector), 0.0001);
-					float specular = pow(saturate(dot(normal, halfDir)), max(particleSpecularPower, 1.0)) * particleSpecularIntensity;
-					float fresnel = pow(saturate(1.0 - dot(normal, viewDir)), max(particleFresnelPower, 0.1)) * particleFresnelIntensity;
-					float2 glowDir = particleGlowDirection / max(length(particleGlowDirection), 0.0001);
-					float directionalGlow = pow(saturate(dot(normal.xy, glowDir)), max(particleGlowPower, 0.1)) * saturate(1.0 - normal.z) * particleGlowIntensity;
-					float transmission = pow(saturate(dot(-normal, lightDir)), max(particleTransmissionPower, 0.1)) * particleTransmissionIntensity;
-					float edgeT = pow(saturate(1.0 - normal.z), max(particleEdgeDarkeningPower, 0.1)) * particleEdgeDarkening;
-					o.colour *= 1.0 - edgeT;
-					o.colour = saturate(
-						o.colour * lighting
-						+ particleSpecularColor.rgb * specular
-						+ particleFresnelColor.rgb * fresnel
-						+ particleGlowColor.rgb * directionalGlow
-						+ o.colour * transmission
-					);
+					o.colour = saturate(o.colour);
 				}
 				else
 				{
@@ -151,7 +126,7 @@ Shader "Instanced/Particle2D" {
 						float normalLenSq = dot(normalizedDebugData, normalizedDebugData);
 						float3 normal = float3(normalizedDebugData, 1);
 						float3 encodedNormal = saturate(0.5 + normal / 2.0);
-						float clipped = debugNormalShowClipping != 0 ? step(1.0, normalLenSq) : 0.0;
+						float clipped = debugShowClipping != 0 ? step(1.0, normalLenSq) : 0.0;
 						float3 debugColour = lerp(encodedNormal, float3(0.0, 1.0, 0.0), clipped);
 						#if defined(UNITY_COLORSPACE_GAMMA)
 							o.colour = debugColour;
@@ -163,26 +138,27 @@ Shader "Instanced/Particle2D" {
 					else if (debugMode == 2) // curvature
 					{
 						float t = debugData.x / max(debugCurvatureMax, 0.0001);
-						o.colour = DebugSignedHeatMap.SampleLevel(linear_clamp_sampler, float2(saturate(0.5 + t * 0.5), 0.5), 0).rgb;
+						float heatT = 0.5 + t * 0.5;
+						o.colour = ApplyHeatMapClipMarker(heatT, DebugSignedHeatMap.SampleLevel(linear_clamp_sampler, float2(saturate(heatT), 0.5), 0).rgb);
 					}
 
 					else if (debugMode == 3) // viscosity
 					{
-						float t = saturate(debugData.x / max(debugViscosityMax, 0.0001));
-						o.colour = DebugHeatMap.SampleLevel(linear_clamp_sampler, float2(t, 0.5), 0).rgb;
+						float t = debugData.x / max(debugViscosityMax, 0.0001);
+						o.colour = ApplyHeatMapClipMarker(t, DebugHeatMap.SampleLevel(linear_clamp_sampler, float2(saturate(t), 0.5), 0).rgb);
 					}
 
 					if (debugMode == 4) //density
 					{
 						float density = DensityData[instanceID].x;
-						float t = saturate((density - debugDensityMin) / max(debugDensityMax - debugDensityMin, 0.0001));
-						o.colour = DebugHeatMap.SampleLevel(linear_clamp_sampler, float2(t, 0.5), 0).rgb;
+						float t = (density - debugDensityMin) / max(debugDensityMax - debugDensityMin, 0.0001);
+						o.colour = ApplyHeatMapClipMarker(t, DebugHeatMap.SampleLevel(linear_clamp_sampler, float2(saturate(t), 0.5), 0).rgb);
 					}
 
 					else if (debugMode == 5) //temperature
 					{
-						float t = saturate((Temperatures[instanceID] - tempMin) / max(tempMax - tempMin, 0.001));
-						o.colour = DebugHeatMap.SampleLevel(linear_clamp_sampler, float2(t, 0.5), 0).rgb;
+						float t = (Temperatures[instanceID] - tempMin) / max(tempMax - tempMin, 0.001);
+						o.colour = ApplyHeatMapClipMarker(t, DebugHeatMap.SampleLevel(linear_clamp_sampler, float2(saturate(t), 0.5), 0).rgb);
 					}
 
 					else if (debugMode == 6) // blob ids

@@ -82,7 +82,7 @@ Shader "Instanced/Particle2DMetaball" {
 				float3 objectVertPos = mul(unity_WorldToObject, float4(worldVertPos.xyz, 1));
 
 				float temp = Temperatures[instanceID];
-				float tempT = saturate((temp - tempMin) / max(tempMax - tempMin, 0.001));
+				float tempT = (temp - tempMin) / max(tempMax - tempMin, 0.001);
 				float2 csfData = DebugData[instanceID];
 				float density = DensityData[instanceID].x;
 
@@ -119,7 +119,7 @@ Shader "Instanced/Particle2DMetaball" {
 				// Debug mode 4: density visualization
 				if (debugMode == 4)
 				{
-					float densityT = saturate((i.density - debugDensityMin) / max(debugDensityMax - debugDensityMin, 0.0001));
+					float densityT = (i.density - debugDensityMin) / max(debugDensityMax - debugDensityMin, 0.0001);
 					float2 packed = float2(densityT * kernel, kernel);
 					return i.phase < 0.5 ? float4(packed, 0, 0) : float4(0, 0, packed);
 				}

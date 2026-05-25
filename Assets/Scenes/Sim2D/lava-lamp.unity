@@ -283,7 +283,7 @@ MonoBehaviour:
   carrierWedgeInterfaceThreshold: 0.001
   carrierWedgeCoilStrengthMultiplier: 0
   carrierWedgeMaxAcceleration: 0
-  carrierWedgeMaxDirectionDot: 0.5
+  carrierWedgeMaxDirectionDot: -0.5
   blobIdUpdateInterval: 3000
   blobPropagationIterations: 200
   restrictBlobMergingToCoil: 0
@@ -299,6 +299,7 @@ MonoBehaviour:
   blobSelfSurfaceTensionPhase: 0
   maxSurfaceTensionCurvature: 10
   ambientTemperature: 10
+  crossPhaseThermalDiffusion: 0
   ghostCoolingMultiplier: 2
   ambientCoolingRate: 0.05
   wallCoolingRate: 2
@@ -318,7 +319,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 895837b52d5fc53409ded3589d4da696, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  spawnDensity: 400
+  spawnMode: 1
+  spawnDensity: 230
   initialVelocity: {x: 0, y: 0}
   jitterStr: 0.03
   spawnRegions:
@@ -330,8 +332,18 @@ MonoBehaviour:
     size: {x: 9, y: 13}
     debugCol: {r: 1, g: 0.2783019, b: 0.2783019, a: 1}
     phaseID: 1
-  showSpawnBoundsGizmos: 1
-  spawnParticleCount: 73060
+  lowerPhaseAreaRatio: 0.333
+  lowerPhase: 0
+  upperPhase: 1
+  useHydrostaticSpawnDensity: 1
+  hydrostaticSpawnGradientStrength: 1
+  maxHydrostaticSpawnDensityMultiplier: 2
+  sim: {fileID: 271053319}
+  spawnParticleCount: 74589
+  lowerPhaseParticleCount: 27814
+  upperPhaseParticleCount: 46775
+  filledBoundsArea: 279.95572
+  filledBoundsDensity: 266.43143
 --- !u!114 &271053322
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -344,6 +356,66 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b090cee05a6cd0e4291a0e02381231c1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  jumpFlood:
+    computeShader: {fileID: 7200000, guid: 7349de8b8fa110249b104a7dac6f38c0, type: 3}
+    displayShader: {fileID: 4800000, guid: a3cfade596b52974f8bac4577967ca73, type: 3}
+  metaballs:
+    compositeShader: {fileID: 4800000, guid: db6a0932797cd49b1a42ac6d2c30ac61, type: 3}
+    blurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
+    renderTextureScale: 1
+    blurRadius: 10
+    densityThreshold: 0.18
+    edgeSoftness: 0.05
+    phaseBlendWidth: 1
+    phase0RenderBias: 0.95
+    phaseBiasNormalStrength: 2.25
+    sharpness: 1
+    intensity: 20
+    ditherStrength: 0.003921569
+    lightDirection: {x: -2.5, y: 2.5, z: 2}
+    lightColor: {r: 1, g: 0.26729542, b: 0.66926533, a: 1}
+    ambientLight: 1
+    directionalLightIntensity: 0
+    normalStrength: 1.1
+    normalBlurCompensation: 0.99
+    specularColor: {r: 1, g: 1, b: 1, a: 1}
+    specularIntensity: 10
+    specularPower: 500
+    fresnelColor: {r: 0.75, g: 0.9, b: 1, a: 1}
+    fresnelIntensity: 0.2
+    fresnelPower: 3
+    glowDirection: {x: -0.75, y: -0.93}
+    glowColor: {r: 1, g: 1, b: 1, a: 1}
+    glowIntensity: 1
+    glowPower: 10
+    transmissionIntensity: 50
+    transmissionPower: 4.5
+    edgeDarkening: 1
+    edgeDarkeningPower: 0.5
+    subsurfaceColor: {r: 0.039546248, g: 0, b: 0.11953845, a: 1}
+    subsurfaceIntensity: 20
+    subsurfacePower: 2
+    subsurfaceThickness: 0.25
+    subsurfaceEdgeBoost: 0.6
+    convexCurvatureBoost: 0
+    convexCurvatureBoostMax: 5
+    convexCurvatureBoostStartBlurRadius: 6
+    convexCurvatureBoostBlurRange: 12
+    refractionStrength: 0.03
+    refractionEdgeFade: 0.0001
+    iridescenceIntensity: 74.65
+    iridescenceScale: 2.5
+    ghostBoundaryNormalStrength: 0.539
+    ghostBoundaryCornerBlendWidth: 3
+    ghostBoundaryNormalWidth: 0.5
+    bloomEnabled: 1
+    bloomRenderTextureScale: 1
+    bloomThreshold: 1.2
+    bloomSoftKnee: 0.5
+    bloomIntensity: 0.075
+    bloomResponse: 1
+    bloomRadius: 20
+    bloomIterations: 4
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
   renderMode: 1
@@ -351,67 +423,11 @@ MonoBehaviour:
   metaballShader: {fileID: 4800000, guid: 85b87c70f093d411791140a3aca6ced6, type: 3}
   scale: 0.07
   gradientResolution: 64
-  velocityDisplayMax: 15
-  particleLightDirection: {x: -2.5, y: 2.5, z: 2}
-  particleLightColor: {r: 1, g: 0.26729542, b: 0.66926533, a: 1}
-  particleAmbientLight: 1
-  particleDirectionalLightIntensity: 0
-  particleNormalStrength: 1.1
-  particleNormalBlurCompensation: 0.99
-  particleSpecularColor: {r: 1, g: 1, b: 1, a: 1}
-  particleSpecularIntensity: 10
-  particleSpecularPower: 500
-  particleFresnelColor: {r: 0.75, g: 0.9, b: 1, a: 1}
-  particleFresnelIntensity: 0.2
-  particleFresnelPower: 3
-  particleGlowDirection: {x: -0.75, y: -0.93}
-  particleGlowColor: {r: 1, g: 1, b: 1, a: 1}
-  particleGlowIntensity: 1
-  particleGlowPower: 10
-  particleTransmissionIntensity: 50
-  particleTransmissionPower: 4.5
-  particleEdgeDarkening: 1
-  particleEdgeDarkeningPower: 0.5
-  particleSubsurfaceColor: {r: 0.039546248, g: 0, b: 0.11953845, a: 1}
-  particleSubsurfaceIntensity: 20
-  particleSubsurfacePower: 2
-  particleSubsurfaceThickness: 0.25
-  particleSubsurfaceEdgeBoost: 0.6
-  compositeShader: {fileID: 4800000, guid: db6a0932797cd49b1a42ac6d2c30ac61, type: 3}
-  blurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
-  renderTextureScale: 1
-  blurRadius: 10
-  densityThreshold: 0.18
-  edgeSoftness: 0.05
-  phaseBlendWidth: 1
-  phase0RenderBias: 0.95
-  phaseBiasNormalStrength: 2.25
-  metaballSharpness: 1
-  metaballIntensity: 20
-  convexCurvatureMetaballBoost: 0
-  convexCurvatureBoostMax: 5
-  convexCurvatureBoostStartBlurRadius: 6
-  convexCurvatureBoostBlurRange: 12
-  metaballRefractionStrength: 0.03
-  metaballRefractionEdgeFade: 0.0001
-  metaballIridescenceIntensity: 74.65
-  metaballIridescenceScale: 2.5
-  metaballGhostBoundaryNormalStrength: 0.539
-  metaballGhostBoundaryCornerBlendWidth: 3
-  metaballGhostBoundaryNormalWidth: 0.5
-  customBloomEnabled: 1
-  customBloomRenderTextureScale: 1
-  customBloomThreshold: 1.2
-  customBloomSoftKnee: 0.5
-  customBloomIntensity: 0.075
-  customBloomResponse: 1
-  customBloomRadius: 20
-  customBloomIterations: 4
   debugMode: 0
   debugGradientMax: 30
-  debugDensityMin: 220
-  debugDensityMax: 400
-  debugNormalShowClipping: 1
+  debugDensityMin: 210
+  debugDensityMax: 380
+  debugShowClipping: 1
   heatMap:
     serializedVersion: 2
     key0: {r: 0, g: 0, b: 0, a: 1}
@@ -472,21 +488,13 @@ MonoBehaviour:
     m_ColorSpace: -1
     m_NumColorKeys: 5
     m_NumAlphaKeys: 2
-  ditherStrength: 0.01
   vectorFieldShader: {fileID: 4800000, guid: 0526403c05f5a334ba1749bab01fec70, type: 3}
   vectorFieldSource: 0
-  vectorScale: 0.5
+  vectorScale: 0.25
   vectorMaxMagnitude: 1
   vectorUseLogScale: 1
   vectorLogScaleStrength: 100
-  vectorWidth: 0.02
-  jumpFloodCompute: {fileID: 7200000, guid: 7349de8b8fa110249b104a7dac6f38c0, type: 3}
-  jumpFloodDisplayShader: {fileID: 4800000, guid: a3cfade596b52974f8bac4577967ca73, type: 3}
-  jumpFloodSeedShader: {fileID: 4800000, guid: e73c24e1274d0fd459972e6e52ee7b27, type: 3}
-  jumpFloodPassShader: {fileID: 4800000, guid: 084df49f4e4f69a4c837186a40569e30, type: 3}
-  useComputeMethod: 1
-  jFedgeWidth: 0
-  blurstrength: 0
+  vectorWidth: 0.01
 --- !u!1 &963194225
 GameObject:
   m_ObjectHideFlags: 0

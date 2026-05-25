@@ -165,6 +165,8 @@ namespace Seb.Fluid2D.Simulation
         // ADDED: temperature settings
         [Header("Temperature")]
         public float ambientTemperature = 20f;
+        [Tooltip("Multiplier for heat diffusion between different phases. 1 = same as same-phase transfer, 0 = no cross-phase transfer.")]
+        [Range(0f, 1f)] public float crossPhaseThermalDiffusion = 0.999f;
         [Tooltip("Multiplier for heat transfer to ghost particles at boundaries. Higher = faster cooling at walls.")]
         [Min(0.1f)] public float ghostCoolingMultiplier = 1.0f;
         [Tooltip("Global Newton cooling toward ambient temperature. Set to 0 to disable.")]
@@ -727,6 +729,7 @@ namespace Seb.Fluid2D.Simulation
             compute.SetInt("numSpatialParticles", numParticles);
 
             compute.SetFloat("ambientTemperature", ambientTemperature);
+            compute.SetFloat("crossPhaseThermalDiffusion", crossPhaseThermalDiffusion);
             compute.SetFloat("ghostCoolingMultiplier", ghostCoolingMultiplier);
             compute.SetFloat("ambientCoolingRate", ambientCoolingRate);
             compute.SetFloat("wallCoolingRate", wallCoolingRate);
@@ -776,12 +779,14 @@ namespace Seb.Fluid2D.Simulation
             compute.SetInt("debugVisualizationMode", particleDisplay != null ? (int)particleDisplay.debugMode : 0);
             compute.SetInt("debugVectorFieldMode", particleDisplay != null ? particleDisplay.ComputeVectorFieldMode : 0);
 
-            Vector2 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
             bool isPullInteraction = Input.GetMouseButton(0);
             bool isPushInteraction = Input.GetMouseButton(1);
             float currInteractStrength = 0;
-            if (isPushInteraction || isPullInteraction)
+            Vector2 mousePos = Vector2.zero;
+            if ((isPushInteraction || isPullInteraction) && TryGetMouseWorldPosition(out mousePos))
+            {
                 currInteractStrength = isPushInteraction ? -interactionStrength : interactionStrength;
+            }
 
             compute.SetVector("interactionInputPoint", mousePos);
             compute.SetFloat("interactionInputStrength", currInteractStrength);
@@ -962,10 +967,9 @@ namespace Seb.Fluid2D.Simulation
 
             if (Application.isPlaying)
             {
-                Vector2 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
                 bool isPullInteraction = Input.GetMouseButton(0);
                 bool isPushInteraction = Input.GetMouseButton(1);
-                if (isPullInteraction || isPushInteraction)
+                if ((isPullInteraction || isPushInteraction) && TryGetMouseWorldPosition(out Vector2 mousePos))
                 {
                     Gizmos.color = isPullInteraction ? Color.green : Color.red;
                     Gizmos.DrawWireSphere(mousePos, interactionRadius);
@@ -1002,6 +1006,36 @@ namespace Seb.Fluid2D.Simulation
             Vector3 left = new Vector3(ellipseBoundsCenter.x - halfWidth, obstacleY, 0);
             Vector3 right = new Vector3(ellipseBoundsCenter.x + halfWidth, obstacleY, 0);
             Gizmos.DrawLine(left, right);
+        }
+
+        static bool TryGetMouseWorldPosition(out Vector2 mouseWorldPosition)
+        {
+            mouseWorldPosition = Vector2.zero;
+            Camera cam = Camera.main;
+            if (cam == null)
+            {
+                return false;
+            }
+
+            Vector3 mousePosition = Input.mousePosition;
+            if (!float.IsFinite(mousePosition.x) || !float.IsFinite(mousePosition.y) || !float.IsFinite(mousePosition.z))
+            {
+                return false;
+            }
+
+            if (mousePosition.x < 0 || mousePosition.y < 0 || mousePosition.x > cam.pixelWidth || mousePosition.y > cam.pixelHeight)
+            {
+                return false;
+            }
+
+            Vector3 worldPosition = cam.ScreenToWorldPoint(mousePosition);
+            if (!float.IsFinite(worldPosition.x) || !float.IsFinite(worldPosition.y))
+            {
+                return false;
+            }
+
+            mouseWorldPosition = worldPosition;
+            return true;
         }
     }
 }
