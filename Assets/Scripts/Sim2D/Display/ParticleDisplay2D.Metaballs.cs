@@ -19,7 +19,7 @@ namespace Seb.Fluid2D.Rendering
 		{
 			get
 			{
-				float resolutionFactor = sim != null ? Mathf.Max(0.0001f, sim.particleResolutionFactor) : 1f;
+				float resolutionFactor = Mathf.Max(0.0001f, sim.particleResolutionFactor);
 				return 1f / Mathf.Sqrt(resolutionFactor);
 			}
 		}
@@ -31,7 +31,7 @@ namespace Seb.Fluid2D.Rendering
 
 		internal float GetZoomScale(Camera cam)
 		{
-			if (cam == null || !cam.orthographic)
+			if (!cam.orthographic)
 			{
 				return 1f;
 			}

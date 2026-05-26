@@ -166,8 +166,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   timeScale: 5
-  maxTimestepFPS: 120
+  unlockedTimeScale: 0
+  minSubstepHz: 360
+  autoIterationsPerFrame: 1
   iterationsPerFrame: 3
+  maxAutoIterationsPerFrame: 16
   gravity: -13
   collisionDamping: 0.5
   smoothingRadius: 0.175
@@ -175,14 +178,20 @@ MonoBehaviour:
   nearPressureMultiplier: 30
   interfaceViscosityMultiplier: 0.25
   boundsSize: {x: 46.22222, y: 26}
-  obstacleY: -10
+  obstacleY: -9.969
   edgeForce: 0
-  edgeForceDst: 0.0875
+  edgeForceDst: 0
+  wallFilmPhase: 0
+  wallFilmDistance: 0.35
+  wallFilmStrength: 600
+  wallFilmAttractionPhase: 1
+  wallFilmAttractionStrength: 600
+  wallFilmMaxAcceleration: 0
   wallPressureStrength: 0
   wallPressureRadius: 0
   useEllipticalBounds: 1
   ellipseBoundsSize: {x: 5, y: 30}
-  ellipseBoundsCenter: {x: 0, y: -5.55}
+  ellipseBoundsCenter: {x: 0, y: 0}
   interactionRadius: 2.5
   interactionStrength: 75
   buoyancyInversionStrength: 8
@@ -224,7 +233,7 @@ MonoBehaviour:
     viscosity: 0.75
     viscosityTemperatureSensitivity: 0.015
     thermalExpansion: 0.0035
-    thermalConductivity: 5
+    thermalConductivity: 3
     specificHeatCapacity: 60
     nonCoalescenceRadiusMultiplier: 2
     nonCoalescenceStrength: 0
@@ -269,6 +278,7 @@ MonoBehaviour:
     nonCoalescenceStrength: 0
   ghostPhase: 1
   obstacleGhostPhase: 0
+  lowerGhostPhaseWidth: 9.1
   phaseSeparation: 1
   phaseCohesionValues:
   - 1
@@ -299,7 +309,7 @@ MonoBehaviour:
   blobSelfSurfaceTensionPhase: 0
   maxSurfaceTensionCurvature: 10
   ambientTemperature: 10
-  crossPhaseThermalDiffusion: 0
+  crossPhaseThermalDiffusion: 0.5
   ghostCoolingMultiplier: 2
   ambientCoolingRate: 0.05
   wallCoolingRate: 2
@@ -320,7 +330,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   spawnMode: 1
-  spawnDensity: 230
+  spawnDensity: 240
+  ghostDensity: 300
   initialVelocity: {x: 0, y: 0}
   jitterStr: 0.03
   spawnRegions:
@@ -339,11 +350,11 @@ MonoBehaviour:
   hydrostaticSpawnGradientStrength: 1
   maxHydrostaticSpawnDensityMultiplier: 2
   sim: {fileID: 271053319}
-  spawnParticleCount: 74589
-  lowerPhaseParticleCount: 27814
-  upperPhaseParticleCount: 46775
-  filledBoundsArea: 279.95572
-  filledBoundsDensity: 266.43143
+  spawnParticleCount: 94754
+  lowerPhaseParticleCount: 35736
+  upperPhaseParticleCount: 59018
+  filledBoundsArea: 333.4431
+  filledBoundsDensity: 284.1684
 --- !u!114 &271053322
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -418,7 +429,7 @@ MonoBehaviour:
     bloomIterations: 4
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
-  renderMode: 1
+  renderMode: 0
   directParticleShader: {fileID: 4800000, guid: 441b7193936682446b30d2140d15792a, type: 3}
   metaballShader: {fileID: 4800000, guid: 85b87c70f093d411791140a3aca6ced6, type: 3}
   scale: 0.07

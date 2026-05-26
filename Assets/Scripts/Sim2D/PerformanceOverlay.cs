@@ -157,7 +157,7 @@ namespace Seb.Fluid2D.Simulation
             }
 
             const int width = 280;
-            int height = sim != null ? 152 : 128;
+            int height = sim != null ? 170 : 128;
             float x = Mathf.Max(screenOffset.x, Screen.width - width - screenOffset.x);
             GUILayout.BeginArea(new Rect(x, screenOffset.y, width, height), GUI.skin.box);
             GUILayout.Label("Performance");
@@ -165,8 +165,9 @@ namespace Seb.Fluid2D.Simulation
             GUILayout.Label($"Average: {avgFps:F1} fps  {avgFrameTimeMs:F2} ms");
             if (sim != null)
             {
-                GUILayout.Label($"Playback: {sim.CurrentPlaybackSpeed:F2}x current  {avgPlaybackSpeed:F2}x avg");
-                GUILayout.Label($"Sim dt: {sim.CurrentSimulationDeltaTime * 1000f:F2} ms");
+                GUILayout.Label($"Playback: {sim.CurrentPlaybackSpeed:F2}x current  {avgPlaybackSpeed:F2}x avg{(sim.unlockedTimeScale ? "  unlocked" : "")}");
+                GUILayout.Label($"Sim frame/step: {sim.CurrentSimulationDeltaTime * 1000f:F2} / {sim.CurrentSimulationSubstepDeltaTime * 1000f:F2} ms");
+                GUILayout.Label($"Substeps: {sim.CurrentSimulationSubstepCount}  Display: {sim.CurrentDisplayRefreshRate:F1} Hz");
             }
             GUILayout.Label($"Window: {Mathf.Max(0.25f, sampleWindow):F1}s  Samples: {sampleCount}");
             GUILayout.Label($"Min/Max frame: {minFrameTimeMs:F2} / {maxFrameTimeMs:F2} ms");

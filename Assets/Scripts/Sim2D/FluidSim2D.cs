@@ -32,8 +32,16 @@ namespace Seb.Fluid2D.Simulation
 
         [Header("Simulation Settings")]
         public float timeScale = 1;
-        public float maxTimestepFPS = 60;
-        public int iterationsPerFrame;
+        [Tooltip("When enabled, ignore real-time pacing and run the maximum configured substep budget every rendered frame.")]
+        public bool unlockedTimeScale = false;
+        [Tooltip("Minimum simulation substep frequency in Hertz. Higher values mean smaller, more stable substeps.")]
+        [Min(1f)] public float minSubstepHz = 360f;
+        [Tooltip("Automatically calculate iterations per rendered frame from monitor refresh rate, time scale, and minimum substep frequency.")]
+        public bool autoIterationsPerFrame = true;
+        [Tooltip("Manual substep count used when auto mode is disabled. In auto mode this is updated to the current calculated value.")]
+        [Min(1)] public int iterationsPerFrame = 1;
+        [Tooltip("Upper bound for automatically calculated iterations per frame. In unlocked mode this is the fast-forward work budget.")]
+        [Min(1)] public int maxAutoIterationsPerFrame = 16;
         public float gravity;
         [Range(0, 1)] public float collisionDamping = 0.95f;
         public float smoothingRadius = 2;
@@ -49,6 +57,20 @@ namespace Seb.Fluid2D.Simulation
         [Tooltip("distance from boundary over which repulsion fades to zero")]
         public float edgeForceDst;
         
+        [Header("Wall Phase Force")]
+        [Tooltip("Phase pushed away from analytic walls to preserve a carrier-fluid film. Use Wax for lava-lamp blobs.")]
+        public LiquidPhaseFilter wallFilmPhase = LiquidPhaseFilter.Wax;
+        [Tooltip("Distance from analytic walls over which the wall-film force fades. Set to 0 to disable.")]
+        [Min(0f)] public float wallFilmDistance = 0f;
+        [Tooltip("Acceleration strength pushing the selected phase away from analytic walls.")]
+        [Min(0f)] public float wallFilmStrength = 0f;
+        [Tooltip("Phase pulled toward analytic walls to fill the wall film. Use Water for lava-lamp carrier fluid.")]
+        public LiquidPhaseFilter wallFilmAttractionPhase = LiquidPhaseFilter.Water;
+        [Tooltip("Acceleration strength pulling the selected phase toward analytic walls.")]
+        [Min(0f)] public float wallFilmAttractionStrength = 0f;
+        [Tooltip("Optional cap for wall-film acceleration. Set to 0 for no cap.")]
+        [Min(0f)] public float wallFilmMaxAcceleration = 0f;
+
         [Header("Boundary Pressure Support")]
         [Tooltip("Strength of wall-support pressure term used to compensate for missing neighbours near boundaries.")]
         [Min(0f)] public float wallPressureStrength = 0f;
@@ -82,6 +104,8 @@ namespace Seb.Fluid2D.Simulation
         public LiquidPhase ghostPhase = LiquidPhase.Water;
         [Tooltip("Liquid phase assigned to rectangular obstacle ghost particles. Use Wax to make wax wet/merge with the obstacle/coil area.")]
         public LiquidPhase obstacleGhostPhase = LiquidPhase.Wax;
+        [Tooltip("Width of the centered lower-boundary section that receives the obstacle ghost phase. Set to 0 to use the merge coil or heat source width.")]
+        [Min(0f)] public float lowerGhostPhaseWidth = 0f;
 
         [System.Serializable]
         public class PhaseConfig
@@ -303,12 +327,16 @@ namespace Seb.Fluid2D.Simulation
         float2[] densityReadback;
         float[] targetDensityReadback;
         int blobStepCounter;
+        int unlockedAdaptiveIterations;
 
         public int numParticles { get; private set; }
         public int numFluidParticles { get; private set; }
         public int numGhostParticles { get; private set; }
         public float CurrentPlaybackSpeed { get; private set; }
         public float CurrentSimulationDeltaTime { get; private set; }
+        public float CurrentSimulationSubstepDeltaTime { get; private set; }
+        public int CurrentSimulationSubstepCount { get; private set; }
+        public float CurrentDisplayRefreshRate { get; private set; }
         int resolvedGhostPhase;
         int resolvedObstacleGhostPhase;
 
@@ -356,19 +384,13 @@ namespace Seb.Fluid2D.Simulation
             spawnData = spawner2D.GetSpawnData(spawner2D.spawnDensity * resolvedResolutionFactor);
             numFluidParticles = spawnData.positions.Length;
 
-            // Calculate fluid particle spacing
-            float fluidSpacing = Mathf.Sqrt(1f / (300f * resolvedResolutionFactor));
-            
-            // Calculate number of ghost layers needed to cover one smoothing radius
-            int numGhostLayers = Mathf.CeilToInt(EffectiveSmoothingRadius / fluidSpacing);
-
             // Generate ghost particles with proper layering
             ghostPositions = new List<float2>();
             ghostVelocities = new List<float2>();
             ghostPhases = new List<int>();
             resolvedGhostPhase = ClampPhaseIndex(ghostPhase);
             resolvedObstacleGhostPhase = ClampPhaseIndex(obstacleGhostPhase);
-            spawner2D.GenerateGhostParticles(boundsSize, ellipseBoundsCenter, ellipseBoundsSize, useEllipticalBounds, fluidSpacing, numGhostLayers, resolvedGhostPhase, resolvedObstacleGhostPhase, ghostPositions, ghostVelocities, ghostPhases, obstacleY);
+            spawner2D.GenerateGhostParticles(boundsSize, ellipseBoundsCenter, ellipseBoundsSize, useEllipticalBounds, resolvedGhostPhase, resolvedObstacleGhostPhase, ghostPositions, ghostVelocities, ghostPhases, obstacleY, ResolveLowerGhostPhaseWidth());
             numGhostParticles = ghostPositions.Count;
             numParticles = numFluidParticles + numGhostParticles;
             spatialHash = new SpatialHash(numParticles);
@@ -443,7 +465,7 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.SetBuffer(compute, velocityBuffer, "VelocitiesRO", reorderKernel);
             ComputeHelper.SetBuffer(compute, densityBuffer, "Densities", densityKernel, pressureKernel, computeColorGradKernel);
             ComputeHelper.SetBuffer(compute, densityBuffer, "DensitiesRO", csfKernel);
-            ComputeHelper.SetBuffer(compute, phaseBuffer, "Phases", densityKernel, pressureKernel, viscosityKernel, thermalBuoyancyKernel, updateTemperatureKernel, cohesionKernel, carrierWedgeKernel, computeColorGradKernel, updatePositionKernel, copybackKernel, updateThermalExpansionKernel, countBlobSizesKernel, markSingleParticleBlobsKernel, initializeBlobIdsKernel, propagateBlobIdsKernel);
+            ComputeHelper.SetBuffer(compute, phaseBuffer, "Phases", externalForcesKernel, densityKernel, pressureKernel, viscosityKernel, thermalBuoyancyKernel, updateTemperatureKernel, cohesionKernel, carrierWedgeKernel, computeColorGradKernel, updatePositionKernel, copybackKernel, updateThermalExpansionKernel, countBlobSizesKernel, markSingleParticleBlobsKernel, initializeBlobIdsKernel, propagateBlobIdsKernel);
             ComputeHelper.SetBuffer(compute, phaseBuffer, "PhasesRO", reorderKernel, csfKernel);
             ComputeHelper.SetBuffer(compute, ghostFlagBuffer, "IsGhost", externalForcesKernel, pressureKernel, viscosityKernel, thermalBuoyancyKernel, updateTemperatureKernel, updatePositionKernel, cohesionKernel, carrierWedgeKernel, csfKernel, updateThermalExpansionKernel, copybackKernel);
             ComputeHelper.SetBuffer(compute, ghostFlagBuffer, "IsGhostRO", reorderKernel);
@@ -515,16 +537,21 @@ namespace Seb.Fluid2D.Simulation
 
             if (!isPaused)
             {
-                float effectiveMaxTimestepFPS = maxTimestepFPS * Mathf.Sqrt(ResolvedResolutionFactor);
-                float maxDeltaTime = effectiveMaxTimestepFPS > 0 ? 1 / effectiveMaxTimestepFPS : float.PositiveInfinity;
-                float dt = Mathf.Min(Time.deltaTime * timeScale, maxDeltaTime);
+                int substepCount = ResolveIterationsPerFrame();
+                float maxSubstep = MaxTimestepSeconds;
+                float maxFrameTime = maxSubstep * substepCount;
+                float dt = unlockedTimeScale ? maxFrameTime : Mathf.Min(Time.deltaTime * timeScale, maxFrameTime);
                 CurrentSimulationDeltaTime = dt;
+                CurrentSimulationSubstepDeltaTime = dt / substepCount;
+                CurrentSimulationSubstepCount = substepCount;
                 CurrentPlaybackSpeed = Time.unscaledDeltaTime > 0 ? dt / Time.unscaledDeltaTime : 0f;
-                RunSimulationFrame(dt);
+                RunSimulationFrame(dt, substepCount);
             }
             else
             {
                 CurrentSimulationDeltaTime = 0f;
+                CurrentSimulationSubstepDeltaTime = 0f;
+                CurrentSimulationSubstepCount = 0;
                 CurrentPlaybackSpeed = 0f;
             }
 
@@ -533,12 +560,83 @@ namespace Seb.Fluid2D.Simulation
                 isPaused = true;
                 pauseNextFrame = false;
                 CurrentSimulationDeltaTime = 0f;
+                CurrentSimulationSubstepDeltaTime = 0f;
+                CurrentSimulationSubstepCount = 0;
                 CurrentPlaybackSpeed = 0f;
             }
 
             HandleInput();
         }
         bool phasesDirty = true;
+
+        int ResolveIterationsPerFrame()
+        {
+            CurrentDisplayRefreshRate = GetDisplayRefreshRate();
+            if (!autoIterationsPerFrame)
+            {
+                return Mathf.Max(1, iterationsPerFrame);
+            }
+
+            if (unlockedTimeScale)
+            {
+                return ResolveUnlockedIterationsPerFrame();
+            }
+
+            float displayFrameTime = 1f / Mathf.Max(CurrentDisplayRefreshRate, 1f);
+            float requestedSimulationFrameTime = displayFrameTime * Mathf.Max(0f, timeScale);
+            int idealIterations = Mathf.CeilToInt(requestedSimulationFrameTime / MaxTimestepSeconds);
+            int resolvedIterations = Mathf.Clamp(Mathf.Max(1, idealIterations), 1, Mathf.Max(1, maxAutoIterationsPerFrame));
+            iterationsPerFrame = resolvedIterations;
+            return resolvedIterations;
+        }
+
+        int ResolveUnlockedIterationsPerFrame()
+        {
+            int maxIterations = Mathf.Max(1, maxAutoIterationsPerFrame);
+            if (unlockedAdaptiveIterations <= 0 || unlockedAdaptiveIterations > maxIterations)
+            {
+                unlockedAdaptiveIterations = Mathf.Clamp(Mathf.Max(1, iterationsPerFrame), 1, maxIterations);
+            }
+
+            float targetFrameTime = 1f / Mathf.Max(CurrentDisplayRefreshRate, 1f);
+            float previousFrameTime = Time.unscaledDeltaTime;
+            if (previousFrameTime > 0f)
+            {
+                if (previousFrameTime > targetFrameTime)
+                {
+                    float scale = Mathf.Clamp(targetFrameTime / previousFrameTime * 0.9f, 0.25f, 0.95f);
+                    unlockedAdaptiveIterations = Mathf.Max(1, Mathf.FloorToInt(unlockedAdaptiveIterations * scale));
+                }
+                else if (previousFrameTime < targetFrameTime * 0.85f && unlockedAdaptiveIterations < maxIterations)
+                {
+                    unlockedAdaptiveIterations++;
+                }
+            }
+
+            iterationsPerFrame = unlockedAdaptiveIterations;
+            return unlockedAdaptiveIterations;
+        }
+
+        static float GetDisplayRefreshRate()
+        {
+#if UNITY_2022_2_OR_NEWER
+            double refreshRate = Screen.currentResolution.refreshRateRatio.value;
+            if (refreshRate >= 10)
+            {
+                return (float)refreshRate;
+            }
+#else
+            int refreshRate = Screen.currentResolution.refreshRate;
+            if (refreshRate >= 10)
+            {
+                return refreshRate;
+            }
+#endif
+
+            return 60f;
+        }
+
+        float MaxTimestepSeconds => 1f / Mathf.Max(1f, minSubstepHz);
 
         float GetTemperatureAdjustedViscosity(PhaseConfig phase, float temperature)
         {
@@ -631,12 +729,12 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.SetBuffer(compute, phaseCohesionBuffer, "PhaseCohesionMatrix", cohesionKernel);
         }
 
-        void RunSimulationFrame(float frameTime)
+        void RunSimulationFrame(float frameTime, int substepCount)
         {
-            float timeStep = frameTime / iterationsPerFrame;
+            float timeStep = frameTime / Mathf.Max(1, substepCount);
             UpdateSettings(timeStep);
 
-            for (int i = 0; i < iterationsPerFrame; i++)
+            for (int i = 0; i < substepCount; i++)
             {
                 RunSimulationStep();
                 SimulationStepCompleted?.Invoke();
@@ -667,6 +765,24 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: csfKernel); // ADDED
             ComputeHelper.Dispatch(compute, numParticles, kernelIndex: updatePositionKernel);
 
+        }
+
+        public void RefreshDebugBuffers()
+        {
+            if (!Application.isPlaying || compute == null || numParticles <= 0 || positionBuffer == null)
+            {
+                return;
+            }
+
+            CreateOrUpdatePhaseBuffers(initial: false);
+            UpdateSettings(0f);
+            RunSpatial();
+            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: densityKernel);
+            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: computeColorGradKernel);
+            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: thermalBuoyancyKernel);
+            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: viscosityKernel);
+            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: carrierWedgeKernel);
+            ComputeHelper.Dispatch(compute, numParticles, kernelIndex: csfKernel);
         }
 
         void RunSpatial()
@@ -715,6 +831,12 @@ namespace Seb.Fluid2D.Simulation
             compute.SetBool("useEllipticalBounds", useEllipticalBounds);
             compute.SetVector("ellipseBoundsSize", ellipseBoundsSize);
             compute.SetVector("ellipseBoundsCenter", ellipseBoundsCenter);
+            compute.SetInt("wallFilmPhase", PhaseFilterToIndex(wallFilmPhase));
+            compute.SetFloat("wallFilmDistance", wallFilmDistance);
+            compute.SetFloat("wallFilmStrength", wallFilmStrength);
+            compute.SetInt("wallFilmAttractionPhase", PhaseFilterToIndex(wallFilmAttractionPhase));
+            compute.SetFloat("wallFilmAttractionStrength", wallFilmAttractionStrength);
+            compute.SetFloat("wallFilmMaxAcceleration", wallFilmMaxAcceleration);
 
             compute.SetFloat("Poly6ScalingFactor", 4 / (Mathf.PI * Mathf.Pow(effectiveSmoothingRadius, 8)));
             compute.SetFloat("SpikyPow3ScalingFactor", 10 / (Mathf.PI * Mathf.Pow(effectiveSmoothingRadius, 5)));
@@ -818,9 +940,25 @@ namespace Seb.Fluid2D.Simulation
             return Mathf.Clamp((int)phase, 0, phases.Length - 1);
         }
 
-        float ResolvedResolutionFactor => Mathf.Max(0.0001f, particleResolutionFactor);
+        float ResolveLowerGhostPhaseWidth()
+        {
+            if (lowerGhostPhaseWidth > 0f)
+            {
+                return lowerGhostPhaseWidth;
+            }
 
-        float EffectiveSmoothingRadius => smoothingRadius / Mathf.Sqrt(ResolvedResolutionFactor);
+            HeatSource2D source = blobMergeCoil != null ? blobMergeCoil : heatSource;
+            if (source != null && source.isActiveAndEnabled)
+            {
+                return Mathf.Max(0f, source.Size.x);
+            }
+
+            return 0f;
+        }
+
+        public float ResolvedResolutionFactor => Mathf.Max(0.0001f, particleResolutionFactor);
+
+        public float EffectiveSmoothingRadius => smoothingRadius / Mathf.Sqrt(ResolvedResolutionFactor);
 
         float EffectiveTargetDensity(int phaseIndex)
         {

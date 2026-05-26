@@ -96,6 +96,12 @@ const float smoothingRadius;
 // Soft boundary repulsion parameters
 const float edgeForce;      // magnitude of repulsive acceleration at zero distance
 const float edgeForceDst;   // distance from boundary over which repulsion fades to zero
+const int wallFilmPhase;
+const float wallFilmDistance;
+const float wallFilmStrength;
+const int wallFilmAttractionPhase;
+const float wallFilmAttractionStrength;
+const float wallFilmMaxAcceleration;
 const float wallPressureStrength; // pressure-support contribution near walls
 const float wallPressureRadius;   // support distance from wall (0 => smoothingRadius)
 StructuredBuffer<float> PhaseTargetDensities;
@@ -405,9 +411,78 @@ float SampleHeatSourceWeight(float2 pos)
 	return 0.0;
 }
 
-float2 ExternalForces(float2 pos, float2 velocity)
+bool TryGetAnalyticWallDistanceAndNormal(float2 pos, out float wallDist, out float2 inwardNormal)
 {
-    float2 gravityAccel = float2(0, gravity);
+	wallDist = 1e9;
+	inwardNormal = 0;
+
+	if (useEllipticalBounds)
+	{
+		float2 closestPoint;
+		float2 outwardNormal;
+		float signedDist;
+		GetEllipseSurfaceData(pos, ellipseBoundsCenter, ellipseBoundsSize, closestPoint, outwardNormal, signedDist);
+		if (signedDist < 0)
+		{
+			wallDist = -signedDist;
+			inwardNormal = -outwardNormal;
+		}
+	}
+	else
+	{
+		float2 halfSize = boundsSize * 0.5;
+		float2 edgeDst = halfSize - abs(pos);
+		if (edgeDst.x <= edgeDst.y)
+		{
+			wallDist = edgeDst.x;
+			inwardNormal = float2(-sign(pos.x), 0);
+		}
+		else
+		{
+			wallDist = edgeDst.y;
+			inwardNormal = float2(0, -sign(pos.y));
+		}
+	}
+
+	return wallDist >= 0 && dot(inwardNormal, inwardNormal) > 0;
+}
+
+float2 CalculateWallFilmAcceleration(float2 pos, uint phase)
+{
+	if ((wallFilmStrength <= 0 && wallFilmAttractionStrength <= 0) || wallFilmDistance <= 0) return 0;
+
+	float wallDist;
+	float2 inwardNormal;
+	if (!TryGetAnalyticWallDistanceAndNormal(pos, wallDist, inwardNormal)) return 0;
+	if (wallDist >= wallFilmDistance) return 0;
+
+	float filmT = 1.0 - saturate(wallDist / max(wallFilmDistance, 1e-6));
+	float strength = 0;
+	if (wallFilmPhase < 0 || wallFilmPhase == (int)phase)
+	{
+		strength += wallFilmStrength;
+	}
+	if (wallFilmAttractionPhase < 0 || wallFilmAttractionPhase == (int)phase)
+	{
+		strength -= wallFilmAttractionStrength;
+	}
+	if (abs(strength) <= 1e-6) return 0;
+
+	float2 acceleration = inwardNormal * strength * filmT * filmT;
+	if (wallFilmMaxAcceleration > 0)
+	{
+		float mag = length(acceleration);
+		if (mag > wallFilmMaxAcceleration)
+		{
+			acceleration *= wallFilmMaxAcceleration / max(mag, 1e-6);
+		}
+	}
+	return acceleration;
+}
+
+float2 ExternalForces(float2 pos, float2 velocity, uint phase)
+{
+    float2 acceleration = float2(0, gravity);
 
     if (interactionInputStrength != 0)
     {
@@ -421,9 +496,8 @@ float2 ExternalForces(float2 pos, float2 velocity)
             float2 dirToCentre = inputPointOffset / dst;
 
             float gravityWeight = 1 - (centreT * saturate(interactionInputStrength / 10));
-            float2 accel = gravityAccel * gravityWeight + dirToCentre * centreT * interactionInputStrength;
-            accel -= velocity * centreT;
-            return accel;
+            acceleration = acceleration * gravityWeight + dirToCentre * centreT * interactionInputStrength;
+            acceleration -= velocity * centreT;
         }
     }
 
@@ -472,7 +546,7 @@ float2 ExternalForces(float2 pos, float2 velocity)
         }
     }
 
-	return gravityAccel + boundaryRepel;
+	return acceleration + boundaryRepel + CalculateWallFilmAcceleration(pos, phase);
 }
 
 float2 CalculateWallPressureSupportForce(float2 pos, float density, float pressure, float nearPressure, uint particleIndex, float epsilon)
@@ -703,7 +777,7 @@ void ExternalForces(uint3 id : SV_DispatchThreadID)
     if (IsGhost[id.x] != 0)
         return;
 
-    float2 externalAcceleration = ExternalForces(Positions[id.x], Velocities[id.x]);
+    float2 externalAcceleration = ExternalForces(Positions[id.x], Velocities[id.x], Phases[id.x]);
     Velocities[id.x] += externalAcceleration * deltaTime;
 
     //const float predictionFactor = 1 / 120.0;//idk why

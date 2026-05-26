@@ -13,7 +13,7 @@ public class Spawner2D : MonoBehaviour
 
 	public SpawnMode spawnMode = SpawnMode.ManualRegions;
 	public float spawnDensity;
-
+	public float ghostDensity = 300;
 	public Vector2 initialVelocity;
 	public float jitterStr;
 	public SpawnRegion[] spawnRegions;
@@ -162,19 +162,22 @@ public class Spawner2D : MonoBehaviour
 		return Mathf.CeilToInt(perimeter / spacing);
 	}
 
-	public void GenerateGhostParticles(Vector2 boundsSize, Vector2 ellipseBoundsCenter, Vector2 ellipseBoundsSize, bool useEllipticalBounds, float spacing, int numLayers, int boundsGhostPhase, int obstacleGhostPhase, List<float2> outPositions, List<float2> outVelocities, List<int> outPhases, float obstacleY = float.NegativeInfinity)
+	public void GenerateGhostParticles(Vector2 boundsSize, Vector2 ellipseBoundsCenter, Vector2 ellipseBoundsSize, bool useEllipticalBounds, int boundsGhostPhase, int lowerGhostPhase, List<float2> outPositions, List<float2> outVelocities, List<int> outPhases, float obstacleY = float.NegativeInfinity, float lowerGhostPhaseWidth = 0f)
 	{
+		float spacing = Mathf.Sqrt(1f / (ghostDensity * sim.ResolvedResolutionFactor));
+		int numLayers = Mathf.CeilToInt(sim.EffectiveSmoothingRadius / spacing);
+
 		outPositions.Clear();
 		outVelocities.Clear();
 		outPhases.Clear();
 
 		if (useEllipticalBounds)
 		{
-			GenerateEllipseGhostParticles(ellipseBoundsCenter, ellipseBoundsSize, spacing, numLayers, boundsGhostPhase, obstacleGhostPhase, outPositions, outVelocities, outPhases, obstacleY);
+			GenerateEllipseGhostParticles(sim.ellipseBoundsCenter, sim.ellipseBoundsSize, spacing, numLayers, boundsGhostPhase, lowerGhostPhase, outPositions, outVelocities, outPhases, obstacleY, lowerGhostPhaseWidth);
 		}
 		else
 		{
-			GenerateRectangleGhostParticles(boundsSize, spacing, numLayers, boundsGhostPhase, outPositions, outVelocities, outPhases);
+			GenerateRectangleGhostParticles(sim.boundsSize, spacing, numLayers, boundsGhostPhase, outPositions, outVelocities, outPhases);
 		}
 	}
 
@@ -189,31 +192,48 @@ public class Spawner2D : MonoBehaviour
 			float layerDist = layer * spacing;
 
 			// Top and bottom edges
-			for (float x = -halfX; x <= halfX; x += spacing)
-			{
-				outPositions.Add(new float2(x, halfY + layerDist));
-				outPositions.Add(new float2(x, -halfY - layerDist));
-				outVelocities.Add(float2.zero);
-				outVelocities.Add(float2.zero);
-				outPhases.Add(ghostPhase);
-				outPhases.Add(ghostPhase);
-			}
+			AddHorizontalGhostLine(-halfX, halfX, halfY + layerDist, spacing, ghostPhase, outPositions, outVelocities, outPhases);
+			AddHorizontalGhostLine(-halfX, halfX, -halfY - layerDist, spacing, ghostPhase, outPositions, outVelocities, outPhases);
 
 			// Left and right edges (excluding corners to avoid duplication)
 			for (float y = -halfY + spacing; y < halfY; y += spacing)
 			{
-				outPositions.Add(new float2(-halfX - layerDist, y));
-				outPositions.Add(new float2(halfX + layerDist, y));
-				outVelocities.Add(float2.zero);
-				outVelocities.Add(float2.zero);
-				outPhases.Add(ghostPhase);
-				outPhases.Add(ghostPhase);
+				int samplesAtY = Mathf.Max(1, Mathf.RoundToInt(GetHydrostaticSpawnDensityMultiplier(y)));
+				for (int i = 0; i < samplesAtY; i++)
+				{
+					float yOffset = ((i + 0.5f) / samplesAtY - 0.5f) * spacing;
+					outPositions.Add(new float2(-halfX - layerDist, y + yOffset));
+					outPositions.Add(new float2(halfX + layerDist, y + yOffset));
+					outVelocities.Add(float2.zero);
+					outVelocities.Add(float2.zero);
+					outPhases.Add(ghostPhase);
+					outPhases.Add(ghostPhase);
+				}
 			}
 		}
 	}
 
-void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing, int numLayers, int boundsGhostPhase, int obstacleGhostPhase,
-    List<float2> outPositions, List<float2> outVelocities, List<int> outPhases, float obstacleY)
+	void AddHorizontalGhostLine(float startX, float endX, float y, float spacing, int phase, List<float2> outPositions, List<float2> outVelocities, List<int> outPhases)
+	{
+		float width = endX - startX;
+		if (width <= 0f || spacing <= 0f)
+		{
+			return;
+		}
+
+		float rowDensity = ghostDensity * sim.ResolvedResolutionFactor * GetHydrostaticSpawnDensityMultiplier(y);
+		int rowCount = Mathf.Max(1, Mathf.RoundToInt(width * rowDensity * spacing));
+		for (int i = 0; i < rowCount; i++)
+		{
+			float t = (i + 0.5f) / rowCount;
+			outPositions.Add(new float2(Mathf.Lerp(startX, endX, t), y));
+			outVelocities.Add(float2.zero);
+			outPhases.Add(phase);
+		}
+	}
+
+	void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing, int numLayers, int boundsGhostPhase, int obstacleGhostPhase,
+    List<float2> outPositions, List<float2> outVelocities, List<int> outPhases, float obstacleY, float lowerGhostPhaseWidth)
 {
     float a = radii.x;
     float b = radii.y;
@@ -221,6 +241,7 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
     int lutSize = 1000;
     float[] lutT = new float[lutSize + 1];
     float[] lutArc = new float[lutSize + 1];
+    float[] lutWeightedArc = new float[lutSize + 1];
 
     for (int layer = 1; layer <= numLayers; layer++)
     {
@@ -228,31 +249,37 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
 
         lutT[0] = 0f;
         lutArc[0] = 0f;
+        lutWeightedArc[0] = 0f;
         float2 previousPoint = GetOffsetEllipsePoint(0f, layerDist);
+        float previousMultiplier = GetHydrostaticSpawnDensityMultiplier(center.y + previousPoint.y);
 
         for (int lutIndex = 1; lutIndex <= lutSize; lutIndex++)
         {
             float t = lutIndex / (float)lutSize * Mathf.PI * 2;
             float2 point = GetOffsetEllipsePoint(t, layerDist);
+            float segmentLength = math.length(point - previousPoint);
+            float multiplier = GetHydrostaticSpawnDensityMultiplier(center.y + point.y);
             lutT[lutIndex] = t;
-            lutArc[lutIndex] = lutArc[lutIndex - 1] + math.length(point - previousPoint);
+            lutArc[lutIndex] = lutArc[lutIndex - 1] + segmentLength;
+            lutWeightedArc[lutIndex] = lutWeightedArc[lutIndex - 1] + segmentLength * (previousMultiplier + multiplier) * 0.5f;
             previousPoint = point;
+            previousMultiplier = multiplier;
         }
 
-        float totalArc = lutArc[lutSize];
-        int numPoints = Mathf.Max(3, Mathf.RoundToInt(totalArc / spacing));
+        float totalWeightedArc = lutWeightedArc[lutSize];
+        int numPoints = Mathf.Max(3, Mathf.RoundToInt(totalWeightedArc / spacing));
 
         for (int i = 0; i < numPoints; i++)
         {
-            float targetArc = (i + 0.5f) * (totalArc / numPoints);
+            float targetArc = (i + 0.5f) * (totalWeightedArc / numPoints);
 
             int lo = 0, hi = lutSize;
             while (hi - lo > 1)
             {
                 int mid = (lo + hi) / 2;
-                if (lutArc[mid] < targetArc) lo = mid; else hi = mid;
+                if (lutWeightedArc[mid] < targetArc) lo = mid; else hi = mid;
             }
-            float arcFrac = (targetArc - lutArc[lo]) / Mathf.Max(lutArc[hi] - lutArc[lo], 1e-8f);
+            float arcFrac = (targetArc - lutWeightedArc[lo]) / Mathf.Max(lutWeightedArc[hi] - lutWeightedArc[lo], 1e-8f);
             float t = Mathf.Lerp(lutT[lo], lutT[hi], arcFrac);
             float2 ghostPos = (float2)center + GetOffsetEllipsePoint(t, layerDist);
 
@@ -295,11 +322,17 @@ void GenerateEllipseGhostParticles(Vector2 center, Vector2 radii, float spacing,
             float halfWidth = expandedA * Mathf.Sqrt(1f - normalizedY * normalizedY);
             float startX = center.x - halfWidth;
             float endX = center.x + halfWidth;
-            for (float x = startX; x <= endX; x += spacing)
+            float width = endX - startX;
+            float rowDensity = ghostDensity * sim.ResolvedResolutionFactor * GetHydrostaticSpawnDensityMultiplier(y);
+            int rowCount = Mathf.Max(1, Mathf.RoundToInt(width * rowDensity * spacing));
+            for (int i = 0; i < rowCount; i++)
             {
+                float t = (i + 0.5f) / rowCount;
+                float x = Mathf.Lerp(startX, endX, t);
                 float2 rel = new float2(x - center.x, y - center.y);
                 float normalized = (rel.x * rel.x) / (a * a) + (rel.y * rel.y) / (b * b);
-                int phase = normalized < 1f ? obstacleGhostPhase : 1 - obstacleGhostPhase; //&& layer < 3
+                bool inLowerPhaseRegion = lowerGhostPhaseWidth <= 0f || Mathf.Abs(x - center.x) <= lowerGhostPhaseWidth * 0.5f;
+                int phase = normalized < 1f && inLowerPhaseRegion ? obstacleGhostPhase : boundsGhostPhase;
                 outPositions.Add(new float2(x, y));
                 outVelocities.Add(float2.zero);
                 outPhases.Add(phase);
