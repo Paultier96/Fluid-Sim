@@ -231,6 +231,9 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetFloat("customBloomIntensity", settings.bloomIntensity);
 			compositeMaterial.SetFloat("customBloomResponse", settings.bloomResponse);
 			compositeMaterial.SetFloat("customBloomSampleScale", Mathf.Max(0.5f, effectiveBloomSampleScale));
+			compositeMaterial.SetInt("customBloomEnabled", settings.bloomEnabled ? 1 : 0);
+			compositeMaterial.SetInt("metaballTonemapEnabled", settings.tonemapEnabled ? 1 : 0);
+			compositeMaterial.SetFloat("metaballTonemapExposure", settings.tonemapExposure);
 			float effectiveNormalStrength = display.GetEffectiveNormalStrength(effectiveConfiguredBlurRadius);
 			compositeMaterial.SetInt("debugMode", (int)display.debugMode);
 			display.ApplyDebugClipSettings(compositeMaterial);
@@ -304,10 +307,6 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			commandBuffer.Blit(null, BuiltinRenderTextureType.CameraTarget, compositeMaterial, 0);
-			if (display.metaballs.bloomEnabled)
-			{
-				commandBuffer.Blit(null, BuiltinRenderTextureType.CameraTarget, compositeMaterial, 2);
-			}
 
 			display.AppendVectorFieldDraw(commandBuffer);
 		}

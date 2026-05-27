@@ -182,6 +182,12 @@ namespace Seb.Fluid2D.Rendering
 			[Min(0f)] public float bloomRadius = 8.0f;
 			[Tooltip("Number of downsampled pyramid levels used for metaball-only bloom.")]
 			[Range(1, 4)] public int bloomIterations = 3;
+
+			[Header("Tonemapping")]
+			[Tooltip("Compresses metaball lighting and custom bloom before output to reduce highlight clipping and hue shifts.")]
+			public bool tonemapEnabled = true;
+			[Tooltip("Exposure applied before metaball tonemapping. 1 preserves current brightness before compression.")]
+			[Min(0f)] public float tonemapExposure = 1.0f;
 		}
 	}
 }

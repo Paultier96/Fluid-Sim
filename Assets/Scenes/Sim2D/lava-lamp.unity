@@ -427,9 +427,11 @@ MonoBehaviour:
     bloomResponse: 1
     bloomRadius: 20
     bloomIterations: 4
+    tonemapEnabled: 1
+    tonemapExposure: 1
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
-  renderMode: 0
+  renderMode: 1
   directParticleShader: {fileID: 4800000, guid: 441b7193936682446b30d2140d15792a, type: 3}
   metaballShader: {fileID: 4800000, guid: 85b87c70f093d411791140a3aca6ced6, type: 3}
   scale: 0.07

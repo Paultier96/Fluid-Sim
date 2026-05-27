@@ -47,6 +47,9 @@ Shader "Hidden/Particle2DMetaballComposite" {
 		float customBloomIntensity;
 		float customBloomResponse;
 		float customBloomSampleScale;
+		int customBloomEnabled;
+		int metaballTonemapEnabled;
+		float metaballTonemapExposure;
 		float3 particleLightDirection;
 		float4 particleLightColor;
 		float particleAmbientLight;
@@ -380,6 +383,19 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			return colour * (shapedContribution / max(brightness, 0.0001));
 		}
 
+		float3 TonemapPreserveHue(float3 colour)
+		{
+			if (metaballTonemapEnabled == 0)
+			{
+				return colour;
+			}
+
+			colour = max(colour, 0.0) * max(metaballTonemapExposure, 0.0);
+			float peak = max(max(colour.r, colour.g), colour.b);
+			float mappedPeak = 1.0 - exp(-peak);
+			return colour * (mappedPeak / max(peak, 0.0001));
+		}
+
 		float4 frag(v2f i) : SV_Target
 		{
 			float alpha;
@@ -390,6 +406,15 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			if (!ResolveMetaball(i, alpha, phaseT, density0, density1, colour))
 			{
 				discard;
+			}
+
+			if (debugMode == 0)
+			{
+				if (customBloomEnabled != 0)
+				{
+					colour += tex2D(BloomTex, i.uv).rgb * customBloomIntensity;
+				}
+				colour = TonemapPreserveHue(colour);
 			}
 
 			return float4(colour, alpha);
