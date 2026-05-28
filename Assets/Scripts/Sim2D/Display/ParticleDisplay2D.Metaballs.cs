@@ -208,6 +208,10 @@ namespace Seb.Fluid2D.Rendering
 			[Range(0f, 1f)] public float causticsFresnelStrength = 1f;
 			[Tooltip("Uses Fresnel as a probability to randomly reflect caustic rays at surfaces instead of always transmitting one refracted ray.")]
 			public bool causticsStochasticReflection = false;
+			[Tooltip("Randomly traces one RGB wavelength per caustic ray and shifts IOR per wavelength. Best with temporal blending.")]
+			public bool causticsStochasticDispersion = false;
+			[Tooltip("Relative IOR spread used by stochastic spectral caustic tracing. 0.02 means red/blue use roughly -/+2% IOR.")]
+			[Min(0f)] public float causticsDispersionStrength = 0f;
 			[Tooltip("Angular radius of the caustic light source in degrees. 0 keeps perfectly parallel rays.")]
 			[Min(0f)] public float causticsLightAngularRadiusDegrees = 0f;
 			[Tooltip("Refracts caustic rays through the analytic ellipse/cut simulation boundary when elliptical bounds are enabled.")]

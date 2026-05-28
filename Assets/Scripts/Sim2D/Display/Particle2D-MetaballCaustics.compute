@@ -20,6 +20,7 @@ int causticsRayStride;
 int causticsRaysPerPixel;
 int causticsUseSoftSplat;
 int causticsStochasticReflection;
+int causticsStochasticDispersion;
 int causticsFrameIndex;
 float densityThreshold;
 float causticsStepPixels;
@@ -27,6 +28,7 @@ float causticsNormalSampleRadius;
 float causticsIndexOfRefraction;
 float causticsPhase0IndexOfRefraction;
 float causticsPhase1IndexOfRefraction;
+float causticsDispersionStrength;
 float causticsSurfaceTransmittance;
 float causticsFresnelStrength;
 float causticsLightAngularRadius;
@@ -263,6 +265,42 @@ float Hash01(uint seed)
 	return (HashUint(seed) & 0x00ffffffu) / 16777215.0;
 }
 
+int SpectralChannel(uint raySeed)
+{
+	return causticsStochasticDispersion != 0 && causticsDispersionStrength > 0.0 ? min((int)(Hash01(raySeed) * 3.0), 2) : -1;
+}
+
+float SpectralOffset(int spectralChannel)
+{
+	return spectralChannel < 0 ? 0.0 : (float)spectralChannel - 1.0;
+}
+
+float3 SpectralMask(int spectralChannel)
+{
+	if (spectralChannel == 0)
+	{
+		return float3(3.0, 0.0, 0.0);
+	}
+
+	if (spectralChannel == 1)
+	{
+		return float3(0.0, 3.0, 0.0);
+	}
+
+	if (spectralChannel == 2)
+	{
+		return float3(0.0, 0.0, 3.0);
+	}
+
+	return 1.0;
+}
+
+float DispersedIor(float ior, float spectralOffset)
+{
+	float opticalDensity = max(ior, 1.0001) - 1.0;
+	return max(1.0001, 1.0 + opticalDensity * (1.0 + spectralOffset * max(causticsDispersionStrength, 0.0)));
+}
+
 float2 Rotate2D(float2 v, float angle)
 {
 	float s = sin(angle);
@@ -294,23 +332,24 @@ float FrameJitter01(int frameIndex)
 	return frac(frameIndex * 0.61803398875 + 0.5);
 }
 
-float EffectiveIor(int raySeed)
+float EffectiveIor(int raySeed, float spectralOffset)
 {
 	float jitter = frac((causticsFrameIndex + raySeed * 17) * 0.61803398875 + 0.137) * 2.0 - 1.0;
-	return max(1.0001, causticsIndexOfRefraction * (1.0 + jitter * max(causticsTemporalIorJitter, 0.0)));
+	return max(1.0001, DispersedIor(causticsIndexOfRefraction, spectralOffset) * (1.0 + jitter * max(causticsTemporalIorJitter, 0.0)));
 }
 
-float PhaseIor(int phase)
+float PhaseIor(int phase, float spectralOffset)
 {
-	return phase == 0 ? max(causticsPhase0IndexOfRefraction, 1.0001) : max(causticsPhase1IndexOfRefraction, 1.0001);
+	float ior = phase == 0 ? causticsPhase0IndexOfRefraction : causticsPhase1IndexOfRefraction;
+	return DispersedIor(ior, spectralOffset);
 }
 
-float EffectivePhaseEta(bool enteringSelectedPhase, int raySeed)
+float EffectivePhaseEta(bool enteringSelectedPhase, int raySeed, float spectralOffset)
 {
 	int selectedPhase = causticsPhase == 0 ? 0 : 1;
 	int otherPhase = selectedPhase == 0 ? 1 : 0;
-	float nSelected = PhaseIor(selectedPhase);
-	float nOther = PhaseIor(otherPhase);
+	float nSelected = PhaseIor(selectedPhase, spectralOffset);
+	float nOther = PhaseIor(otherPhase, spectralOffset);
 	float eta = enteringSelectedPhase ? nOther / nSelected : nSelected / nOther;
 	float jitter = frac((causticsFrameIndex + raySeed * 17) * 0.61803398875 + 0.137) * 2.0 - 1.0;
 	return max(0.0001, eta * (1.0 + jitter * max(causticsTemporalIorJitter, 0.0)));
@@ -460,12 +499,15 @@ void Trace(uint3 id : SV_DispatchThreadID)
 	bool previousInsideBoundary = insideBoundary;
 	bool enteredTexture = InsideTexture(uv);
 	float causticLineEnergy = max(causticsRayBrightness, 0.0) / max(causticsRaysPerPixel, 1);
-	float3 rayEnergy = 1.0;
+	uint spectralSeed = id.x * 73856093u ^ id.y * 19349663u ^ (uint)causticsFrameIndex * 83492791u;
+	int spectralChannel = SpectralChannel(spectralSeed);
+	float spectralOffset = SpectralOffset(spectralChannel);
+	float3 rayEnergy = SpectralMask(spectralChannel);
 	bool useColourAbsorption = causticsColorAbsorption > 0.0 || causticsBackgroundColorAbsorption > 0.0;
 	int currentPhase = useColourAbsorption ? PhaseFromCombined(currentCombined) : -1;
 	float3 mediumColour = useColourAbsorption ? RayColourFromCombined(currentCombined, currentPhase) : 1.0;
 	int raySeed = (int)id.x + (int)id.y;
-	float effectiveIor = EffectiveIor(raySeed);
+	float effectiveIor = EffectiveIor(raySeed, spectralOffset);
 	int maxSteps = min(4096, (int)ceil(length(causticSize) / max(causticsStepPixels, 0.25)) + causticsRaySteps);
 
 	for (int stepIndex = 0; stepIndex < maxSteps; stepIndex++)
@@ -525,7 +567,7 @@ void Trace(uint3 id : SV_DispatchThreadID)
 		if (!inside && previousDensity < densityThreshold && density >= densityThreshold)
 		{
 			float2 normal = SurfaceNormal(uv, rayDir);
-			float eta = EffectivePhaseEta(true, raySeed);
+			float eta = EffectivePhaseEta(true, raySeed, spectralOffset);
 			float surfaceEnergy = causticsStochasticReflection != 0 ? saturate(causticsSurfaceTransmittance) : SurfaceTransmission(rayDir, normal, eta);
 			bool transmitted = ResolveSurfaceDirection(rayDir, normal, eta, raySeed, stepIndex);
 			rayEnergy *= surfaceEnergy;
@@ -536,7 +578,7 @@ void Trace(uint3 id : SV_DispatchThreadID)
 		else if (inside && previousDensity >= densityThreshold && density < densityThreshold)
 		{
 			float2 normal = -SurfaceNormal(uv, rayDir);
-			float eta = EffectivePhaseEta(false, raySeed);
+			float eta = EffectivePhaseEta(false, raySeed, spectralOffset);
 			float surfaceEnergy = causticsStochasticReflection != 0 ? saturate(causticsSurfaceTransmittance) : SurfaceTransmission(rayDir, normal, eta);
 			bool transmitted = ResolveSurfaceDirection(rayDir, normal, eta, raySeed, stepIndex);
 			rayEnergy *= surfaceEnergy;

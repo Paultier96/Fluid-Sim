@@ -59,6 +59,10 @@ Shader "Hidden/Particle2DMetaballComposite" {
 		float metaballCausticsAdditiveBlend;
 		float4 metaballCausticsColor;
 		float causticTemporalHistoryWeight;
+		float2 causticCurrentWorldCenter;
+		float2 causticCurrentWorldSize;
+		float2 causticHistoryWorldCenter;
+		float2 causticHistoryWorldSize;
 		float3 particleLightDirection;
 		float4 particleLightColor;
 		float particleAmbientLight;
@@ -274,7 +278,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			;
 		}
 
-		bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density0, out float density1, out float3 litColour)
+		bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density0, out float density1, out float3 litColour, out float3 albedoColour)
 		{
 			float4 combined = tex2D(CombinedTex, i.uv);
 			density0 = Phase0Density(combined);
@@ -285,6 +289,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			{
 				phaseT = 0.0;
 				litColour = 0.0;
+				albedoColour = 0.0;
 				return false;
 			}
 
@@ -305,6 +310,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 					float blobWeight = max(density0, 0.0001);
 					float3 blobCol = combined.rgb / blobWeight;
 					litColour = saturate(lerp(blobCol, float3(0, 0, 0), phaseT));
+					albedoColour = litColour;
 					return true;
 				}
 
@@ -323,6 +329,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 					#else
 						litColour = GammaToLinearSpace(debugColour);
 					#endif
+					albedoColour = litColour;
 					return true;
 				}
 
@@ -331,6 +338,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 					float curvature = data0;
 					float heatT = 0.5 + curvature * 0.5;
 					litColour = SampleDebugHeatMap(DebugSignedHeatMap, heatT, heatT);
+					albedoColour = litColour;
 					return true;
 				}
 
@@ -339,6 +347,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 					float viscosityRaw = lerp(data0, data1, phaseT);
 					float viscosity = Dither01(viscosityRaw, noise);
 					litColour = SampleDebugHeatMap(DebugHeatMap, viscosityRaw, viscosity);
+					albedoColour = litColour;
 					return true;
 				}
 
@@ -347,6 +356,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 					float densityRaw = lerp(data0, data1, phaseT);
 					float densityVal = Dither01(densityRaw, noise);
 					litColour = SampleDebugHeatMap(DebugHeatMap, densityRaw, densityVal);
+					albedoColour = litColour;
 					return true;
 				}
 
@@ -355,6 +365,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 					float tempRaw = lerp(data0, data1, phaseT);
 					float tempVal = Dither01(tempRaw, noise);
 					litColour = SampleDebugHeatMap(DebugHeatMap, tempRaw, tempVal);
+					albedoColour = litColour;
 					return true;
 				}
 
@@ -362,6 +373,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 				float2 mapped = saturate(0.5 + force * 0.5);
 				float mag = saturate(length(force));
 				litColour = float3(mapped, mag);
+				albedoColour = litColour;
 				return true;
 			}
 
@@ -376,6 +388,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			float3 normal1 = GetPhaseNormal(normalPacked, density0, density1, true);
 			float3 colour0 = SamplePhaseGradientColour(refractedData0, false, noise);
 			float3 colour1 = SamplePhaseGradientColour(refractedData1, true, noise);
+			albedoColour = lerp(colour0, colour1, phaseT);
 			float maxDensity = max(density0, density1);
 			float3 lit0 = ApplyParticleLighting(colour0, normal0, maxDensity, 1.0);
 			float3 lit1 = ApplyParticleLighting(colour1, normal1, maxDensity, 0.0);
@@ -398,7 +411,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			return colour * (shapedContribution / max(brightness, 0.0001));
 		}
 
-		float3 ApplyCaustics(float2 uv, float3 colour)
+		float3 ApplyCaustics(float2 uv, float3 colour, float3 albedo)
 		{
 			if (metaballCausticsEnabled == 0)
 			{
@@ -406,7 +419,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			}
 
 			float3 caustic = tex2D(CausticTex, uv).rgb * metaballCausticsColor.rgb * metaballCausticsIntensity;
-			float3 litCaustic = colour * caustic;
+			float3 litCaustic = albedo * caustic;
 			return colour + lerp(litCaustic, caustic, saturate(metaballCausticsAdditiveBlend));
 		}
 
@@ -447,14 +460,15 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			float density0;
 			float density1;
 			float3 colour;
-			if (!ResolveMetaball(i, alpha, phaseT, density0, density1, colour))
+			float3 albedo;
+			if (!ResolveMetaball(i, alpha, phaseT, density0, density1, colour, albedo))
 			{
 				discard;
 			}
 
 			if (debugMode == 0)
 			{
-				colour = ApplyCaustics(i.uv, colour);
+				colour = ApplyCaustics(i.uv, colour, albedo);
 				if (customBloomEnabled != 0)
 				{
 					colour += tex2D(BloomTex, i.uv).rgb * customBloomIntensity;
@@ -473,11 +487,12 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			float density0;
 			float density1;
 			float3 colour;
-			if (debugMode != 0 || !ResolveMetaball(i, alpha, phaseT, density0, density1, colour))
+			float3 albedo;
+			if (debugMode != 0 || !ResolveMetaball(i, alpha, phaseT, density0, density1, colour, albedo))
 			{
 				return 0.0;
 			}
-			colour = ApplyCaustics(i.uv, colour);
+			colour = ApplyCaustics(i.uv, colour, albedo);
 			return float4(ExtractBloom(colour) * alpha, 1.0);
 		}
 
@@ -533,8 +548,11 @@ Shader "Hidden/Particle2DMetaballComposite" {
 		float4 fragCausticTemporal(v2f i) : SV_Target
 		{
 			float3 current = tex2D(_MainTex, i.uv).rgb;
-			float3 history = tex2D(CausticHistoryTex, i.uv).rgb;
-			return float4(lerp(current, history, saturate(causticTemporalHistoryWeight)), 1.0);
+			float2 worldPos = causticCurrentWorldCenter + (i.uv - 0.5) * max(causticCurrentWorldSize, float2(0.0001, 0.0001));
+			float2 historyUv = (worldPos - causticHistoryWorldCenter) / max(causticHistoryWorldSize, float2(0.0001, 0.0001)) + 0.5;
+			float historyInFrame = step(0.0, historyUv.x) * step(historyUv.x, 1.0) * step(0.0, historyUv.y) * step(historyUv.y, 1.0);
+			float3 history = tex2D(CausticHistoryTex, historyUv).rgb;
+			return float4(lerp(current, history, saturate(causticTemporalHistoryWeight) * historyInFrame), 1.0);
 		}
 		ENDCG
 

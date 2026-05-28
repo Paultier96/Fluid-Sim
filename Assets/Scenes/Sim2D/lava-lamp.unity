@@ -383,10 +383,10 @@ MonoBehaviour:
     sharpness: 1
     intensity: 20
     ditherStrength: 0.003921569
-    lightAzimuthDegrees: 90
+    lightAzimuthDegrees: 120
     lightElevationDegrees: 50.3
     lightColor: {r: 1, g: 1, b: 1, a: 1}
-    ambientLight: 1
+    ambientLight: 0.5
     directionalLightIntensity: 0
     normalStrength: 1.1
     normalBlurCompensation: 0.99
@@ -431,7 +431,7 @@ MonoBehaviour:
     causticsComputeShader: {fileID: 7200000, guid: 8f4e77c1b8284da4ca6c929de309e7a1, type: 3}
     causticsEnabled: 1
     causticsRenderTextureScale: 1
-    causticsIntensity: 59
+    causticsIntensity: 50
     causticsAdditiveBlend: 0
     causticsIndexOfRefraction: 1.33
     causticsPhase0IndexOfRefraction: 1.442
@@ -439,24 +439,26 @@ MonoBehaviour:
     causticsSurfaceTransmittance: 1
     causticsFresnelStrength: 1
     causticsStochasticReflection: 0
+    causticsStochasticDispersion: 0
+    causticsDispersionStrength: 0.075
     causticsLightAngularRadiusDegrees: 0
     causticsUseAnalyticBoundary: 1
-    causticsAbsorption: 0.002
-    causticsBackgroundAbsorption: 0.0005
-    causticsColorAbsorption: 0.003
-    causticsBackgroundColorAbsorption: 0.0025
-    causticsRaySteps: 64
+    causticsAbsorption: 0
+    causticsBackgroundAbsorption: 0
+    causticsColorAbsorption: 0.0075
+    causticsBackgroundColorAbsorption: 0.005
+    causticsRaySteps: 8
     causticsStepPixels: 1
     causticsNormalSampleRadius: 1
     causticsRayBrightness: 0.05
     causticsRayStride: 1
     causticsRaysPerPixel: 2
     causticsUseSoftSplat: 1
-    causticsBlurRadius: 3.06
+    causticsBlurRadius: 2
     causticsTemporalEnabled: 1
     causticsTemporalHistoryWeight: 0.75
     causticsTemporalJitterPixels: 0
-    causticsTemporalIorJitter: 0.02
+    causticsTemporalIorJitter: 0.01
     tonemapEnabled: 1
     tonemapExposure: 1
     tonemapUseAces: 0

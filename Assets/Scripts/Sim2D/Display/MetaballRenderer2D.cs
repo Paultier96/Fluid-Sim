@@ -30,7 +30,10 @@ namespace Seb.Fluid2D.Rendering
 		CommandBuffer commandBuffer;
 		bool commandBufferAttached;
 		bool clearCausticHistory;
+		bool hasPreviousCausticCamera;
 		int causticFrameIndex;
+		Vector2 previousCausticWorldCenter;
+		Vector2 previousCausticWorldSize;
 
 		public void Render(ParticleDisplay2D display, Camera cam)
 		{
@@ -240,6 +243,7 @@ namespace Seb.Fluid2D.Rendering
 					causticHistoryTexture = null;
 					causticTemporalTexture = null;
 					clearCausticHistory = true;
+					hasPreviousCausticCamera = false;
 				}
 			}
 			else
@@ -253,6 +257,7 @@ namespace Seb.Fluid2D.Rendering
 				causticHistoryTexture = null;
 				causticTemporalTexture = null;
 				clearCausticHistory = true;
+				hasPreviousCausticCamera = false;
 			}
 		}
 
@@ -407,6 +412,8 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.SetComputeFloatParam(compute, "causticsSurfaceTransmittance", settings.causticsSurfaceTransmittance);
 			commandBuffer.SetComputeFloatParam(compute, "causticsFresnelStrength", settings.causticsFresnelStrength);
 			commandBuffer.SetComputeIntParam(compute, "causticsStochasticReflection", settings.causticsStochasticReflection ? 1 : 0);
+			commandBuffer.SetComputeIntParam(compute, "causticsStochasticDispersion", settings.causticsStochasticDispersion ? 1 : 0);
+			commandBuffer.SetComputeFloatParam(compute, "causticsDispersionStrength", settings.causticsDispersionStrength);
 			commandBuffer.SetComputeFloatParam(compute, "causticsLightAngularRadius", settings.causticsLightAngularRadiusDegrees * Mathf.Deg2Rad);
 			commandBuffer.SetComputeFloatParam(compute, "causticsAbsorption", settings.causticsAbsorption);
 			commandBuffer.SetComputeFloatParam(compute, "causticsBackgroundAbsorption", settings.causticsBackgroundAbsorption);
@@ -423,8 +430,10 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.SetComputeFloatParam(compute, "obstacleY", display.sim.obstacleY);
 			float worldHeight = Mathf.Max(cam.orthographicSize * 2f, 0.0001f);
 			float worldWidth = Mathf.Max(worldHeight * cam.aspect, 0.0001f);
-			commandBuffer.SetComputeVectorParam(compute, "causticsWorldCenter", new Vector4(cam.transform.position.x, cam.transform.position.y, 0f, 0f));
-			commandBuffer.SetComputeVectorParam(compute, "causticsWorldSize", new Vector4(worldWidth, worldHeight, 0f, 0f));
+			Vector2 currentWorldCenter = new Vector2(cam.transform.position.x, cam.transform.position.y);
+			Vector2 currentWorldSize = new Vector2(worldWidth, worldHeight);
+			commandBuffer.SetComputeVectorParam(compute, "causticsWorldCenter", new Vector4(currentWorldCenter.x, currentWorldCenter.y, 0f, 0f));
+			commandBuffer.SetComputeVectorParam(compute, "causticsWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
 
 			BindCausticAccumulationTextures(compute, clearKernel);
 			commandBuffer.SetComputeTextureParam(compute, clearKernel, "CausticResult", causticResolvedTexture);
@@ -456,11 +465,26 @@ namespace Seb.Fluid2D.Rendering
 					commandBuffer.SetRenderTarget(causticHistoryTexture);
 					commandBuffer.ClearRenderTarget(false, true, Color.clear);
 					clearCausticHistory = false;
+					hasPreviousCausticCamera = false;
 				}
 
+				Vector2 historyWorldCenter = hasPreviousCausticCamera ? previousCausticWorldCenter : currentWorldCenter;
+				Vector2 historyWorldSize = hasPreviousCausticCamera ? previousCausticWorldSize : currentWorldSize;
+				commandBuffer.SetGlobalVector("causticCurrentWorldCenter", new Vector4(currentWorldCenter.x, currentWorldCenter.y, 0f, 0f));
+				commandBuffer.SetGlobalVector("causticCurrentWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
+				commandBuffer.SetGlobalVector("causticHistoryWorldCenter", new Vector4(historyWorldCenter.x, historyWorldCenter.y, 0f, 0f));
+				commandBuffer.SetGlobalVector("causticHistoryWorldSize", new Vector4(historyWorldSize.x, historyWorldSize.y, 0f, 0f));
 				commandBuffer.SetGlobalTexture("CausticHistoryTex", causticHistoryTexture);
 				commandBuffer.Blit(causticResolvedTexture, causticTemporalTexture, compositeMaterial, 5);
 				commandBuffer.Blit(causticTemporalTexture, causticHistoryTexture);
+
+				previousCausticWorldCenter = currentWorldCenter;
+				previousCausticWorldSize = currentWorldSize;
+				hasPreviousCausticCamera = true;
+			}
+			else
+			{
+				hasPreviousCausticCamera = false;
 			}
 		}
 
