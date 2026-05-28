@@ -1,0 +1,564 @@
+#pragma kernel Clear
+#pragma kernel Trace
+#pragma kernel Resolve
+
+Texture2D<float4> CombinedTex;
+Texture2D<float4> ColourMap;
+Texture2D<float4> ColourMap2;
+RWTexture2D<uint> CausticAccumR;
+RWTexture2D<uint> CausticAccumG;
+RWTexture2D<uint> CausticAccumB;
+RWTexture2D<float4> CausticResult;
+
+int combinedWidth;
+int combinedHeight;
+int causticWidth;
+int causticHeight;
+int causticsPhase = 0;
+int causticsRaySteps;
+int causticsRayStride;
+int causticsRaysPerPixel;
+int causticsUseSoftSplat;
+int causticsStochasticReflection;
+int causticsFrameIndex;
+float densityThreshold;
+float causticsStepPixels;
+float causticsNormalSampleRadius;
+float causticsIndexOfRefraction;
+float causticsPhase0IndexOfRefraction;
+float causticsPhase1IndexOfRefraction;
+float causticsSurfaceTransmittance;
+float causticsFresnelStrength;
+float causticsLightAngularRadius;
+float causticsAbsorption;
+float causticsBackgroundAbsorption;
+float causticsColorAbsorption;
+float causticsBackgroundColorAbsorption;
+float causticsRayBrightness;
+float causticsTemporalJitterPixels;
+float causticsTemporalIorJitter;
+float3 causticsLightDirection;
+int useEllipticalBounds;
+float2 ellipseBoundsCenter;
+float2 ellipseBoundsSize;
+float obstacleY;
+float2 causticsWorldCenter;
+float2 causticsWorldSize;
+
+float4 LoadCombinedPixel(int2 pixel)
+{
+	pixel = clamp(pixel, int2(0, 0), int2(combinedWidth - 1, combinedHeight - 1));
+	return CombinedTex.Load(int3(pixel, 0));
+}
+
+float4 SampleCombined(float2 uv)
+{
+	int2 pixel = (int2)round(saturate(uv) * float2(combinedWidth - 1, combinedHeight - 1));
+	return LoadCombinedPixel(pixel);
+}
+
+bool InsideTexture(float2 uv)
+{
+	return all(uv >= 0.0) && all(uv <= 1.0);
+}
+
+float DensityAt(float2 uv)
+{
+	if (!InsideTexture(uv))
+	{
+		return 0.0;
+	}
+
+	float4 combined = SampleCombined(uv);
+	return causticsPhase == 0 ? combined.g : combined.a;
+}
+
+float SelectedDensity(float4 combined)
+{
+	return causticsPhase == 0 ? combined.g : combined.a;
+}
+
+int PhaseFromCombined(float4 combined)
+{
+	if (combined.g >= densityThreshold && combined.g >= combined.a)
+	{
+		return 0;
+	}
+
+	if (combined.a >= densityThreshold)
+	{
+		return 1;
+	}
+
+	return -1;
+}
+
+int PhaseAt(float2 uv)
+{
+	return InsideTexture(uv) ? PhaseFromCombined(SampleCombined(uv)) : -1;
+}
+
+float3 SampleColourMap(Texture2D<float4> colourMap, float t)
+{
+	uint width;
+	uint height;
+	colourMap.GetDimensions(width, height);
+	float2 pixel = float2(saturate(t) * max((float)width - 1.0, 0.0), 0.5 * max((float)height - 1.0, 0.0));
+	int2 p00 = (int2)floor(pixel);
+	int2 p10 = p00 + int2(1, 0);
+	float f = pixel.x - p00.x;
+	p00 = clamp(p00, int2(0, 0), int2((int)width - 1, (int)height - 1));
+	p10 = clamp(p10, int2(0, 0), int2((int)width - 1, (int)height - 1));
+	return lerp(colourMap.Load(int3(p00, 0)).rgb, colourMap.Load(int3(p10, 0)).rgb, f);
+}
+
+float3 RayColourFromCombined(float4 combined, int phase)
+{
+	if (phase == 0)
+	{
+		float data = combined.r / max(combined.g, 0.0001);
+		return SampleColourMap(ColourMap, data);
+	}
+
+	if (phase == 1)
+	{
+		float data = combined.b / max(combined.a, 0.0001);
+		return SampleColourMap(ColourMap2, data);
+	}
+
+	return 1.0;
+}
+
+float3 RayColourAt(float2 uv)
+{
+	if (!InsideTexture(uv))
+	{
+		return 1.0;
+	}
+
+	float4 combined = SampleCombined(uv);
+	return RayColourFromCombined(combined, PhaseFromCombined(combined));
+}
+
+float2 DensityGradient(float2 uv)
+{
+	float2 texel = max(causticsNormalSampleRadius, 1.0) / float2(max(combinedWidth, 1), max(combinedHeight, 1));
+	float dx = DensityAt(uv + float2(texel.x, 0.0)) - DensityAt(uv - float2(texel.x, 0.0));
+	float dy = DensityAt(uv + float2(0.0, texel.y)) - DensityAt(uv - float2(0.0, texel.y));
+	return float2(dx, dy);
+}
+
+float2 SurfaceNormal(float2 uv, float2 rayDir)
+{
+	float2 gradient = DensityGradient(uv);
+	float2 normal = length(gradient) > 0.000001 ? -normalize(gradient) : -normalize(rayDir + 0.0001);
+	return dot(rayDir, normal) > 0.0 ? -normal : normal;
+}
+
+float2 UvToWorld(float2 uv)
+{
+	return causticsWorldCenter + (uv - 0.5) * causticsWorldSize;
+}
+
+float2 BoundaryDistances(float2 worldPos)
+{
+	float2 radii = max(abs(ellipseBoundsSize), 0.0001);
+	float2 rel = worldPos - ellipseBoundsCenter;
+	float2 q = rel / radii;
+	float qLen = max(length(q), 0.0001);
+	float ellipseGradientLength = length(float2(q.x / radii.x, q.y / radii.y)) / qLen;
+	float ellipseDistance = (qLen - 1.0) / max(ellipseGradientLength, 0.0001);
+	float insideEllipseX = step(abs(q.x), 1.0);
+	float cutDistance = (obstacleY - worldPos.y) * insideEllipseX;
+	return float2(ellipseDistance, cutDistance);
+}
+
+float AnalyticBoundaryDistance(float2 worldPos)
+{
+	float2 distances = BoundaryDistances(worldPos);
+	return max(distances.x, distances.y);
+}
+
+bool InsideAnalyticBoundary(float2 uv)
+{
+	return useEllipticalBounds == 0 || AnalyticBoundaryDistance(UvToWorld(uv)) <= 0.0;
+}
+
+float2 AnalyticBoundaryNormal(float2 worldPos)
+{
+	float2 radii = max(abs(ellipseBoundsSize), 0.0001);
+	float2 rel = worldPos - ellipseBoundsCenter;
+	float2 q = rel / radii;
+	float2 ellipseNormal = length(q) > 0.0001
+		? normalize(float2(q.x / radii.x, q.y / radii.y))
+		: float2(0.0, 1.0);
+	float insideEllipseX = step(abs(q.x), 1.0);
+	float2 distances = BoundaryDistances(worldPos);
+	float boundaryDelta = distances.y - distances.x;
+	float cutT = smoothstep(-0.0001, 0.0001, boundaryDelta) * insideEllipseX;
+	float2 cutNormal = float2(0.0, -1.0);
+	return normalize(lerp(ellipseNormal, cutNormal, cutT));
+}
+
+float2 AnalyticSurfaceNormal(float2 uv, float2 rayDir)
+{
+	float2 worldNormal = AnalyticBoundaryNormal(UvToWorld(uv));
+	float2 normal = normalize(worldNormal / max(causticsWorldSize, 0.0001));
+	return dot(rayDir, normal) > 0.0 ? -normal : normal;
+}
+
+float2 Refract2D(float2 rayDir, float2 normal, float eta)
+{
+	normal = dot(rayDir, normal) > 0.0 ? -normal : normal;
+	float cosI = dot(-rayDir, normal);
+	float sinT2 = eta * eta * max(0.0, 1.0 - cosI * cosI);
+	if (sinT2 > 1.0)
+	{
+		return normalize(rayDir - 2.0 * dot(rayDir, normal) * normal);
+	}
+
+	float cosT = sqrt(max(0.0, 1.0 - sinT2));
+	return normalize(eta * rayDir + (eta * cosI - cosT) * normal);
+}
+
+float FresnelSchlick2D(float2 rayDir, float2 normal, float eta)
+{
+	normal = dot(rayDir, normal) > 0.0 ? -normal : normal;
+	float cosI = saturate(dot(-rayDir, normal));
+	float r0 = (1.0 - eta) / (1.0 + eta);
+	r0 *= r0;
+	return saturate(r0 + (1.0 - r0) * pow(1.0 - cosI, 5.0));
+}
+
+float SurfaceTransmission(float2 rayDir, float2 normal, float eta)
+{
+	float fresnel = FresnelSchlick2D(rayDir, normal, eta) * saturate(causticsFresnelStrength);
+	return saturate(causticsSurfaceTransmittance) * saturate(1.0 - fresnel);
+}
+
+float2 Reflect2D(float2 rayDir, float2 normal)
+{
+	normal = dot(rayDir, normal) > 0.0 ? -normal : normal;
+	return normalize(rayDir - 2.0 * dot(rayDir, normal) * normal);
+}
+
+float Random01(int raySeed, int stepIndex)
+{
+	float n = raySeed * 12.9898 + stepIndex * 78.233 + causticsFrameIndex * 37.719;
+	return frac(sin(n) * 43758.5453);
+}
+
+uint HashUint(uint x)
+{
+	x ^= x >> 16;
+	x *= 0x7feb352du;
+	x ^= x >> 15;
+	x *= 0x846ca68bu;
+	x ^= x >> 16;
+	return x;
+}
+
+float Hash01(uint seed)
+{
+	return (HashUint(seed) & 0x00ffffffu) / 16777215.0;
+}
+
+float2 Rotate2D(float2 v, float angle)
+{
+	float s = sin(angle);
+	float c = cos(angle);
+	return float2(v.x * c - v.y * s, v.x * s + v.y * c);
+}
+
+bool ResolveSurfaceDirection(inout float2 rayDir, float2 normal, float eta, int raySeed, int stepIndex)
+{
+	if (causticsStochasticReflection != 0)
+	{
+		float fresnel = FresnelSchlick2D(rayDir, normal, eta) * saturate(causticsFresnelStrength);
+		if (Random01(raySeed, stepIndex) < fresnel)
+		{
+			rayDir = Reflect2D(rayDir, normal);
+			return false;
+		}
+
+		rayDir = Refract2D(rayDir, normal, eta);
+		return true;
+	}
+
+	rayDir = Refract2D(rayDir, normal, eta);
+	return true;
+}
+
+float FrameJitter01(int frameIndex)
+{
+	return frac(frameIndex * 0.61803398875 + 0.5);
+}
+
+float EffectiveIor(int raySeed)
+{
+	float jitter = frac((causticsFrameIndex + raySeed * 17) * 0.61803398875 + 0.137) * 2.0 - 1.0;
+	return max(1.0001, causticsIndexOfRefraction * (1.0 + jitter * max(causticsTemporalIorJitter, 0.0)));
+}
+
+float PhaseIor(int phase)
+{
+	return phase == 0 ? max(causticsPhase0IndexOfRefraction, 1.0001) : max(causticsPhase1IndexOfRefraction, 1.0001);
+}
+
+float EffectivePhaseEta(bool enteringSelectedPhase, int raySeed)
+{
+	int selectedPhase = causticsPhase == 0 ? 0 : 1;
+	int otherPhase = selectedPhase == 0 ? 1 : 0;
+	float nSelected = PhaseIor(selectedPhase);
+	float nOther = PhaseIor(otherPhase);
+	float eta = enteringSelectedPhase ? nOther / nSelected : nSelected / nOther;
+	float jitter = frac((causticsFrameIndex + raySeed * 17) * 0.61803398875 + 0.137) * 2.0 - 1.0;
+	return max(0.0001, eta * (1.0 + jitter * max(causticsTemporalIorJitter, 0.0)));
+}
+
+bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir)
+{
+	int2 rayId = int2(id.xy);
+	float2 lightXY = float2(-causticsLightDirection.x, -causticsLightDirection.y);
+	rayDir = length(lightXY) > 0.0001 ? normalize(lightXY) : float2(1.0, 0.0);
+	uint initialRaySeed = id.x * 1973u ^ id.y * 9277u ^ (uint)causticsFrameIndex * 26699u;
+	float angleJitter = (Hash01(initialRaySeed) * 2.0 - 1.0) * max(causticsLightAngularRadius, 0.0);
+	rayDir = Rotate2D(rayDir, angleJitter);
+	float margin = 2.0 * causticsStepPixels / max(min(causticWidth, causticHeight), 1);
+	float jitter = (FrameJitter01(causticsFrameIndex) - 0.5) * causticsTemporalJitterPixels;
+
+	if (abs(rayDir.x) >= abs(rayDir.y))
+	{
+		int rayStride = max(causticsRayStride, 1);
+		int raysPerPixel = max(causticsRaysPerPixel, 1);
+		int baseRay = rayId.y / raysPerPixel;
+		int subRay = rayId.y - baseRay * raysPerPixel;
+		if (rayId.x != 0 || baseRay >= causticHeight || baseRay % rayStride != 0)
+		{
+			return false;
+		}
+
+		float rayOffset = (subRay + 0.5) / raysPerPixel;
+		uv = float2(rayDir.x >= 0.0 ? -margin : 1.0 + margin, (baseRay + rayOffset + jitter) / causticHeight);
+		return true;
+	}
+
+	int rayStride = max(causticsRayStride, 1);
+	int raysPerPixel = max(causticsRaysPerPixel, 1);
+	int baseRay = rayId.x / raysPerPixel;
+	int subRay = rayId.x - baseRay * raysPerPixel;
+	if (rayId.y != 0 || baseRay >= causticWidth || baseRay % rayStride != 0)
+	{
+		return false;
+	}
+
+	float rayOffset = (subRay + 0.5) / raysPerPixel;
+	uv = float2((baseRay + rayOffset + jitter) / causticWidth, rayDir.y >= 0.0 ? -margin : 1.0 + margin);
+	return true;
+}
+
+uint4 EncodeEnergy(float3 energy)
+{
+	uint3 rgb = (uint3)round(max(energy, 0.0) * 65535.0);
+	return uint4(rgb.r, rgb.g, rgb.b, 0u);
+}
+
+void AddCausticAtUv(float2 uv, float energy, float3 colour)
+{
+	if (energy <= 0.0 || !InsideTexture(uv))
+	{
+		return;
+	}
+
+	float2 splatCentre = uv * float2(causticWidth - 1, causticHeight - 1);
+	if (causticsUseSoftSplat == 0)
+	{
+		int2 splatPixel = (int2)round(splatCentre);
+		uint4 encodedEnergy = EncodeEnergy(colour * energy);
+		InterlockedAdd(CausticAccumR[splatPixel], encodedEnergy.r);
+		InterlockedAdd(CausticAccumG[splatPixel], encodedEnergy.g);
+		InterlockedAdd(CausticAccumB[splatPixel], encodedEnergy.b);
+		return;
+	}
+
+	float2 baseFloat = floor(splatCentre);
+	float2 f = splatCentre - baseFloat;
+	int2 basePixel = (int2)baseFloat;
+	int2 maxPixel = int2(causticWidth - 1, causticHeight - 1);
+
+	int2 p00 = basePixel;
+	int2 p10 = basePixel + int2(1, 0);
+	int2 p01 = basePixel + int2(0, 1);
+	int2 p11 = basePixel + int2(1, 1);
+
+	float w00 = (1.0 - f.x) * (1.0 - f.y);
+	float w10 = f.x * (1.0 - f.y);
+	float w01 = (1.0 - f.x) * f.y;
+	float w11 = f.x * f.y;
+
+	uint4 e00 = EncodeEnergy(colour * energy * w00);
+	uint4 e10 = EncodeEnergy(colour * energy * w10);
+	uint4 e01 = EncodeEnergy(colour * energy * w01);
+	uint4 e11 = EncodeEnergy(colour * energy * w11);
+
+	if (all(p00 >= 0) && all(p00 <= maxPixel))
+	{
+		InterlockedAdd(CausticAccumR[p00], e00.r);
+		InterlockedAdd(CausticAccumG[p00], e00.g);
+		InterlockedAdd(CausticAccumB[p00], e00.b);
+	}
+	if (all(p10 >= 0) && all(p10 <= maxPixel))
+	{
+		InterlockedAdd(CausticAccumR[p10], e10.r);
+		InterlockedAdd(CausticAccumG[p10], e10.g);
+		InterlockedAdd(CausticAccumB[p10], e10.b);
+	}
+	if (all(p01 >= 0) && all(p01 <= maxPixel))
+	{
+		InterlockedAdd(CausticAccumR[p01], e01.r);
+		InterlockedAdd(CausticAccumG[p01], e01.g);
+		InterlockedAdd(CausticAccumB[p01], e01.b);
+	}
+	if (all(p11 >= 0) && all(p11 <= maxPixel))
+	{
+		InterlockedAdd(CausticAccumR[p11], e11.r);
+		InterlockedAdd(CausticAccumG[p11], e11.g);
+		InterlockedAdd(CausticAccumB[p11], e11.b);
+	}
+}
+
+[numthreads(16, 16, 1)]
+void Clear(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= causticWidth || id.y >= causticHeight)
+	{
+		return;
+	}
+
+	CausticAccumR[int2(id.xy)] = 0;
+	CausticAccumG[int2(id.xy)] = 0;
+	CausticAccumB[int2(id.xy)] = 0;
+	CausticResult[int2(id.xy)] = 0.0;
+}
+
+[numthreads(16, 16, 1)]
+void Trace(uint3 id : SV_DispatchThreadID)
+{
+	float2 uv;
+	float2 rayDir;
+	if (!InitializeRay(id, uv, rayDir))
+	{
+		return;
+	}
+
+	float2 causticSize = float2(causticWidth, causticHeight);
+	float2 rayStep = rayDir * causticsStepPixels / causticSize;
+	float4 currentCombined = InsideTexture(uv) ? SampleCombined(uv) : float4(0.0, 0.0, 0.0, 0.0);
+	float previousDensity = SelectedDensity(currentCombined);
+	bool inside = previousDensity >= densityThreshold;
+	bool insideBoundary = InsideAnalyticBoundary(uv);
+	bool previousInsideBoundary = insideBoundary;
+	bool enteredTexture = InsideTexture(uv);
+	float causticLineEnergy = max(causticsRayBrightness, 0.0) / max(causticsRaysPerPixel, 1);
+	float3 rayEnergy = 1.0;
+	bool useColourAbsorption = causticsColorAbsorption > 0.0 || causticsBackgroundColorAbsorption > 0.0;
+	int currentPhase = useColourAbsorption ? PhaseFromCombined(currentCombined) : -1;
+	float3 mediumColour = useColourAbsorption ? RayColourFromCombined(currentCombined, currentPhase) : 1.0;
+	int raySeed = (int)id.x + (int)id.y;
+	float effectiveIor = EffectiveIor(raySeed);
+	int maxSteps = min(4096, (int)ceil(length(causticSize) / max(causticsStepPixels, 0.25)) + causticsRaySteps);
+
+	for (int stepIndex = 0; stepIndex < maxSteps; stepIndex++)
+	{
+		uv += rayStep;
+		bool inTexture = InsideTexture(uv);
+		if (!inTexture)
+		{
+			if (enteredTexture && !inside)
+			{
+				return;
+			}
+
+			previousDensity = 0.0;
+			continue;
+		}
+
+		enteredTexture = true;
+		currentCombined = SampleCombined(uv);
+		float density = SelectedDensity(currentCombined);
+		insideBoundary = InsideAnalyticBoundary(uv);
+		if (useColourAbsorption)
+		{
+			int phase = PhaseFromCombined(currentCombined);
+			if (phase != currentPhase)
+			{
+				currentPhase = phase;
+				mediumColour = RayColourFromCombined(currentCombined, currentPhase);
+			}
+		}
+		float absorption = inside ? causticsAbsorption : causticsBackgroundAbsorption;
+		float colorAbsorption = inside ? causticsColorAbsorption : causticsBackgroundColorAbsorption;
+		if (colorAbsorption > 0.0)
+		{
+			float colourFilterStrength = saturate(1.0 - exp(-colorAbsorption * causticsStepPixels));
+			rayEnergy *= lerp(1.0, mediumColour, colourFilterStrength);
+		}
+		rayEnergy *= exp(-max(absorption, 0.0) * causticsStepPixels);
+
+		if (causticLineEnergy > 0.0)
+		{
+			AddCausticAtUv(uv, causticLineEnergy, rayEnergy);
+		}
+
+		if (useEllipticalBounds != 0 && previousInsideBoundary != insideBoundary)
+		{
+			bool enteringBoundary = !previousInsideBoundary && insideBoundary;
+			float eta = enteringBoundary ? 1.0 / effectiveIor : effectiveIor;
+			float2 normal = enteringBoundary ? AnalyticSurfaceNormal(uv, rayDir) : -AnalyticSurfaceNormal(uv, rayDir);
+			float surfaceEnergy = causticsStochasticReflection != 0 ? saturate(causticsSurfaceTransmittance) : SurfaceTransmission(rayDir, normal, eta);
+			bool transmitted = ResolveSurfaceDirection(rayDir, normal, eta, raySeed + 7919, stepIndex);
+			rayEnergy *= surfaceEnergy;
+			rayStep = rayDir * causticsStepPixels / causticSize;
+			insideBoundary = transmitted ? insideBoundary : previousInsideBoundary;
+		}
+
+		if (!inside && previousDensity < densityThreshold && density >= densityThreshold)
+		{
+			float2 normal = SurfaceNormal(uv, rayDir);
+			float eta = EffectivePhaseEta(true, raySeed);
+			float surfaceEnergy = causticsStochasticReflection != 0 ? saturate(causticsSurfaceTransmittance) : SurfaceTransmission(rayDir, normal, eta);
+			bool transmitted = ResolveSurfaceDirection(rayDir, normal, eta, raySeed, stepIndex);
+			rayEnergy *= surfaceEnergy;
+			rayStep = rayDir * causticsStepPixels / causticSize;
+			inside = transmitted;
+			density = transmitted ? density : densityThreshold - 0.000001;
+		}
+		else if (inside && previousDensity >= densityThreshold && density < densityThreshold)
+		{
+			float2 normal = -SurfaceNormal(uv, rayDir);
+			float eta = EffectivePhaseEta(false, raySeed);
+			float surfaceEnergy = causticsStochasticReflection != 0 ? saturate(causticsSurfaceTransmittance) : SurfaceTransmission(rayDir, normal, eta);
+			bool transmitted = ResolveSurfaceDirection(rayDir, normal, eta, raySeed, stepIndex);
+			rayEnergy *= surfaceEnergy;
+			rayStep = rayDir * causticsStepPixels / causticSize;
+			inside = !transmitted;
+			density = transmitted ? density : densityThreshold + 0.000001;
+		}
+
+		previousDensity = density;
+		previousInsideBoundary = insideBoundary;
+	}
+}
+
+[numthreads(16, 16, 1)]
+void Resolve(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= causticWidth || id.y >= causticHeight)
+	{
+		return;
+	}
+
+	int2 pixel = int2(id.xy);
+	float3 caustic = float3((float)CausticAccumR[pixel], (float)CausticAccumG[pixel], (float)CausticAccumB[pixel]) / 65535.0;
+	CausticResult[int2(id.xy)] = float4(caustic, 1.0);
+}

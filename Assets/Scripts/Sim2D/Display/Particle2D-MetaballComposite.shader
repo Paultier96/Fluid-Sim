@@ -29,6 +29,8 @@ Shader "Hidden/Particle2DMetaballComposite" {
 		sampler2D DebugSignedHeatMap;
 		sampler2D _MainTex;
 		sampler2D BloomTex;
+		sampler2D CausticTex;
+		sampler2D CausticHistoryTex;
 		float4 _MainTex_TexelSize;
 		float densityThreshold;
 		float edgeSoftness;
@@ -50,6 +52,13 @@ Shader "Hidden/Particle2DMetaballComposite" {
 		int customBloomEnabled;
 		int metaballTonemapEnabled;
 		float metaballTonemapExposure;
+		int metaballTonemapUseAces;
+		float metaballTonemapHighlightDesaturation;
+		int metaballCausticsEnabled;
+		float metaballCausticsIntensity;
+		float metaballCausticsAdditiveBlend;
+		float4 metaballCausticsColor;
+		float causticTemporalHistoryWeight;
 		float3 particleLightDirection;
 		float4 particleLightColor;
 		float particleAmbientLight;
@@ -92,6 +101,12 @@ Shader "Hidden/Particle2DMetaballComposite" {
 		float Dither01(float t, float noise)
 		{
 			return saturate(t + (noise - 0.5) * ditherStrength);
+		}
+
+		float3 DitherColour(float3 colour, float2 pixel)
+		{
+			float noise = InterleavedGradientNoise(pixel);
+			return max(0.0, colour + (noise - 0.5) * ditherStrength);
 		}
 
 		float3 HeatMapClipColour(float t)
@@ -383,6 +398,18 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			return colour * (shapedContribution / max(brightness, 0.0001));
 		}
 
+		float3 ApplyCaustics(float2 uv, float3 colour)
+		{
+			if (metaballCausticsEnabled == 0)
+			{
+				return colour;
+			}
+
+			float3 caustic = tex2D(CausticTex, uv).rgb * metaballCausticsColor.rgb * metaballCausticsIntensity;
+			float3 litCaustic = colour * caustic;
+			return colour + lerp(litCaustic, caustic, saturate(metaballCausticsAdditiveBlend));
+		}
+
 		float3 TonemapPreserveHue(float3 colour)
 		{
 			if (metaballTonemapEnabled == 0)
@@ -392,8 +419,25 @@ Shader "Hidden/Particle2DMetaballComposite" {
 
 			colour = max(colour, 0.0) * max(metaballTonemapExposure, 0.0);
 			float peak = max(max(colour.r, colour.g), colour.b);
+			float whiteT = saturate((peak - 1.0) * saturate(metaballTonemapHighlightDesaturation));
+			colour = lerp(colour, peak.xxx, whiteT);
 			float mappedPeak = 1.0 - exp(-peak);
 			return colour * (mappedPeak / max(peak, 0.0001));
+		}
+
+		float3 AcesFitted(float3 colour)
+		{
+			const float a = 2.51;
+			const float b = 0.03;
+			const float c = 2.43;
+			const float d = 0.59;
+			const float e = 0.14;
+			return saturate((colour * (a * colour + b)) / (colour * (c * colour + d) + e));
+		}
+
+		float3 Tonemap(float3 colour)
+		{
+			return metaballTonemapUseAces != 0 ? AcesFitted(max(colour, 0.0) * max(metaballTonemapExposure, 0.0)) : TonemapPreserveHue(colour);
 		}
 
 		float4 frag(v2f i) : SV_Target
@@ -410,11 +454,13 @@ Shader "Hidden/Particle2DMetaballComposite" {
 
 			if (debugMode == 0)
 			{
+				colour = ApplyCaustics(i.uv, colour);
 				if (customBloomEnabled != 0)
 				{
 					colour += tex2D(BloomTex, i.uv).rgb * customBloomIntensity;
 				}
-				colour = TonemapPreserveHue(colour);
+				colour = Tonemap(colour);
+				colour = DitherColour(colour, i.vertex.xy);
 			}
 
 			return float4(colour, alpha);
@@ -431,6 +477,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			{
 				return 0.0;
 			}
+			colour = ApplyCaustics(i.uv, colour);
 			return float4(ExtractBloom(colour) * alpha, 1.0);
 		}
 
@@ -482,6 +529,13 @@ Shader "Hidden/Particle2DMetaballComposite" {
 		{
 			return UpsampleTent(i.uv) + tex2D(BloomTex, i.uv);
 		}
+
+		float4 fragCausticTemporal(v2f i) : SV_Target
+		{
+			float3 current = tex2D(_MainTex, i.uv).rgb;
+			float3 history = tex2D(CausticHistoryTex, i.uv).rgb;
+			return float4(lerp(current, history, saturate(causticTemporalHistoryWeight)), 1.0);
+		}
 		ENDCG
 
 		Pass {
@@ -521,6 +575,14 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			CGPROGRAM
 			#pragma vertex vert
 			#pragma fragment fragBloomUpsample
+			ENDCG
+		}
+
+		Pass {
+			Blend One Zero
+			CGPROGRAM
+			#pragma vertex vert
+			#pragma fragment fragCausticTemporal
 			ENDCG
 		}
 

@@ -84,8 +84,10 @@ namespace Seb.Fluid2D.Rendering
 			[Min(0f)] public float ditherStrength = 1.0f / 255.0f;
 
 			[Header("Lighting")]
-			[Tooltip("Direction toward the light used to shade particles in normal rendering mode.")]
-			public Vector3 lightDirection = new Vector3(-0.35f, 0.55f, 0.75f);
+			[Tooltip("Horizontal screen/world angle of the light direction in degrees.")]
+			public float lightAzimuthDegrees = 122.5f;
+			[Tooltip("Vertical angle of the light direction in degrees. 0 lies in the 2D plane, 90 points toward the camera.")]
+			[Range(-89f, 89f)] public float lightElevationDegrees = 50.3f;
 			[Tooltip("Colour of the directional light used to shade particles in normal rendering mode.")]
 			[ColorUsage(false, true)] public Color lightColor = Color.white;
 			[Tooltip("Unlit colour multiplier. Increase if shadowed particles are too dark.")]
@@ -183,11 +185,89 @@ namespace Seb.Fluid2D.Rendering
 			[Tooltip("Number of downsampled pyramid levels used for metaball-only bloom.")]
 			[Range(1, 4)] public int bloomIterations = 3;
 
+			[Header("Caustics")]
+			[Tooltip("Compute shader used to raymarch the metaball density field and accumulate screen-space caustics.")]
+			public ComputeShader causticsComputeShader;
+			[Tooltip("Adds a low-resolution screen-space caustic texture generated from the metaball density iso-surface.")]
+			public bool causticsEnabled;
+			[Tooltip("Resolution of the caustic textures relative to the metaball render textures.")]
+			[Range(0.125f, 1f)] public float causticsRenderTextureScale = 0.5f;
+			[Tooltip("Brightness of the caustic contribution added before metaball tonemapping.")]
+			[Min(0f)] public float causticsIntensity = 0.5f;
+			[Tooltip("0 makes caustics illuminate the existing fluid colour; 1 makes them a pure additive overlay.")]
+			[Range(0f, 1f)] public float causticsAdditiveBlend = 0.25f;
+			[Tooltip("Index of refraction used by the analytic boundary approximation.")]
+			[Min(1.0001f)] public float causticsIndexOfRefraction = 1.33f;
+			[Tooltip("Index of refraction for phase 0 when bending caustic rays across visible phase boundaries.")]
+			[Min(1.0001f)] public float causticsPhase0IndexOfRefraction = 1.442f;
+			[Tooltip("Index of refraction for phase 1 when bending caustic rays across visible phase boundaries.")]
+			[Min(1.0001f)] public float causticsPhase1IndexOfRefraction = 1.333f;
+			[Tooltip("Energy retained by the transmitted caustic ray at each phase surface before Fresnel loss.")]
+			[Range(0f, 1f)] public float causticsSurfaceTransmittance = 1f;
+			[Tooltip("Strength of Fresnel energy loss at phase surfaces. 0 ignores Fresnel, 1 uses Schlick Fresnel.")]
+			[Range(0f, 1f)] public float causticsFresnelStrength = 1f;
+			[Tooltip("Uses Fresnel as a probability to randomly reflect caustic rays at surfaces instead of always transmitting one refracted ray.")]
+			public bool causticsStochasticReflection = false;
+			[Tooltip("Angular radius of the caustic light source in degrees. 0 keeps perfectly parallel rays.")]
+			[Min(0f)] public float causticsLightAngularRadiusDegrees = 0f;
+			[Tooltip("Refracts caustic rays through the analytic ellipse/cut simulation boundary when elliptical bounds are enabled.")]
+			public bool causticsUseAnalyticBoundary = true;
+			[Tooltip("Exponential energy loss per caustic texture pixel travelled inside the selected phase.")]
+			[Min(0f)] public float causticsAbsorption = 0f;
+			[Tooltip("Exponential energy loss per caustic texture pixel travelled outside the selected phase.")]
+			[Min(0f)] public float causticsBackgroundAbsorption = 0f;
+			[Tooltip("How quickly caustic rays inherit medium colour while travelling through the selected phase, independent of brightness absorption.")]
+			[Min(0f)] public float causticsColorAbsorption = 0f;
+			[Tooltip("How quickly caustic rays inherit background colour while travelling outside the selected phase, independent of brightness absorption.")]
+			[Min(0f)] public float causticsBackgroundColorAbsorption = 0f;
+			[Tooltip("Number of raymarch steps used per caustic ray. Higher values find exits more reliably but cost more.")]
+			[Range(8, 192)] public int causticsRaySteps = 64;
+			[HideInInspector] public float causticsStepPixels = 1.0f;
+			[Tooltip("Uses a wider density-gradient sample radius for caustic refraction normals. Caustic normal sampling radius in whole density texture pixels. 1 matches the default central difference.")]
+			[Min(1)] public int causticsNormalSampleRadius = 1;
+			[Tooltip("Brightness deposited along caustic ray paths. Keep at 0 to hide ray paths.")]
+			[Min(0f)] public float causticsRayBrightness = 0.05f;
+			[Tooltip("Launches only every Nth caustic ray for easier debugging. 1 uses every ray.")]
+			[Min(1)] public int causticsRayStride = 1;
+			[Tooltip("Launches multiple caustic rays per source pixel for denser supersampling. Cost scales roughly linearly.")]
+			[Range(1, 4)] public int causticsRaysPerPixel = 1;
+			[Tooltip("Splats each caustic ray sample bilinearly into four pixels. Disable to use the cheaper single-pixel atomic write.")]
+			public bool causticsUseSoftSplat = true;
+			[Tooltip("Small blur applied to the resolved caustic texture to reduce atomic splat noise.")]
+			[Min(0f)] public float causticsBlurRadius = 1.5f;
+			[Tooltip("Blends caustics with the previous frame to reduce flicker.")]
+			public bool causticsTemporalEnabled = false;
+			[Tooltip("Previous-frame weight used by caustic temporal blending. 0 uses only current frame; 0.55 means current * 0.45 + previous * 0.55.")]
+			[Range(0f, 0.98f)] public float causticsTemporalHistoryWeight = 0.55f;
+			[Tooltip("Frame-to-frame ray lattice jitter in caustic texture pixels. Useful with temporal blending.")]
+			[Min(0f)] public float causticsTemporalJitterPixels = 0f;
+			[Tooltip("Frame-to-frame relative IOR jitter used to slightly vary refracted ray paths for temporal smoothing. 0.005 means +/-0.5%.")]
+			[Min(0f)] public float causticsTemporalIorJitter = 0f;
+
 			[Header("Tonemapping")]
 			[Tooltip("Compresses metaball lighting and custom bloom before output to reduce highlight clipping and hue shifts.")]
 			public bool tonemapEnabled = true;
 			[Tooltip("Exposure applied before metaball tonemapping. 1 preserves current brightness before compression.")]
 			[Min(0f)] public float tonemapExposure = 1.0f;
+			[Tooltip("Uses an ACES-style fitted curve instead of the peak-preserving exponential tonemap.")]
+			public bool tonemapUseAces = false;
+			[Tooltip("Desaturates very bright tonemapped highlights toward white to avoid coloured channel clipping.")]
+			[Range(0f, 1f)] public float tonemapHighlightDesaturation = 0.5f;
+
+			public Vector3 LightDirection
+			{
+				get
+				{
+					float azimuth = lightAzimuthDegrees * Mathf.Deg2Rad;
+					float elevation = lightElevationDegrees * Mathf.Deg2Rad;
+					float planarLength = Mathf.Cos(elevation);
+					return new Vector3(
+						Mathf.Cos(azimuth) * planarLength,
+						Mathf.Sin(azimuth) * planarLength,
+						Mathf.Sin(elevation)
+					).normalized;
+				}
+			}
 		}
 	}
 }
