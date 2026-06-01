@@ -194,10 +194,14 @@ namespace Seb.Fluid2D.Rendering
 			[Range(0.125f, 1f)] public float causticsRenderTextureScale = 0.5f;
 			[Tooltip("Brightness of the caustic contribution added before metaball tonemapping.")]
 			[Min(0f)] public float causticsIntensity = 0.5f;
+			[Tooltip("Multiplier for using the ray-marched caustic texture as coloured direct-light irradiance in metaball lighting. Values above 1 allow focused rays to brighten lighting strongly.")]
+			[Min(0f)] public float causticsLightFieldIntensity = 1f;
 			[Tooltip("0 makes caustics illuminate the existing fluid colour; 1 makes them a pure additive overlay.")]
 			[Range(0f, 1f)] public float causticsAdditiveBlend = 0.25f;
-			[Tooltip("Index of refraction used by the analytic boundary approximation.")]
+			[Tooltip("Fluid index of refraction used at the inner analytic glass-fluid boundary.")]
 			[Min(1.0001f)] public float causticsIndexOfRefraction = 1.33f;
+			[Tooltip("Glass index of refraction used by the expanded analytic boundary shell.")]
+			[Min(1.0001f)] public float causticsGlassIndexOfRefraction = 1.516f;
 			[Tooltip("Index of refraction for phase 0 when bending caustic rays across visible phase boundaries.")]
 			[Min(1.0001f)] public float causticsPhase0IndexOfRefraction = 1.442f;
 			[Tooltip("Index of refraction for phase 1 when bending caustic rays across visible phase boundaries.")]
@@ -208,33 +212,33 @@ namespace Seb.Fluid2D.Rendering
 			[Range(0f, 1f)] public float causticsFresnelStrength = 1f;
 			[Tooltip("Uses Fresnel as a probability to randomly reflect caustic rays at surfaces instead of always transmitting one refracted ray.")]
 			public bool causticsStochasticReflection = false;
-			[Tooltip("Randomly traces one RGB wavelength per caustic ray and shifts IOR per wavelength. Best with temporal blending.")]
-			public bool causticsStochasticDispersion = false;
 			[Tooltip("Relative IOR spread used by stochastic spectral caustic tracing. 0.02 means red/blue use roughly -/+2% IOR.")]
 			[Min(0f)] public float causticsDispersionStrength = 0f;
 			[Tooltip("Angular radius of the caustic light source in degrees. 0 keeps perfectly parallel rays.")]
 			[Min(0f)] public float causticsLightAngularRadiusDegrees = 0f;
 			[Tooltip("Refracts caustic rays through the analytic ellipse/cut simulation boundary when elliptical bounds are enabled.")]
 			public bool causticsUseAnalyticBoundary = true;
-			[Tooltip("Exponential energy loss per caustic texture pixel travelled inside the selected phase.")]
-			[Min(0f)] public float causticsAbsorption = 0f;
-			[Tooltip("Exponential energy loss per caustic texture pixel travelled outside the selected phase.")]
-			[Min(0f)] public float causticsBackgroundAbsorption = 0f;
-			[Tooltip("How quickly caustic rays inherit medium colour while travelling through the selected phase, independent of brightness absorption.")]
-			[Min(0f)] public float causticsColorAbsorption = 0f;
-			[Tooltip("How quickly caustic rays inherit background colour while travelling outside the selected phase, independent of brightness absorption.")]
-			[Min(0f)] public float causticsBackgroundColorAbsorption = 0f;
+			[Tooltip("Additional world-space padding added to the caustic analytic boundary on top of the generated ghost-particle layer thickness.")]
+			[Min(0f)] public float causticsAnalyticBoundaryPadding = 0f;
+			[Tooltip("Exponential energy loss per world unit travelled through phase 0.")]
+			[Min(0f)] public float causticsPhase0Absorption = 0f;
+			[Tooltip("Exponential energy loss per world unit travelled through phase 1.")]
+			[Min(0f)] public float causticsPhase1Absorption = 0f;
+			[Tooltip("How quickly caustic rays inherit phase 0 colour, independent of brightness absorption.")]
+			[Min(0f)] public float causticsPhase0ColorAbsorption = 0f;
+			[Tooltip("How quickly caustic rays inherit phase 1 colour, independent of brightness absorption.")]
+			[Min(0f)] public float causticsPhase1ColorAbsorption = 0f;
+			[Tooltip("Boosts caustic absorption tint brightness while preserving hue. 0 uses the albedo colour directly, 1 normalizes by the brightest channel.")]
+			[Range(0f, 1f)] public float causticsTintBoost = 0f;
 			[Tooltip("Number of raymarch steps used per caustic ray. Higher values find exits more reliably but cost more.")]
 			[Range(8, 192)] public int causticsRaySteps = 64;
 			[HideInInspector] public float causticsStepPixels = 1.0f;
-			[Tooltip("Uses a wider density-gradient sample radius for caustic refraction normals. Caustic normal sampling radius in whole density texture pixels. 1 matches the default central difference.")]
-			[Min(1)] public int causticsNormalSampleRadius = 1;
 			[Tooltip("Brightness deposited along caustic ray paths. Keep at 0 to hide ray paths.")]
 			[Min(0f)] public float causticsRayBrightness = 0.05f;
 			[Tooltip("Launches only every Nth caustic ray for easier debugging. 1 uses every ray.")]
 			[Min(1)] public int causticsRayStride = 1;
 			[Tooltip("Launches multiple caustic rays per source pixel for denser supersampling. Cost scales roughly linearly.")]
-			[Range(1, 4)] public int causticsRaysPerPixel = 1;
+			[Range(1, 8)] public int causticsRaysPerPixel = 1;
 			[Tooltip("Splats each caustic ray sample bilinearly into four pixels. Disable to use the cheaper single-pixel atomic write.")]
 			public bool causticsUseSoftSplat = true;
 			[Tooltip("Small blur applied to the resolved caustic texture to reduce atomic splat noise.")]
@@ -242,7 +246,7 @@ namespace Seb.Fluid2D.Rendering
 			[Tooltip("Blends caustics with the previous frame to reduce flicker.")]
 			public bool causticsTemporalEnabled = false;
 			[Tooltip("Previous-frame weight used by caustic temporal blending. 0 uses only current frame; 0.55 means current * 0.45 + previous * 0.55.")]
-			[Range(0f, 0.98f)] public float causticsTemporalHistoryWeight = 0.55f;
+			[Range(0f, 0.99f)] public float causticsTemporalHistoryWeight = 0.55f;
 			[Tooltip("Frame-to-frame ray lattice jitter in caustic texture pixels. Useful with temporal blending.")]
 			[Min(0f)] public float causticsTemporalJitterPixels = 0f;
 			[Tooltip("Frame-to-frame relative IOR jitter used to slightly vary refracted ray paths for temporal smoothing. 0.005 means +/-0.5%.")]

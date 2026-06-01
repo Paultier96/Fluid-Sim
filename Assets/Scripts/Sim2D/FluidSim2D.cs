@@ -337,6 +337,7 @@ namespace Seb.Fluid2D.Simulation
         public float CurrentSimulationSubstepDeltaTime { get; private set; }
         public int CurrentSimulationSubstepCount { get; private set; }
         public float CurrentDisplayRefreshRate { get; private set; }
+        public bool IsPaused => isPaused;
         int resolvedGhostPhase;
         int resolvedObstacleGhostPhase;
 

@@ -295,12 +295,14 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetFloat("metaballTonemapExposure", settings.tonemapExposure);
 			compositeMaterial.SetInt("metaballTonemapUseAces", settings.tonemapUseAces ? 1 : 0);
 			compositeMaterial.SetFloat("metaballTonemapHighlightDesaturation", settings.tonemapHighlightDesaturation);
-			compositeMaterial.SetInt("metaballCausticsEnabled", ShouldRenderCaustics(settings) ? 1 : 0);
+			bool renderCaustics = ShouldRenderCaustics(settings);
+			compositeMaterial.SetInt("metaballCausticsEnabled", renderCaustics ? 1 : 0);
 			compositeMaterial.SetTexture("CausticTex", settings.causticsTemporalEnabled ? causticTemporalTexture : causticResolvedTexture);
 			compositeMaterial.SetFloat("metaballCausticsIntensity", settings.causticsIntensity);
+			compositeMaterial.SetFloat("metaballCausticsLightFieldIntensity", settings.causticsLightFieldIntensity);
 			compositeMaterial.SetFloat("metaballCausticsAdditiveBlend", settings.causticsAdditiveBlend);
 			compositeMaterial.SetColor("metaballCausticsColor", settings.lightColor);
-			compositeMaterial.SetFloat("causticTemporalHistoryWeight", settings.causticsTemporalHistoryWeight);
+			compositeMaterial.SetFloat("causticTemporalHistoryWeight", display.sim.IsPaused ? 0.99f : settings.causticsTemporalHistoryWeight);
 			float effectiveNormalStrength = display.GetEffectiveNormalStrength(effectiveConfiguredBlurRadius);
 			compositeMaterial.SetInt("debugMode", (int)display.debugMode);
 			display.ApplyDebugClipSettings(compositeMaterial);
@@ -394,31 +396,41 @@ namespace Seb.Fluid2D.Rendering
 			int width = causticAccumulationRTexture.width;
 			int height = causticAccumulationRTexture.height;
 			Vector3 lightDirection = settings.LightDirection;
+			float analyticBoundaryExpansion = GetCausticAnalyticBoundaryExpansion(display);
+
+			float worldHeight = Mathf.Max(cam.orthographicSize * 2f, 0.0001f);
+			float worldWidth = Mathf.Max(worldHeight * cam.aspect, 0.0001f);
+			Vector2 currentWorldCenter = new Vector2(cam.transform.position.x, cam.transform.position.y);
+			Vector2 currentWorldSize = new Vector2(worldWidth, worldHeight);
+			GetCausticRayRange(display, settings, width, height, lightDirection, currentWorldCenter, currentWorldSize, analyticBoundaryExpansion, out float rayStartOffset, out int rayCount);
 
 			commandBuffer.SetComputeIntParam(compute, "combinedWidth", combinedAccumulationTexture.width);
 			commandBuffer.SetComputeIntParam(compute, "combinedHeight", combinedAccumulationTexture.height);
 			commandBuffer.SetComputeIntParam(compute, "causticWidth", width);
 			commandBuffer.SetComputeIntParam(compute, "causticHeight", height);
+			commandBuffer.SetComputeIntParam(compute, "causticsRayCount", rayCount);
+			commandBuffer.SetComputeFloatParam(compute, "causticsRayStartOffset", rayStartOffset);
 			commandBuffer.SetComputeIntParam(compute, "causticsRaySteps", settings.causticsRaySteps);
 			commandBuffer.SetComputeIntParam(compute, "causticsRayStride", settings.causticsRayStride);
 			commandBuffer.SetComputeIntParam(compute, "causticsRaysPerPixel", settings.causticsRaysPerPixel);
 			commandBuffer.SetComputeIntParam(compute, "causticsUseSoftSplat", settings.causticsUseSoftSplat ? 1 : 0);
 			commandBuffer.SetComputeFloatParam(compute, "densityThreshold", settings.densityThreshold);
+			commandBuffer.SetComputeFloatParam(compute, "phase0RenderBias", settings.phase0RenderBias);
 			commandBuffer.SetComputeFloatParam(compute, "causticsStepPixels", settings.causticsStepPixels);
-			commandBuffer.SetComputeFloatParam(compute, "causticsNormalSampleRadius", settings.causticsNormalSampleRadius);
 			commandBuffer.SetComputeFloatParam(compute, "causticsIndexOfRefraction", settings.causticsIndexOfRefraction);
+			commandBuffer.SetComputeFloatParam(compute, "causticsGlassIndexOfRefraction", settings.causticsGlassIndexOfRefraction);
 			commandBuffer.SetComputeFloatParam(compute, "causticsPhase0IndexOfRefraction", settings.causticsPhase0IndexOfRefraction);
 			commandBuffer.SetComputeFloatParam(compute, "causticsPhase1IndexOfRefraction", settings.causticsPhase1IndexOfRefraction);
 			commandBuffer.SetComputeFloatParam(compute, "causticsSurfaceTransmittance", settings.causticsSurfaceTransmittance);
 			commandBuffer.SetComputeFloatParam(compute, "causticsFresnelStrength", settings.causticsFresnelStrength);
 			commandBuffer.SetComputeIntParam(compute, "causticsStochasticReflection", settings.causticsStochasticReflection ? 1 : 0);
-			commandBuffer.SetComputeIntParam(compute, "causticsStochasticDispersion", settings.causticsStochasticDispersion ? 1 : 0);
 			commandBuffer.SetComputeFloatParam(compute, "causticsDispersionStrength", settings.causticsDispersionStrength);
 			commandBuffer.SetComputeFloatParam(compute, "causticsLightAngularRadius", settings.causticsLightAngularRadiusDegrees * Mathf.Deg2Rad);
-			commandBuffer.SetComputeFloatParam(compute, "causticsAbsorption", settings.causticsAbsorption);
-			commandBuffer.SetComputeFloatParam(compute, "causticsBackgroundAbsorption", settings.causticsBackgroundAbsorption);
-			commandBuffer.SetComputeFloatParam(compute, "causticsColorAbsorption", settings.causticsColorAbsorption);
-			commandBuffer.SetComputeFloatParam(compute, "causticsBackgroundColorAbsorption", settings.causticsBackgroundColorAbsorption);
+			commandBuffer.SetComputeFloatParam(compute, "causticsPhase0Absorption", settings.causticsPhase0Absorption);
+			commandBuffer.SetComputeFloatParam(compute, "causticsPhase1Absorption", settings.causticsPhase1Absorption);
+			commandBuffer.SetComputeFloatParam(compute, "causticsPhase0ColorAbsorption", settings.causticsPhase0ColorAbsorption);
+			commandBuffer.SetComputeFloatParam(compute, "causticsPhase1ColorAbsorption", settings.causticsPhase1ColorAbsorption);
+			commandBuffer.SetComputeFloatParam(compute, "causticsTintBoost", settings.causticsTintBoost);
 			commandBuffer.SetComputeFloatParam(compute, "causticsRayBrightness", settings.causticsRayBrightness);
 			commandBuffer.SetComputeFloatParam(compute, "causticsTemporalJitterPixels", settings.causticsTemporalEnabled ? settings.causticsTemporalJitterPixels : 0f);
 			commandBuffer.SetComputeFloatParam(compute, "causticsTemporalIorJitter", settings.causticsTemporalEnabled ? settings.causticsTemporalIorJitter : 0f);
@@ -428,10 +440,7 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.SetComputeVectorParam(compute, "ellipseBoundsCenter", new Vector4(display.sim.ellipseBoundsCenter.x, display.sim.ellipseBoundsCenter.y, 0f, 0f));
 			commandBuffer.SetComputeVectorParam(compute, "ellipseBoundsSize", new Vector4(display.sim.ellipseBoundsSize.x, display.sim.ellipseBoundsSize.y, 0f, 0f));
 			commandBuffer.SetComputeFloatParam(compute, "obstacleY", display.sim.obstacleY);
-			float worldHeight = Mathf.Max(cam.orthographicSize * 2f, 0.0001f);
-			float worldWidth = Mathf.Max(worldHeight * cam.aspect, 0.0001f);
-			Vector2 currentWorldCenter = new Vector2(cam.transform.position.x, cam.transform.position.y);
-			Vector2 currentWorldSize = new Vector2(worldWidth, worldHeight);
+			commandBuffer.SetComputeFloatParam(compute, "analyticBoundaryExpansion", analyticBoundaryExpansion);
 			commandBuffer.SetComputeVectorParam(compute, "causticsWorldCenter", new Vector4(currentWorldCenter.x, currentWorldCenter.y, 0f, 0f));
 			commandBuffer.SetComputeVectorParam(compute, "causticsWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
 
@@ -443,7 +452,7 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.SetComputeTextureParam(compute, traceKernel, "ColourMap", display.gradientTexture);
 			commandBuffer.SetComputeTextureParam(compute, traceKernel, "ColourMap2", display.gradientTexture2);
 			BindCausticAccumulationTextures(compute, traceKernel);
-			DispatchCausticTrace(compute, traceKernel, width, height, lightDirection, Mathf.Max(1, settings.causticsRaysPerPixel));
+			DispatchCausticTrace(compute, traceKernel, rayCount, Mathf.Max(1, settings.causticsRaysPerPixel));
 
 			BindCausticAccumulationTextures(compute, resolveKernel);
 			commandBuffer.SetComputeTextureParam(compute, resolveKernel, "CausticResult", causticResolvedTexture);
@@ -486,6 +495,7 @@ namespace Seb.Fluid2D.Rendering
 			{
 				hasPreviousCausticCamera = false;
 			}
+
 		}
 
 		void DispatchCaustics(ComputeShader compute, int kernel, int width, int height)
@@ -493,12 +503,81 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.DispatchCompute(compute, kernel, Mathf.CeilToInt(width / 16f), Mathf.CeilToInt(height / 16f), 1);
 		}
 
-		void DispatchCausticTrace(ComputeShader compute, int kernel, int width, int height, Vector3 lightDirection, int raysPerPixel)
+		void DispatchCausticTrace(ComputeShader compute, int kernel, int rayCount, int raysPerPixel)
 		{
-			bool horizontal = Mathf.Abs(lightDirection.x) >= Mathf.Abs(lightDirection.y);
-			int traceWidth = horizontal ? width : width * raysPerPixel;
-			int traceHeight = horizontal ? height * raysPerPixel : height;
-			DispatchCaustics(compute, kernel, traceWidth, traceHeight);
+			DispatchCaustics(compute, kernel, rayCount * raysPerPixel, 1);
+		}
+
+		float GetCausticAnalyticBoundaryExpansion(ParticleDisplay2D display)
+		{
+			float spacing = Mathf.Sqrt(1f / (display.sim.spawner2D.ghostDensity * display.sim.ResolvedResolutionFactor));
+			int numLayers = Mathf.CeilToInt(display.sim.EffectiveSmoothingRadius / spacing);
+			return spacing * numLayers + display.metaballs.causticsAnalyticBoundaryPadding;
+		}
+
+		void GetCausticRayRange(ParticleDisplay2D display, ParticleDisplay2D.MetaballSettings settings, int width, int height, Vector3 lightDirection, Vector2 worldCenter, Vector2 worldSize, float analyticBoundaryExpansion, out float startOffset, out int rayCount)
+		{
+			Vector2 lightXY = new Vector2(-lightDirection.x, -lightDirection.y);
+			Vector2 rayDir = lightXY.sqrMagnitude > 0.0001f ? lightXY.normalized : Vector2.right;
+			Vector2 tangent = new Vector2(-rayDir.y, rayDir.x);
+			float fullSpan = Mathf.Sqrt(width * width + height * height);
+			startOffset = -fullSpan * 0.5f;
+			rayCount = Mathf.Max(1, Mathf.CeilToInt(fullSpan));
+
+			if (!display.sim.useEllipticalBounds || !settings.causticsUseAnalyticBoundary)
+			{
+				return;
+			}
+
+			float minOffset = float.PositiveInfinity;
+			float maxOffset = float.NegativeInfinity;
+			Vector2 radii = new Vector2(Mathf.Abs(display.sim.ellipseBoundsSize.x), Mathf.Abs(display.sim.ellipseBoundsSize.y)) + Vector2.one * analyticBoundaryExpansion;
+			if (radii.x <= 0.0001f || radii.y <= 0.0001f)
+			{
+				return;
+			}
+
+			for (int i = 0; i < 128; i++)
+			{
+				float angle = i * Mathf.PI * 2f / 128f;
+				Vector2 world = display.sim.ellipseBoundsCenter + new Vector2(Mathf.Cos(angle) * radii.x, Mathf.Sin(angle) * radii.y);
+				if (world.y >= display.sim.obstacleY - analyticBoundaryExpansion)
+				{
+					IncludeCausticLaunchPoint(world, worldCenter, worldSize, width, height, tangent, ref minOffset, ref maxOffset);
+				}
+			}
+
+			float expandedObstacleY = display.sim.obstacleY - analyticBoundaryExpansion;
+			float cutRelY = (expandedObstacleY - display.sim.ellipseBoundsCenter.y) / radii.y;
+			if (Mathf.Abs(cutRelY) <= 1f)
+			{
+				float cutX = radii.x * Mathf.Sqrt(Mathf.Max(0f, 1f - cutRelY * cutRelY));
+				IncludeCausticLaunchPoint(new Vector2(display.sim.ellipseBoundsCenter.x - cutX, expandedObstacleY), worldCenter, worldSize, width, height, tangent, ref minOffset, ref maxOffset);
+				IncludeCausticLaunchPoint(new Vector2(display.sim.ellipseBoundsCenter.x + cutX, expandedObstacleY), worldCenter, worldSize, width, height, tangent, ref minOffset, ref maxOffset);
+			}
+
+			if (float.IsNaN(minOffset) || float.IsInfinity(minOffset) || float.IsNaN(maxOffset) || float.IsInfinity(maxOffset))
+			{
+				return;
+			}
+
+			float angularPadding = Mathf.Sin(settings.causticsLightAngularRadiusDegrees * Mathf.Deg2Rad) * fullSpan;
+			float padding = Mathf.Max(settings.causticsStepPixels * 4f + angularPadding, 2f);
+			startOffset = Mathf.Floor(minOffset - padding);
+			rayCount = Mathf.Max(1, Mathf.CeilToInt(maxOffset + padding - startOffset));
+		}
+
+		void IncludeCausticLaunchPoint(Vector2 world, Vector2 worldCenter, Vector2 worldSize, int width, int height, Vector2 tangent, ref float minOffset, ref float maxOffset)
+		{
+			Vector2 uv = new Vector2(
+				(world.x - worldCenter.x) / Mathf.Max(worldSize.x, 0.0001f) + 0.5f,
+				(world.y - worldCenter.y) / Mathf.Max(worldSize.y, 0.0001f) + 0.5f
+			);
+			Vector2 pixel = new Vector2(uv.x * width, uv.y * height);
+			Vector2 centredPixel = pixel - new Vector2(width, height) * 0.5f;
+			float offset = Vector2.Dot(centredPixel, tangent);
+			minOffset = Mathf.Min(minOffset, offset);
+			maxOffset = Mathf.Max(maxOffset, offset);
 		}
 
 		void BindCausticAccumulationTextures(ComputeShader compute, int kernel)
@@ -515,7 +594,7 @@ namespace Seb.Fluid2D.Rendering
 
 		bool ShouldRenderCaustics(ParticleDisplay2D.MetaballSettings settings)
 		{
-			return settings.causticsEnabled && settings.causticsComputeShader != null && settings.causticsIntensity > 0f;
+			return settings.causticsEnabled && settings.causticsComputeShader != null;
 		}
 
 		void ReleaseBloomTextures()

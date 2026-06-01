@@ -27,6 +27,7 @@ namespace Seb.Fluid2D.Rendering
 			Density = 4,
 			Temperature = 5,
 			BlobIds = 6,
+			Caustics = 7,
 		}
 
 		public enum VectorFieldSource
@@ -56,7 +57,7 @@ namespace Seb.Fluid2D.Rendering
 		public int gradientResolution;
 
 		[Header("Debug")]
-		[Tooltip("Selects what to show in debug mode. Press 0-6 to switch modes at runtime.")]
+		[Tooltip("Selects what to show in debug mode. Press 0-7 to switch modes at runtime.")]
 		public DebugVisualization debugMode = DebugVisualization.None;
 		[Tooltip("Maximum absolute value mapped in gradient debug visualisation.")]
 		public float debugGradientMax = 1.0f;
@@ -185,6 +186,10 @@ namespace Seb.Fluid2D.Rendering
 			else if (Input.GetKeyDown(KeyCode.Alpha6) || Input.GetKeyDown(KeyCode.Keypad6))
 			{
 				debugMode = DebugVisualization.BlobIds;
+			}
+			else if (Input.GetKeyDown(KeyCode.Alpha7) || Input.GetKeyDown(KeyCode.Keypad7))
+			{
+				debugMode = DebugVisualization.Caustics;
 			}
 		}
 
@@ -323,7 +328,7 @@ namespace Seb.Fluid2D.Rendering
 				};
 			}
 		}
-		DebugVisualization ParticleShaderDebugMode => debugMode;
+		DebugVisualization ParticleShaderDebugMode => debugMode == DebugVisualization.Caustics ? DebugVisualization.None : debugMode;
 
 		internal void ApplyDebugClipSettings(Material targetMaterial)
 		{
