@@ -9,7 +9,7 @@ namespace Seb.Fluid2D.Rendering
 		public MetaballSettings metaballs = new MetaballSettings();
 
 		MetaballRenderer2D metaballRenderer;
-		internal MetaballRenderer2D MetaballRenderer => metaballRenderer;
+		internal MetaballRenderer2D MetaballRenderer => metaballRenderer ??= new MetaballRenderer2D();
 
 		const float BlurReferenceOrthoSize = 15f;
 

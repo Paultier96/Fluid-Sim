@@ -37,11 +37,34 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			RunJumpFlood(display, cam);
-			BuildCommandBuffer(display, cam);
+			BuildCommandBuffer(display, cam, BuiltinRenderTextureType.CameraTarget);
+		}
+
+		public void Record(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
+		{
+			if (display.jumpFlood.computeShader == null || display.jumpFlood.displayShader == null || cam == null || targetCommandBuffer == null)
+			{
+				return;
+			}
+
+			EnsureMaterial(ref displayMaterial, display.jumpFlood.displayShader);
+			if (displayMaterial == null)
+			{
+				return;
+			}
+
+			RunJumpFlood(display, cam);
+			RecordDisplay(display, cam, targetCommandBuffer, finalTarget);
 		}
 
 		public void RemoveCommandBuffer()
 		{
+			if (RenderPipelineManager.currentPipeline != null)
+			{
+				commandBufferAttached = false;
+				return;
+			}
+
 			if (commandBuffer != null)
 			{
 				RemoveFromCamera(Camera.main);
@@ -191,9 +214,20 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
-		void BuildCommandBuffer(ParticleDisplay2D display, Camera cam)
+		void BuildCommandBuffer(ParticleDisplay2D display, Camera cam, RenderTargetIdentifier finalTarget)
 		{
 			EnsureCommandBuffer();
+			if (commandBuffer == null)
+			{
+				return;
+			}
+
+			commandBuffer.Clear();
+			RecordDisplay(display, cam, commandBuffer, finalTarget);
+		}
+
+		void RecordDisplay(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
+		{
 			displayMaterial.SetTexture("_PayloadTex", payloadResult != null ? payloadResult : payloadA);
 			displayMaterial.SetMatrix("_InverseViewProjection", (cam.projectionMatrix * cam.worldToCameraMatrix).inverse);
 			displayMaterial.SetInt("useEllipticalBounds", display.sim.useEllipticalBounds ? 1 : 0);
@@ -202,15 +236,19 @@ namespace Seb.Fluid2D.Rendering
 			displayMaterial.SetVector("boundsSize", new Vector4(display.sim.boundsSize.x, display.sim.boundsSize.y, 0f, 0f));
 			displayMaterial.SetFloat("obstacleY", display.sim.obstacleY);
 
-			commandBuffer.Clear();
-			commandBuffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
-			commandBuffer.ClearRenderTarget(false, true, Color.black);
-			commandBuffer.Blit(result != null ? result : seedA, BuiltinRenderTextureType.CameraTarget, displayMaterial);
-			display.AppendVectorFieldDraw(commandBuffer);
+			targetCommandBuffer.SetRenderTarget(finalTarget);
+			targetCommandBuffer.ClearRenderTarget(false, true, Color.black);
+			targetCommandBuffer.Blit(result != null ? result : seedA, finalTarget, displayMaterial);
+			display.AppendVectorFieldDraw(targetCommandBuffer);
 		}
 
 		void EnsureCommandBuffer()
 		{
+			if (RenderPipelineManager.currentPipeline != null)
+			{
+				return;
+			}
+
 			Camera cam = Camera.main;
 			if (commandBuffer == null)
 			{
@@ -226,6 +264,11 @@ namespace Seb.Fluid2D.Rendering
 
 		void RemoveFromCamera(Camera cam)
 		{
+			if (RenderPipelineManager.currentPipeline != null)
+			{
+				return;
+			}
+
 			if (cam == null || commandBuffer == null)
 			{
 				return;

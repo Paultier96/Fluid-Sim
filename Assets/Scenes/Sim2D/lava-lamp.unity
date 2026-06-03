@@ -383,8 +383,8 @@ MonoBehaviour:
     sharpness: 1
     intensity: 20
     ditherStrength: 0.003921569
-    lightAzimuthDegrees: 120
-    lightElevationDegrees: 50.3
+    lightAzimuthDegrees: 132.3
+    lightElevationDegrees: 10
     lightColor: {r: 1, g: 1, b: 1, a: 1}
     ambientLight: 0.5
     directionalLightIntensity: 0
@@ -431,35 +431,37 @@ MonoBehaviour:
     causticsComputeShader: {fileID: 7200000, guid: 8f4e77c1b8284da4ca6c929de309e7a1, type: 3}
     causticsEnabled: 1
     causticsRenderTextureScale: 1
-    causticsIntensity: 50
+    causticsIntensity: 2
+    causticsLightFieldIntensity: 2
     causticsAdditiveBlend: 0
     causticsIndexOfRefraction: 1.33
+    causticsGlassIndexOfRefraction: 1.516
     causticsPhase0IndexOfRefraction: 1.442
     causticsPhase1IndexOfRefraction: 1.333
-    causticsSurfaceTransmittance: 1
-    causticsFresnelStrength: 1
-    causticsStochasticReflection: 0
-    causticsStochasticDispersion: 0
-    causticsDispersionStrength: 0.075
-    causticsLightAngularRadiusDegrees: 0
+    causticsSurfaceTransmittance: 0.95
+    causticsFresnelStrength: 0.99
+    causticsStochasticReflection: 1
+    causticsDispersionStrength: 0.1
+    causticsLightAngularRadiusDegrees: 1
     causticsUseAnalyticBoundary: 1
-    causticsAbsorption: 0
-    causticsBackgroundAbsorption: 0
-    causticsColorAbsorption: 0.0075
-    causticsBackgroundColorAbsorption: 0.005
-    causticsRaySteps: 8
+    causticsAnalyticBoundaryPadding: 0.175
+    causticsPhase0Absorption: 0
+    causticsPhase1Absorption: 0
+    causticsPhase0ColorAbsorption: 0.3
+    causticsPhase1ColorAbsorption: 0.2
+    causticsTintBoost: 0.75
+    causticsRaySteps: 16
     causticsStepPixels: 1
-    causticsNormalSampleRadius: 1
-    causticsRayBrightness: 0.05
+    causticsRayBrightness: 1
     causticsRayStride: 1
-    causticsRaysPerPixel: 2
-    causticsUseSoftSplat: 1
-    causticsBlurRadius: 2
+    causticsRaysPerPixel: 8
+    causticsUseSoftSplat: 0
+    causticsBlurRadius: 3
     causticsTemporalEnabled: 1
-    causticsTemporalHistoryWeight: 0.75
+    causticsTemporalHistoryWeight: 0.8
     causticsTemporalJitterPixels: 0
     causticsTemporalIorJitter: 0.01
-    tonemapEnabled: 1
+    tonemapEnabled: 0
     tonemapExposure: 1
     tonemapUseAces: 0
     tonemapHighlightDesaturation: 0.5
@@ -554,6 +556,7 @@ GameObject:
   - component: {fileID: 963194227}
   - component: {fileID: 963194226}
   - component: {fileID: 963194229}
+  - component: {fileID: 963194230}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -652,6 +655,99 @@ MonoBehaviour:
   minZoom: 0.1
   maxZoom: 100
   zoomTowardMouse: 1
+--- !u!114 &963194230
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 963194225}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a79441f348de89743a2939f4d699eac1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalCameraData
+  m_RenderShadows: 1
+  m_RequiresDepthTextureOption: 2
+  m_RequiresOpaqueTextureOption: 2
+  m_CameraType: 0
+  m_Cameras: []
+  m_RendererIndex: -1
+  m_VolumeLayerMask:
+    serializedVersion: 2
+    m_Bits: 1
+  m_VolumeTrigger: {fileID: 0}
+  m_VolumeFrameworkUpdateModeOption: 2
+  m_RenderPostProcessing: 1
+  m_Antialiasing: 0
+  m_AntialiasingQuality: 2
+  m_StopNaN: 0
+  m_Dithering: 0
+  m_ClearDepth: 1
+  m_AllowXRRendering: 1
+  m_AllowHDROutput: 1
+  m_UseScreenCoordOverride: 0
+  m_ScreenSizeOverride: {x: 0, y: 0, z: 0, w: 0}
+  m_ScreenCoordScaleBias: {x: 0, y: 0, z: 0, w: 0}
+  m_RequiresDepthTexture: 0
+  m_RequiresColorTexture: 0
+  m_TaaSettings:
+    m_Quality: 3
+    m_FrameInfluence: 0.1
+    m_JitterScale: 1
+    m_MipBias: 0
+    m_VarianceClampScale: 0.9
+    m_ContrastAdaptiveSharpening: 0
+  m_Version: 2
+--- !u!1 &1034598785
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1034598787}
+  - component: {fileID: 1034598786}
+  m_Layer: 0
+  m_Name: postProcessing
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1034598786
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1034598785}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 172515602e62fb746b5d573b38a5fe58, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.RenderPipelines.Core.Runtime::UnityEngine.Rendering.Volume
+  m_IsGlobal: 1
+  priority: 0
+  blendDistance: 0
+  weight: 1
+  sharedProfile: {fileID: 11400000, guid: c1b05e9d89c913a4da9fc54223f8d3f9, type: 2}
+--- !u!4 &1034598787
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1034598785}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -3.680668, y: 10.551486, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1214473942
 GameObject:
   m_ObjectHideFlags: 0
@@ -757,3 +853,4 @@ SceneRoots:
   - {fileID: 271053318}
   - {fileID: 2055861084}
   - {fileID: 1214473944}
+  - {fileID: 1034598787}

@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Seb.Fluid2D.Simulation
 {
@@ -157,10 +158,11 @@ namespace Seb.Fluid2D.Simulation
             }
 
             const int width = 280;
-            int height = sim != null ? 170 : 128;
+            int height = sim != null ? 190 : 148;
             float x = Mathf.Max(screenOffset.x, Screen.width - width - screenOffset.x);
             GUILayout.BeginArea(new Rect(x, screenOffset.y, width, height), GUI.skin.box);
             GUILayout.Label("Performance");
+            GUILayout.Label($"API: {SystemInfo.graphicsDeviceType}  Pipeline: {GetPipelineName()}");
             GUILayout.Label($"Current: {currentFps:F1} fps  {currentFrameTimeMs:F2} ms");
             GUILayout.Label($"Average: {avgFps:F1} fps  {avgFrameTimeMs:F2} ms");
             if (sim != null)
@@ -173,6 +175,12 @@ namespace Seb.Fluid2D.Simulation
             GUILayout.Label($"Min/Max frame: {minFrameTimeMs:F2} / {maxFrameTimeMs:F2} ms");
             GUILayout.Label($"Reset: {resetKey}");
             GUILayout.EndArea();
+        }
+
+        static string GetPipelineName()
+        {
+            RenderPipelineAsset pipeline = GraphicsSettings.currentRenderPipeline;
+            return pipeline != null ? pipeline.GetType().Name : "Built-in";
         }
     }
 }

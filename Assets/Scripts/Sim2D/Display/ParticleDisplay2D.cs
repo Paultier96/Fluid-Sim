@@ -130,14 +130,27 @@ namespace Seb.Fluid2D.Rendering
 
 			if (renderMode == RenderMode.JumpFlood)
 			{
-				jumpFloodRenderer ??= new JumpFloodRenderer2D();
-				jumpFloodRenderer.Render(this, Camera.main);
+				if (RenderPipelineManager.currentPipeline == null)
+				{
+					JumpFloodRenderer.Render(this, Camera.main);
+				}
+				else
+				{
+					metaballRenderer?.RemoveCommandBuffer();
+					jumpFloodRenderer?.RemoveCommandBuffer();
+				}
 			}
 			else if (renderMode == RenderMode.Metaballs && metaballs.compositeShader != null && metaballs.blurShader != null)
 			{
 				jumpFloodRenderer?.RemoveCommandBuffer();
-				metaballRenderer ??= new MetaballRenderer2D();
-				metaballRenderer.Render(this, Camera.main);
+				if (RenderPipelineManager.currentPipeline == null)
+				{
+					MetaballRenderer.Render(this, Camera.main);
+				}
+				else
+				{
+					MetaballRenderer.RemoveCommandBuffer();
+				}
 			}
 			else
 			{
@@ -515,6 +528,11 @@ namespace Seb.Fluid2D.Rendering
 
 		static void RemoveCommandBuffersByName(Camera cam, CameraEvent evt, string commandBufferName)
 		{
+			if (RenderPipelineManager.currentPipeline != null)
+			{
+				return;
+			}
+
 			CommandBuffer[] commandBuffers = cam.GetCommandBuffers(evt);
 			for (int i = 0; i < commandBuffers.Length; i++)
 			{

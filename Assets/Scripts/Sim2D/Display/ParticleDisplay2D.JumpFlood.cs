@@ -9,6 +9,7 @@ namespace Seb.Fluid2D.Rendering
 		public JumpFloodSettings jumpFlood = new JumpFloodSettings();
 
 		JumpFloodRenderer2D jumpFloodRenderer;
+		internal JumpFloodRenderer2D JumpFloodRenderer => jumpFloodRenderer ??= new JumpFloodRenderer2D();
 
 		[Serializable]
 		public sealed class JumpFloodSettings
