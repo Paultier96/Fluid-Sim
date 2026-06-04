@@ -382,7 +382,7 @@ MonoBehaviour:
     phaseBiasNormalStrength: 2.25
     sharpness: 1
     intensity: 20
-    ditherStrength: 0.003921569
+    ditherStrength: 0
     lightAzimuthDegrees: 132.3
     lightElevationDegrees: 10
     lightColor: {r: 1, g: 1, b: 1, a: 1}
@@ -419,14 +419,6 @@ MonoBehaviour:
     iridescenceScale: 2.5
     ghostBoundaryNormalStrength: 1
     analyticBoundaryPadding: 0.4
-    bloomEnabled: 0
-    bloomRenderTextureScale: 1
-    bloomThreshold: 1.2
-    bloomSoftKnee: 0.5
-    bloomIntensity: 0.075
-    bloomResponse: 1
-    bloomRadius: 20
-    bloomIterations: 4
     causticsComputeShader: {fileID: 7200000, guid: 8f4e77c1b8284da4ca6c929de309e7a1, type: 3}
     causticsEnabled: 1
     causticsRenderTextureScale: 1
@@ -459,10 +451,6 @@ MonoBehaviour:
     causticsTemporalHistoryWeight: 0.85
     causticsTemporalJitterPixels: 0
     causticsSurfaceNormalJitterPixels: 2
-    tonemapEnabled: 0
-    tonemapExposure: 1
-    tonemapUseAces: 0
-    tonemapHighlightDesaturation: 0.5
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
   renderMode: 1

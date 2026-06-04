@@ -7,7 +7,6 @@ namespace Seb.Fluid2D.Rendering
 {
 	internal sealed class MetaballRenderer2D
 	{
-		const int MaxCustomBloomLevels = 4;
 		const string CommandBufferName = "Sim2D Metaball Render";
 
 		Material metaballMaterial;
@@ -25,8 +24,6 @@ namespace Seb.Fluid2D.Rendering
 		RenderTexture causticBlurTexture;
 		RenderTexture causticHistoryTexture;
 		RenderTexture causticTemporalTexture;
-		readonly RenderTexture[] bloomDownTextures = new RenderTexture[MaxCustomBloomLevels];
-		readonly RenderTexture[] bloomUpTextures = new RenderTexture[MaxCustomBloomLevels];
 		CommandBuffer commandBuffer;
 		bool commandBufferAttached;
 		bool clearCausticHistory;
@@ -112,7 +109,6 @@ namespace Seb.Fluid2D.Rendering
 			ComputeHelper.Release(combinedAccumulationTexture, combinedBlurTexture);
 			ComputeHelper.Release(normalAccumulationTexture, normalBlurTexture);
 			ComputeHelper.Release(causticAccumulationRTexture, causticAccumulationGTexture, causticAccumulationBTexture, causticResolvedTexture, causticBlurTexture, causticHistoryTexture, causticTemporalTexture);
-			ReleaseBloomTextures();
 
 			if (commandBuffer != null)
 			{
@@ -226,33 +222,6 @@ namespace Seb.Fluid2D.Rendering
 			ComputeHelper.CreateRenderTexture(ref normalAccumulationTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Normal Accumulation");
 			ComputeHelper.CreateRenderTexture(ref normalBlurTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Normal Blur");
 
-			if (settings.bloomEnabled)
-			{
-				int bloomLevels = GetCustomBloomLevelCount(display);
-				int bloomWidth = Mathf.Max(1, Mathf.RoundToInt(width * settings.bloomRenderTextureScale));
-				int bloomHeight = Mathf.Max(1, Mathf.RoundToInt(height * settings.bloomRenderTextureScale));
-				for (int i = 0; i < MaxCustomBloomLevels; i++)
-				{
-					if (i < bloomLevels)
-					{
-						int mipWidth = Mathf.Max(1, bloomWidth >> i);
-						int mipHeight = Mathf.Max(1, bloomHeight >> i);
-						ComputeHelper.CreateRenderTexture(ref bloomDownTextures[i], mipWidth, mipHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Bloom Down " + i);
-						ComputeHelper.CreateRenderTexture(ref bloomUpTextures[i], mipWidth, mipHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Bloom Up " + i);
-					}
-					else
-					{
-						ComputeHelper.Release(bloomDownTextures[i], bloomUpTextures[i]);
-						bloomDownTextures[i] = null;
-						bloomUpTextures[i] = null;
-					}
-				}
-			}
-			else
-			{
-				ReleaseBloomTextures();
-			}
-
 			if (ShouldRenderCaustics(settings))
 			{
 				int causticWidth = Mathf.Max(1, Mathf.RoundToInt(width * settings.causticsRenderTextureScale));
@@ -317,7 +286,6 @@ namespace Seb.Fluid2D.Rendering
 
 			float effectiveBlurRadius = display.GetEffectiveBlurRadius(cam);
 			float effectiveRefractionStrength = settings.refractionStrength * display.GetZoomScale(cam);
-			float effectiveBloomSampleScale = Mathf.Max(0.5f, settings.bloomRadius / 8f);
 			float effectiveConfiguredBlurRadius = display.EffectiveConfiguredBlurRadius;
 			float worldHeight = Mathf.Max(cam.orthographicSize * 2f, 0.0001f);
 			float worldWidth = Mathf.Max(worldHeight * cam.aspect, 0.0001f);
@@ -329,16 +297,6 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetFloat("metaballRefractionEdgeFade", settings.refractionEdgeFade);
 			compositeMaterial.SetFloat("metaballIridescenceIntensity", settings.iridescenceIntensity);
 			compositeMaterial.SetFloat("metaballIridescenceScale", settings.iridescenceScale);
-			compositeMaterial.SetFloat("customBloomThreshold", settings.bloomThreshold);
-			compositeMaterial.SetFloat("customBloomSoftKnee", settings.bloomSoftKnee);
-			compositeMaterial.SetFloat("customBloomIntensity", settings.bloomIntensity);
-			compositeMaterial.SetFloat("customBloomResponse", settings.bloomResponse);
-			compositeMaterial.SetFloat("customBloomSampleScale", Mathf.Max(0.5f, effectiveBloomSampleScale));
-			compositeMaterial.SetInt("customBloomEnabled", settings.bloomEnabled ? 1 : 0);
-			compositeMaterial.SetInt("metaballTonemapEnabled", settings.tonemapEnabled ? 1 : 0);
-			compositeMaterial.SetFloat("metaballTonemapExposure", settings.tonemapExposure);
-			compositeMaterial.SetInt("metaballTonemapUseAces", settings.tonemapUseAces ? 1 : 0);
-			compositeMaterial.SetFloat("metaballTonemapHighlightDesaturation", settings.tonemapHighlightDesaturation);
 			bool renderCaustics = ShouldRenderCaustics(settings);
 			compositeMaterial.SetInt("metaballCausticsEnabled", renderCaustics ? 1 : 0);
 			compositeMaterial.SetTexture("CausticTex", settings.causticsTemporalEnabled ? causticTemporalTexture : causticResolvedTexture);
@@ -399,28 +357,6 @@ namespace Seb.Fluid2D.Rendering
 			if (ShouldRenderCaustics(display.metaballs))
 			{
 				BuildCaustics(display, cam, targetCommandBuffer);
-			}
-
-			if (display.metaballs.bloomEnabled)
-			{
-				int bloomLevels = GetCustomBloomLevelCount(display);
-				targetCommandBuffer.SetRenderTarget(bloomDownTextures[0]);
-				targetCommandBuffer.ClearRenderTarget(false, true, Color.clear);
-				targetCommandBuffer.Blit(null, bloomDownTextures[0], compositeMaterial, 1);
-				for (int i = 1; i < bloomLevels; i++)
-				{
-					targetCommandBuffer.Blit(bloomDownTextures[i - 1], bloomDownTextures[i], compositeMaterial, 3);
-				}
-
-				RenderTexture lastBloom = bloomDownTextures[bloomLevels - 1];
-				for (int i = bloomLevels - 2; i >= 0; i--)
-				{
-					targetCommandBuffer.SetGlobalTexture("BloomTex", bloomDownTextures[i]);
-					targetCommandBuffer.Blit(lastBloom, bloomUpTextures[i], compositeMaterial, 4);
-					lastBloom = bloomUpTextures[i];
-				}
-
-				targetCommandBuffer.SetGlobalTexture("BloomTex", lastBloom);
 			}
 
 			targetCommandBuffer.Blit(null, finalTarget, compositeMaterial, 0);
@@ -530,7 +466,7 @@ namespace Seb.Fluid2D.Rendering
 					targetCommandBuffer.SetGlobalVector("causticHistoryWorldCenter", new Vector4(previousCausticWorldCenter.x, previousCausticWorldCenter.y, 0f, 0f));
 					targetCommandBuffer.SetGlobalVector("causticHistoryWorldSize", new Vector4(previousCausticWorldSize.x, previousCausticWorldSize.y, 0f, 0f));
 					targetCommandBuffer.SetGlobalTexture("CausticHistoryTex", causticHistoryTexture);
-					targetCommandBuffer.Blit(causticResolvedTexture, causticTemporalTexture, compositeMaterial, 5);
+					targetCommandBuffer.Blit(causticResolvedTexture, causticTemporalTexture, compositeMaterial, 1);
 					targetCommandBuffer.Blit(causticTemporalTexture, causticHistoryTexture);
 					causticTemporalFrameCount = nextFrameCount;
 				}
@@ -634,24 +570,9 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeTextureParam(compute, kernel, "CausticAccumB", causticAccumulationBTexture);
 		}
 
-		int GetCustomBloomLevelCount(ParticleDisplay2D display)
-		{
-			return Mathf.Clamp(display.metaballs.bloomIterations, 1, MaxCustomBloomLevels);
-		}
-
 		bool ShouldRenderCaustics(ParticleDisplay2D.MetaballSettings settings)
 		{
 			return settings.causticsEnabled && settings.causticsComputeShader != null;
-		}
-
-		void ReleaseBloomTextures()
-		{
-			for (int i = 0; i < MaxCustomBloomLevels; i++)
-			{
-				ComputeHelper.Release(bloomDownTextures[i], bloomUpTextures[i]);
-				bloomDownTextures[i] = null;
-				bloomUpTextures[i] = null;
-			}
 		}
 
 		void RemoveCommandBuffersByName(Camera cam, CameraEvent evt)

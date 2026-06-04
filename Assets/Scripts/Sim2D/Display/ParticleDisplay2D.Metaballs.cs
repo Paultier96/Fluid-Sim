@@ -165,24 +165,6 @@ namespace Seb.Fluid2D.Rendering
 			[Tooltip("World-space expansion applied to the analytic boundary. 0 uses the original, non-expanded analytic boundary.")]
 			[Min(0f)] public float analyticBoundaryPadding = 0.175f;
 
-			[Header("Bloom")]
-			[Tooltip("Adds a metaball-only bloom pass from HDR lighting values without running full-scene post processing.")]
-			public bool bloomEnabled;
-			[Tooltip("Resolution of the bloom textures relative to the metaball render textures.")]
-			[Range(0.125f, 1f)] public float bloomRenderTextureScale = 0.5f;
-			[Tooltip("Gamma-space colour threshold where metaball bloom starts, matching Unity bloom's threshold convention.")]
-			[Min(0f)] public float bloomThreshold = 1.0f;
-			[Tooltip("Soft transition fraction around the bloom threshold. 0 is hard, 1 is fully soft.")]
-			[Range(0f, 1f)] public float bloomSoftKnee = 0.5f;
-			[Tooltip("Strength of the blurred bloom added back over the metaballs.")]
-			[Min(0f)] public float bloomIntensity = 1.0f;
-			[Tooltip("Power curve applied to extracted bloom brightness. 1 is neutral; higher values keep the core bright while making the falloff drop faster.")]
-			[Min(0.01f)] public float bloomResponse = 1.0f;
-			[Tooltip("Tent upsample scale for the metaball bloom pyramid. 8 is Unity-like; larger values spread each upsample more.")]
-			[Min(0f)] public float bloomRadius = 8.0f;
-			[Tooltip("Number of downsampled pyramid levels used for metaball-only bloom.")]
-			[Range(1, 4)] public int bloomIterations = 3;
-
 			[Header("Caustics")]
 			[Tooltip("Compute shader used to raymarch the metaball density field and accumulate screen-space caustics.")]
 			public ComputeShader causticsComputeShader;
@@ -190,7 +172,7 @@ namespace Seb.Fluid2D.Rendering
 			public bool causticsEnabled;
 			[Tooltip("Resolution of the caustic textures relative to the metaball render textures.")]
 			[Range(0.125f, 1f)] public float causticsRenderTextureScale = 0.5f;
-			[Tooltip("Brightness of the caustic contribution added before metaball tonemapping.")]
+			[Tooltip("Brightness of the caustic contribution added to the metaball lighting.")]
 			[Min(0f)] public float causticsIntensity = 0.5f;
 			[Tooltip("Multiplier for using the ray-marched caustic texture as coloured direct-light irradiance in metaball lighting. Values above 1 allow focused rays to brighten lighting strongly.")]
 			[Min(0f)] public float causticsLightFieldIntensity = 1f;
@@ -246,16 +228,6 @@ namespace Seb.Fluid2D.Rendering
 			[Min(0f)] public float causticsTemporalJitterPixels = 0f;
 			[Tooltip("Subpixel normal resampling radius used for reflected and refracted caustic rays at phase boundaries. Helps multiple rays per pixel see different boundary normals.")]
 			[Min(0f)] public float causticsSurfaceNormalJitterPixels = 0f;
-
-			[Header("Tonemapping")]
-			[Tooltip("Compresses metaball lighting and custom bloom before output to reduce highlight clipping and hue shifts.")]
-			public bool tonemapEnabled = true;
-			[Tooltip("Exposure applied before metaball tonemapping. 1 preserves current brightness before compression.")]
-			[Min(0f)] public float tonemapExposure = 1.0f;
-			[Tooltip("Uses an ACES-style fitted curve instead of the peak-preserving exponential tonemap.")]
-			public bool tonemapUseAces = false;
-			[Tooltip("Desaturates very bright tonemapped highlights toward white to avoid coloured channel clipping.")]
-			[Range(0f, 1f)] public float tonemapHighlightDesaturation = 0.5f;
 
 			public Vector3 LightDirection
 			{

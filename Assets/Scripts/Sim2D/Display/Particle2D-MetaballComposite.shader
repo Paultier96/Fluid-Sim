@@ -28,7 +28,6 @@ Shader "Hidden/Particle2DMetaballComposite" {
 		sampler2D DebugHeatMap;
 		sampler2D DebugSignedHeatMap;
 		sampler2D _MainTex;
-		sampler2D BloomTex;
 		sampler2D CausticTex;
 		sampler2D CausticHistoryTex;
 		float4 _MainTex_TexelSize;
@@ -52,16 +51,6 @@ Shader "Hidden/Particle2DMetaballComposite" {
 		int debugMode;
 		int debugShowClipping;
 		float ditherStrength;
-		float customBloomThreshold;
-		float customBloomSoftKnee;
-		float customBloomIntensity;
-		float customBloomResponse;
-		float customBloomSampleScale;
-		int customBloomEnabled;
-		int metaballTonemapEnabled;
-		float metaballTonemapExposure;
-		int metaballTonemapUseAces;
-		float metaballTonemapHighlightDesaturation;
 		int metaballCausticsEnabled;
 		float metaballCausticsIntensity;
 		float metaballCausticsLightFieldIntensity;
@@ -548,19 +537,6 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			return true;
 		}
 
-		float3 ExtractBloom(float3 colour)
-		{
-			float brightness = max(max(colour.r, colour.g), colour.b);
-			float threshold = GammaToLinearSpace(float3(max(customBloomThreshold, 0.0), 0.0, 0.0)).r;
-			float knee = threshold * saturate(customBloomSoftKnee) + 0.00001;
-			float soft = clamp(brightness - threshold + knee, 0.0, 2.0 * knee);
-			soft = soft * soft * (0.25 / knee);
-			float contribution = max(soft, brightness - threshold);
-			float response = max(customBloomResponse, 0.01);
-			float shapedContribution = pow(max(contribution, 0.0), response);
-			return colour * (shapedContribution / max(brightness, 0.0001));
-		}
-
 		float3 ApplyCaustics(float2 uv, float3 colour, float3 albedo)
 		{
 			if (metaballCausticsEnabled == 0)
@@ -571,36 +547,6 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			float3 caustic = tex2D(CausticTex, uv).rgb * metaballCausticsColor.rgb * metaballCausticsIntensity;
 			float3 litCaustic = albedo * caustic;
 			return colour + lerp(litCaustic, caustic, saturate(metaballCausticsAdditiveBlend));
-		}
-
-		float3 TonemapPreserveHue(float3 colour)
-		{
-			if (metaballTonemapEnabled == 0)
-			{
-				return colour;
-			}
-
-			colour = max(colour, 0.0) * max(metaballTonemapExposure, 0.0);
-			float peak = max(max(colour.r, colour.g), colour.b);
-			float whiteT = saturate((peak - 1.0) * saturate(metaballTonemapHighlightDesaturation));
-			colour = lerp(colour, peak.xxx, whiteT);
-			float mappedPeak = 1.0 - exp(-peak);
-			return colour * (mappedPeak / max(peak, 0.0001));
-		}
-
-		float3 AcesFitted(float3 colour)
-		{
-			const float a = 2.51;
-			const float b = 0.03;
-			const float c = 2.43;
-			const float d = 0.59;
-			const float e = 0.14;
-			return saturate((colour * (a * colour + b)) / (colour * (c * colour + d) + e));
-		}
-
-		float3 Tonemap(float3 colour)
-		{
-			return metaballTonemapUseAces != 0 ? AcesFitted(max(colour, 0.0) * max(metaballTonemapExposure, 0.0)) : TonemapPreserveHue(colour);
 		}
 
 		float4 frag(v2f i) : SV_Target
@@ -624,80 +570,10 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			if (debugMode == 0)
 			{
 				colour = ApplyCaustics(i.uv, colour, albedo);
-				if (customBloomEnabled != 0)
-				{
-					colour += tex2D(BloomTex, i.uv).rgb * customBloomIntensity;
-				}
-				colour = Tonemap(colour);
 				colour = DitherColour(colour, i.vertex.xy);
 			}
 
 			return float4(colour, alpha);
-		}
-
-		float4 fragBloomExtract(v2f i) : SV_Target
-		{
-			float alpha;
-			float phaseT;
-			float density0;
-			float density1;
-			float3 colour;
-			float3 albedo;
-			if (debugMode != 0 || !ResolveMetaball(i, alpha, phaseT, density0, density1, colour, albedo))
-			{
-				return 0.0;
-			}
-			colour = ApplyCaustics(i.uv, colour, albedo);
-			return float4(ExtractBloom(colour) * alpha, 1.0);
-		}
-
-		float4 fragBloomComposite(v2f i) : SV_Target
-		{
-			return float4(tex2D(BloomTex, i.uv).rgb * customBloomIntensity, 1.0);
-		}
-
-		float4 DownsampleBox13(float2 uv)
-		{
-			float2 texel = _MainTex_TexelSize.xy;
-			float4 sum = tex2D(_MainTex, uv) * 0.125;
-			sum += tex2D(_MainTex, uv + texel * float2(-1, -1)) * 0.0625;
-			sum += tex2D(_MainTex, uv + texel * float2( 0, -1)) * 0.125;
-			sum += tex2D(_MainTex, uv + texel * float2( 1, -1)) * 0.0625;
-			sum += tex2D(_MainTex, uv + texel * float2(-1,  0)) * 0.125;
-			sum += tex2D(_MainTex, uv + texel * float2( 1,  0)) * 0.125;
-			sum += tex2D(_MainTex, uv + texel * float2(-1,  1)) * 0.0625;
-			sum += tex2D(_MainTex, uv + texel * float2( 0,  1)) * 0.125;
-			sum += tex2D(_MainTex, uv + texel * float2( 1,  1)) * 0.0625;
-			sum += tex2D(_MainTex, uv + texel * float2(-2,  0)) * 0.03125;
-			sum += tex2D(_MainTex, uv + texel * float2( 2,  0)) * 0.03125;
-			sum += tex2D(_MainTex, uv + texel * float2( 0, -2)) * 0.03125;
-			sum += tex2D(_MainTex, uv + texel * float2( 0,  2)) * 0.03125;
-			return sum;
-		}
-
-		float4 UpsampleTent(float2 uv)
-		{
-			float2 texel = _MainTex_TexelSize.xy * max(customBloomSampleScale, 0.5);
-			float4 sum = tex2D(_MainTex, uv) * 4.0;
-			sum += tex2D(_MainTex, uv + texel * float2(-1,  0)) * 2.0;
-			sum += tex2D(_MainTex, uv + texel * float2( 1,  0)) * 2.0;
-			sum += tex2D(_MainTex, uv + texel * float2( 0, -1)) * 2.0;
-			sum += tex2D(_MainTex, uv + texel * float2( 0,  1)) * 2.0;
-			sum += tex2D(_MainTex, uv + texel * float2(-1, -1));
-			sum += tex2D(_MainTex, uv + texel * float2( 1, -1));
-			sum += tex2D(_MainTex, uv + texel * float2(-1,  1));
-			sum += tex2D(_MainTex, uv + texel * float2( 1,  1));
-			return sum / 16.0;
-		}
-
-		float4 fragBloomDownsample(v2f i) : SV_Target
-		{
-			return DownsampleBox13(i.uv);
-		}
-
-		float4 fragBloomUpsample(v2f i) : SV_Target
-		{
-			return UpsampleTent(i.uv) + tex2D(BloomTex, i.uv);
 		}
 
 		float4 fragCausticTemporal(v2f i) : SV_Target
@@ -716,38 +592,6 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			CGPROGRAM
 			#pragma vertex vert
 			#pragma fragment frag
-			ENDCG
-		}
-
-		Pass {
-			Blend One Zero
-			CGPROGRAM
-			#pragma vertex vert
-			#pragma fragment fragBloomExtract
-			ENDCG
-		}
-
-		Pass {
-			Blend One One
-			CGPROGRAM
-			#pragma vertex vert
-			#pragma fragment fragBloomComposite
-			ENDCG
-		}
-
-		Pass {
-			Blend One Zero
-			CGPROGRAM
-			#pragma vertex vert
-			#pragma fragment fragBloomDownsample
-			ENDCG
-		}
-
-		Pass {
-			Blend One Zero
-			CGPROGRAM
-			#pragma vertex vert
-			#pragma fragment fragBloomUpsample
 			ENDCG
 		}
 
