@@ -26,12 +26,12 @@ int causticsFrameIndex;
 float densityThreshold;
 float phase0RenderBias;
 float causticsStepPixels;
-float causticsIndexOfRefraction;
 float causticsGlassIndexOfRefraction;
 float causticsPhase0IndexOfRefraction;
 float causticsPhase1IndexOfRefraction;
 float causticsDispersionStrength;
 float causticsSurfaceTransmittance;
+float causticsReflectance;
 float causticsFresnelStrength;
 float causticsLightAngularRadius;
 float causticsPhase0Absorption;
@@ -41,7 +41,7 @@ float causticsPhase1ColorAbsorption;
 float causticsTintBoost;
 float causticsRayBrightness;
 float causticsTemporalJitterPixels;
-float causticsTemporalIorJitter;
+float causticsSurfaceNormalJitterPixels;
 float3 causticsLightDirection;
 int useEllipticalBounds;
 float2 ellipseBoundsCenter;
@@ -193,9 +193,19 @@ float2 BoundaryDistances(float2 worldPos)
 	float qLen = max(length(q), 0.0001);
 	float ellipseGradientLength = length(float2(q.x / radii.x, q.y / radii.y)) / qLen;
 	float ellipseDistance = (qLen - 1.0) / max(ellipseGradientLength, 0.0001);
-	float insideEllipseX = step(abs(q.x), 1.0);
-	float cutDistance = (obstacleY - worldPos.y) * insideEllipseX;
+	float cutDistance = obstacleY - worldPos.y;
 	return float2(ellipseDistance, cutDistance);
+}
+
+float OffsetBoundaryDistance(float2 distances, float expansion)
+{
+	if (expansion <= 0.0001)
+	{
+		return max(distances.x, distances.y);
+	}
+
+	float outsideDistance = length(max(distances, 0.0)) + min(max(distances.x, distances.y), 0.0);
+	return outsideDistance - expansion;
 }
 
 float InnerAnalyticBoundaryDistance(float2 worldPos)
@@ -206,7 +216,7 @@ float InnerAnalyticBoundaryDistance(float2 worldPos)
 
 float OuterAnalyticBoundaryDistance(float2 worldPos)
 {
-	return InnerAnalyticBoundaryDistance(worldPos) - max(analyticBoundaryExpansion, 0.0);
+	return OffsetBoundaryDistance(BoundaryDistances(worldPos), max(analyticBoundaryExpansion, 0.0));
 }
 
 bool InsideOuterAnalyticBoundary(float2 uv)
@@ -225,25 +235,43 @@ int MediumPhaseFromCombined(float4 combined, bool insideFluidBoundary)
 	return phase >= 0 || useEllipticalBounds == 0 || !insideFluidBoundary ? phase : 1;
 }
 
-float2 AnalyticBoundaryNormal(float2 worldPos)
+float2 EllipseBoundaryNormal(float2 worldPos)
 {
 	float2 radii = max(abs(ellipseBoundsSize), 0.0001);
 	float2 rel = worldPos - ellipseBoundsCenter;
 	float2 q = rel / radii;
-	float2 ellipseNormal = length(q) > 0.0001
+	return length(q) > 0.0001
 		? normalize(float2(q.x / radii.x, q.y / radii.y))
 		: float2(0.0, 1.0);
-	float insideEllipseX = step(abs(q.x), 1.0);
-	float2 distances = BoundaryDistances(worldPos);
-	float boundaryDelta = distances.y - distances.x;
-	float cutT = smoothstep(-0.0001, 0.0001, boundaryDelta) * insideEllipseX;
-	float2 cutNormal = float2(0.0, -1.0);
-	return normalize(lerp(ellipseNormal, cutNormal, cutT));
 }
 
-float2 AnalyticSurfaceNormal(float2 uv, float2 rayDir)
+float2 AnalyticBoundaryNormal(float2 worldPos)
 {
-	float2 worldNormal = AnalyticBoundaryNormal(UvToWorld(uv));
+	float2 distances = BoundaryDistances(worldPos);
+	float2 ellipseNormal = EllipseBoundaryNormal(worldPos);
+	float2 cutNormal = float2(0.0, -1.0);
+	return distances.x > distances.y ? ellipseNormal : cutNormal;
+}
+
+float2 OffsetBoundaryNormal(float2 worldPos, float expansion)
+{
+	if (expansion <= 0.0001)
+	{
+		return AnalyticBoundaryNormal(worldPos);
+	}
+
+	float2 distances = BoundaryDistances(worldPos);
+	float2 outsideDistances = max(distances, 0.0);
+	if (outsideDistances.x > 0.0 && outsideDistances.y > 0.0)
+	{
+		return normalize(EllipseBoundaryNormal(worldPos) * outsideDistances.x + float2(0.0, -1.0) * outsideDistances.y);
+	}
+	return AnalyticBoundaryNormal(worldPos);
+}
+
+float2 AnalyticSurfaceNormal(float2 uv, float2 rayDir, float expansion)
+{
+	float2 worldNormal = OffsetBoundaryNormal(UvToWorld(uv), expansion);
 	float2 normal = normalize(worldNormal / max(causticsWorldSize, 0.0001));
 	return dot(rayDir, normal) > 0.0 ? -normal : normal;
 }
@@ -262,36 +290,43 @@ float2 Refract2D(float2 rayDir, float2 normal, float eta)
 	return normalize(eta * rayDir + (eta * cosI - cosT) * normal);
 }
 
+bool CanRefract2D(float2 rayDir, float2 normal, float eta)
+{
+	normal = dot(rayDir, normal) > 0.0 ? -normal : normal;
+	float cosI = dot(-rayDir, normal);
+	float sinT2 = eta * eta * max(0.0, 1.0 - cosI * cosI);
+	return sinT2 <= 1.0;
+}
+
 float FresnelSchlick2D(float2 rayDir, float2 normal, float eta)
 {
 	normal = dot(rayDir, normal) > 0.0 ? -normal : normal;
+	if (!CanRefract2D(rayDir, normal, eta))
+	{
+		return 1.0;
+	}
+
 	float cosI = saturate(dot(-rayDir, normal));
 	float r0 = (1.0 - eta) / (1.0 + eta);
 	r0 *= r0;
 	return saturate(r0 + (1.0 - r0) * pow(1.0 - cosI, 5.0));
 }
 
-float SurfaceTransmission(float2 rayDir, float2 normal, float eta)
+float SurfaceReflectance(float2 rayDir, float2 normal, float eta)
 {
-	float fresnel = FresnelSchlick2D(rayDir, normal, eta) * saturate(causticsFresnelStrength);
-	return saturate(causticsSurfaceTransmittance) * saturate(1.0 - fresnel);
+	float fresnel = FresnelSchlick2D(rayDir, normal, eta) * max(causticsFresnelStrength, 0.0);
+	return saturate(max(saturate(causticsReflectance), fresnel));
 }
 
-float SurfaceReflection(float2 rayDir, float2 normal, float eta)
+float SurfaceTransmission(float2 rayDir, float2 normal, float eta)
 {
-	return saturate(1.0 - SurfaceTransmission(rayDir, normal, eta));
+	return saturate(causticsSurfaceTransmittance) * saturate(1.0 - SurfaceReflectance(rayDir, normal, eta));
 }
 
 float2 Reflect2D(float2 rayDir, float2 normal)
 {
 	normal = dot(rayDir, normal) > 0.0 ? -normal : normal;
 	return normalize(rayDir - 2.0 * dot(rayDir, normal) * normal);
-}
-
-float Random01(int raySeed, int stepIndex)
-{
-	float n = raySeed * 12.9898 + stepIndex * 78.233 + causticsFrameIndex * 37.719;
-	return frac(sin(n) * 43758.5453);
 }
 
 uint HashUint(uint x)
@@ -306,37 +341,95 @@ uint HashUint(uint x)
 
 float Hash01(uint seed)
 {
-	return (HashUint(seed) & 0x00ffffffu) / 16777215.0;
+	return ((HashUint(seed) & 0x00ffffffu) + 0.5) / 16777216.0;
 }
 
-int SpectralChannel(uint raySeed)
+float Random01(int raySeed, int stepIndex)
 {
-	return causticsDispersionStrength > 0.0 ? min((int)(Hash01(raySeed) * 3.0), 2) : -1;
+	uint seed = (uint)raySeed * 73856093u ^ (uint)stepIndex * 19349663u ^ (uint)causticsFrameIndex * 83492791u;
+	return Hash01(seed);
 }
 
-float SpectralOffset(int spectralChannel)
+float2 RandomUnitVector(uint seed)
 {
-	return spectralChannel < 0 ? 0.0 : (float)spectralChannel - 1.0;
+	float angle = Hash01(seed) * 6.28318530718;
+	return float2(cos(angle), sin(angle));
 }
 
-float3 SpectralMask(int spectralChannel)
+float3 VisibleWavelengthToRgb(float wavelengthNm)
 {
-	if (spectralChannel == 0)
+	float w = wavelengthNm;
+	float3 rgb = 0.0;
+
+	if (w < 440.0)
 	{
-		return float3(3.0, 0.0, 0.0);
+		rgb = float3((440.0 - w) / 60.0, 0.0, 1.0);
+	}
+	else if (w < 490.0)
+	{
+		rgb = float3(0.0, (w - 440.0) / 50.0, 1.0);
+	}
+	else if (w < 510.0)
+	{
+		rgb = float3(0.0, 1.0, (510.0 - w) / 20.0);
+	}
+	else if (w < 580.0)
+	{
+		rgb = float3((w - 510.0) / 70.0, 1.0, 0.0);
+	}
+	else if (w < 645.0)
+	{
+		rgb = float3(1.0, (645.0 - w) / 65.0, 0.0);
+	}
+	else
+	{
+		rgb = float3(1.0, 0.0, 0.0);
 	}
 
-	if (spectralChannel == 1)
+	float edgeAttenuation = 1.0;
+	if (w < 420.0)
 	{
-		return float3(0.0, 3.0, 0.0);
+		edgeAttenuation = 0.3 + 0.7 * (w - 380.0) / 40.0;
+	}
+	else if (w > 620.0)
+	{
+		edgeAttenuation = 0.3 + 0.7 * (700.0 - w) / 80.0;
 	}
 
-	if (spectralChannel == 2)
+	return saturate(rgb) * saturate(edgeAttenuation);
+}
+
+float SpectralWavelength(uint raySeed)
+{
+	return lerp(380.0, 700.0, Hash01(raySeed));
+}
+
+float SpectralOffsetFromWavelength(float wavelengthNm)
+{
+	return saturate((700.0 - wavelengthNm) / 300.0) * 2.0 - 1.0;
+}
+
+void InitSpectralRay(uint spectralSeed, int subRay, int raysPerPixel, out float spectralOffset, out float3 spectralMask)
+{
+	if (causticsDispersionStrength <= 0.0)
 	{
-		return float3(0.0, 0.0, 3.0);
+		spectralOffset = 0.0;
+		spectralMask = 1.0;
+		return;
 	}
 
-	return 1.0;
+	if (raysPerPixel >= 3)
+	{
+		float t = ((float)subRay + 0.5) / max((float)raysPerPixel, 1.0);
+		float wavelength = lerp(380.0, 700.0, t);
+		spectralOffset = SpectralOffsetFromWavelength(wavelength);
+		spectralMask = VisibleWavelengthToRgb(wavelength) * 3.0;
+		return;
+	}
+
+	float wavelength = SpectralWavelength(spectralSeed);
+	spectralOffset = SpectralOffsetFromWavelength(wavelength);
+	spectralMask = VisibleWavelengthToRgb(wavelength) * 3.0;
 }
 
 float DispersedIor(float ior, float spectralOffset)
@@ -352,22 +445,37 @@ float2 Rotate2D(float2 v, float angle)
 	return float2(v.x * c - v.y * s, v.x * s + v.y * c);
 }
 
-bool ResolveSurfaceDirection(inout float2 rayDir, float2 normal, float eta, int raySeed, int stepIndex)
+float2 SurfaceInteractionNormal(float2 uv, float2 rayDir, float2 baseNormal, int raySeed, int stepIndex, int subRay)
+{
+	float radius = max(causticsSurfaceNormalJitterPixels, 0.0);
+	if (radius <= 0.0)
+	{
+		return baseNormal;
+	}
+
+	uint seed = (uint)raySeed * 73856093u ^ (uint)stepIndex * 19349663u ^ (uint)subRay * 83492791u ^ (uint)causticsFrameIndex * 2654435761u;
+	float2 offsetPixels = RandomUnitVector(seed) * radius * sqrt(Hash01(seed ^ 0x9e3779b9u));
+	float2 offsetUv = offsetPixels / float2(max(combinedWidth, 1), max(combinedHeight, 1));
+	float2 sampledNormal = SurfaceNormal(uv + offsetUv, rayDir);
+	return dot(sampledNormal, baseNormal) < 0.0 ? -sampledNormal : sampledNormal;
+}
+
+bool ResolveSurfaceDirection(inout float2 rayDir, float2 normal, float2 uv, float eta, int raySeed, int stepIndex, int subRay)
 {
 	if (causticsStochasticReflection != 0)
 	{
-		float fresnel = FresnelSchlick2D(rayDir, normal, eta) * saturate(causticsFresnelStrength);
-		if (Random01(raySeed, stepIndex) < fresnel)
+		float reflectance = SurfaceReflectance(rayDir, normal, eta);
+		if (Random01(raySeed, stepIndex) < reflectance)
 		{
-			rayDir = Reflect2D(rayDir, normal);
+			rayDir = Reflect2D(rayDir, SurfaceInteractionNormal(uv, rayDir, normal, raySeed, stepIndex, subRay));
 			return false;
 		}
 
-		rayDir = Refract2D(rayDir, normal, eta);
+		rayDir = Refract2D(rayDir, SurfaceInteractionNormal(uv, rayDir, normal, raySeed, stepIndex, subRay), eta);
 		return true;
 	}
 
-	rayDir = Refract2D(rayDir, normal, eta);
+	rayDir = Refract2D(rayDir, SurfaceInteractionNormal(uv, rayDir, normal, raySeed, stepIndex, subRay), eta);
 	return true;
 }
 
@@ -376,10 +484,9 @@ float FrameJitter01(int frameIndex)
 	return frac(frameIndex * 0.61803398875 + 0.5);
 }
 
-float EffectiveAbsoluteIor(float ior, int raySeed, float spectralOffset)
+float EffectiveAbsoluteIor(float ior, float spectralOffset)
 {
-	float jitter = frac((causticsFrameIndex + raySeed * 17) * 0.61803398875 + 0.137) * 2.0 - 1.0;
-	return max(1.0001, DispersedIor(ior, spectralOffset) * (1.0 + jitter * max(causticsTemporalIorJitter, 0.0)));
+	return max(1.0001, DispersedIor(ior, spectralOffset));
 }
 
 float PhaseIor(int phase, float spectralOffset)
@@ -388,15 +495,14 @@ float PhaseIor(int phase, float spectralOffset)
 	return DispersedIor(ior, spectralOffset);
 }
 
-float EffectivePhaseEta(bool enteringSelectedPhase, int raySeed, float spectralOffset)
+float EffectivePhaseEta(bool enteringSelectedPhase, float spectralOffset)
 {
 	int selectedPhase = causticsPhase == 0 ? 0 : 1;
 	int otherPhase = selectedPhase == 0 ? 1 : 0;
 	float nSelected = PhaseIor(selectedPhase, spectralOffset);
 	float nOther = PhaseIor(otherPhase, spectralOffset);
 	float eta = enteringSelectedPhase ? nOther / nSelected : nSelected / nOther;
-	float jitter = frac((causticsFrameIndex + raySeed * 17) * 0.61803398875 + 0.137) * 2.0 - 1.0;
-	return max(0.0001, eta * (1.0 + jitter * max(causticsTemporalIorJitter, 0.0)));
+	return max(0.0001, eta);
 }
 
 bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir)
@@ -536,15 +642,17 @@ void Trace(uint3 id : SV_DispatchThreadID)
 	bool enteredTexture = InsideTexture(uv);
 	float causticLineEnergy = max(causticsRayBrightness, 0.0) / max(causticsRaysPerPixel, 1);
 	uint spectralSeed = id.x * 73856093u ^ id.y * 19349663u ^ (uint)causticsFrameIndex * 83492791u;
-	int spectralChannel = SpectralChannel(spectralSeed);
-	float spectralOffset = SpectralOffset(spectralChannel);
-	float3 rayEnergy = SpectralMask(spectralChannel);
+	int raysPerPixel = max(causticsRaysPerPixel, 1);
+	int subRay = (int)(id.x % (uint)raysPerPixel);
+	float spectralOffset;
+	float3 rayEnergy;
+	InitSpectralRay(spectralSeed, subRay, raysPerPixel, spectralOffset, rayEnergy);
 	bool useColourAbsorption = causticsPhase0ColorAbsorption > 0.0 || causticsPhase1ColorAbsorption > 0.0;
 	int currentPhase = MediumPhaseFromCombined(currentCombined, insideInnerBoundary);
 	float3 mediumColour = useColourAbsorption ? RayColourFromCombined(currentCombined, currentPhase) : 1.0;
 	int raySeed = (int)id.x + (int)id.y;
-	float effectiveGlassIor = EffectiveAbsoluteIor(causticsGlassIndexOfRefraction, raySeed, spectralOffset);
-	float effectiveFluidIor = EffectiveAbsoluteIor(causticsIndexOfRefraction, raySeed, spectralOffset);
+	float effectiveGlassIor = EffectiveAbsoluteIor(causticsGlassIndexOfRefraction, spectralOffset);
+	float effectiveFluidIor = EffectiveAbsoluteIor(causticsPhase1IndexOfRefraction, spectralOffset);
 	int maxSteps = min(4096, (int)ceil(length(causticSize) / max(causticsStepPixels, 0.25)) + causticsRaySteps);
 
 	for (int stepIndex = 0; stepIndex < maxSteps; stepIndex++)
@@ -572,7 +680,9 @@ void Trace(uint3 id : SV_DispatchThreadID)
 		{
 			bool enteringBoundary = !previousInsideOuterBoundary && insideOuterBoundary;
 			float eta = enteringBoundary ? 1.0 / effectiveGlassIor : effectiveGlassIor;
-			float2 normal = enteringBoundary ? AnalyticSurfaceNormal(uv, rayDir) : -AnalyticSurfaceNormal(uv, rayDir);
+			float2 normal = enteringBoundary
+				? AnalyticSurfaceNormal(uv, rayDir, max(analyticBoundaryExpansion, 0.0))
+				: -AnalyticSurfaceNormal(uv, rayDir, max(analyticBoundaryExpansion, 0.0));
 			rayEnergy *= SurfaceTransmission(rayDir, normal, eta);
 			rayDir = Refract2D(rayDir, normal, eta);
 
@@ -584,7 +694,9 @@ void Trace(uint3 id : SV_DispatchThreadID)
 		{
 			bool enteringFluid = !previousInsideInnerBoundary && insideInnerBoundary;
 			float eta = enteringFluid ? effectiveGlassIor / effectiveFluidIor : effectiveFluidIor / effectiveGlassIor;
-			float2 normal = enteringFluid ? AnalyticSurfaceNormal(uv, rayDir) : -AnalyticSurfaceNormal(uv, rayDir);
+			float2 normal = enteringFluid
+				? AnalyticSurfaceNormal(uv, rayDir, 0.0)
+				: -AnalyticSurfaceNormal(uv, rayDir, 0.0);
 			rayEnergy *= SurfaceTransmission(rayDir, normal, eta);
 			rayDir = Refract2D(rayDir, normal, eta);
 
@@ -632,9 +744,11 @@ void Trace(uint3 id : SV_DispatchThreadID)
 		if (!inside && previousDensity < densityThreshold && density >= densityThreshold)
 		{
 			float2 normal = SurfaceNormal(uv, rayDir);
-			float eta = EffectivePhaseEta(true, raySeed, spectralOffset);
-			float surfaceEnergy = causticsStochasticReflection != 0 ? saturate(causticsSurfaceTransmittance) : SurfaceTransmission(rayDir, normal, eta);
-			bool transmitted = ResolveSurfaceDirection(rayDir, normal, eta, raySeed, stepIndex);
+			float eta = EffectivePhaseEta(true, spectralOffset);
+			bool transmitted = ResolveSurfaceDirection(rayDir, normal, uv, eta, raySeed, stepIndex, subRay);
+			float surfaceEnergy = causticsStochasticReflection != 0
+				? saturate(causticsSurfaceTransmittance)
+				: SurfaceTransmission(rayDir, normal, eta);
 			rayEnergy *= surfaceEnergy;
 			rayStep = rayDir * causticsStepPixels / causticSize;
 			stepWorldDistance = length(rayStep * causticsWorldSize);
@@ -644,9 +758,11 @@ void Trace(uint3 id : SV_DispatchThreadID)
 		else if (inside && previousDensity >= densityThreshold && density < densityThreshold)
 		{
 			float2 normal = -SurfaceNormal(uv, rayDir);
-			float eta = EffectivePhaseEta(false, raySeed, spectralOffset);
-			float surfaceEnergy = causticsStochasticReflection != 0 ? saturate(causticsSurfaceTransmittance) : SurfaceTransmission(rayDir, normal, eta);
-			bool transmitted = ResolveSurfaceDirection(rayDir, normal, eta, raySeed, stepIndex);
+			float eta = EffectivePhaseEta(false, spectralOffset);
+			bool transmitted = ResolveSurfaceDirection(rayDir, normal, uv, eta, raySeed, stepIndex, subRay);
+			float surfaceEnergy = causticsStochasticReflection != 0
+				? saturate(causticsSurfaceTransmittance)
+				: SurfaceTransmission(rayDir, normal, eta);
 			rayEnergy *= surfaceEnergy;
 			rayStep = rayDir * causticsStepPixels / causticSize;
 			stepWorldDistance = length(rayStep * causticsWorldSize);

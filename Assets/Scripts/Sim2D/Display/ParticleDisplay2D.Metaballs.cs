@@ -160,12 +160,10 @@ namespace Seb.Fluid2D.Rendering
 			[Min(0f)] public float iridescenceScale = 2.0f;
 
 			[Header("Ghost Boundary Normals")]
-			[Tooltip("Blends analytic ellipse/cut-boundary normals into ghost particles in the metaball normal pass. Negative values flip the direction.")]
-			[Range(-1f, 1f)] public float ghostBoundaryNormalStrength = 1f;
-			[Tooltip("World-space distance around the horizontal cut corners used to blend ellipse and cut normals.")]
-			public float ghostBoundaryCornerBlendWidth = 0.75f;
-			[Tooltip("World-space band around the analytic boundary where fake ghost normals are applied.")]
-			[Min(0.0001f)] public float ghostBoundaryNormalWidth = 1f;
+			[Tooltip("Strength of the analytic ellipse/cut-boundary normals in the metaball composite. Values above 1 make the boundary normal ramp steeper; negative values flip the direction.")]
+			[Range(-4f, 4f)] public float ghostBoundaryNormalStrength = 1f;
+			[Tooltip("World-space expansion applied to the analytic boundary. 0 uses the original, non-expanded analytic boundary.")]
+			[Min(0f)] public float analyticBoundaryPadding = 0.175f;
 
 			[Header("Bloom")]
 			[Tooltip("Adds a metaball-only bloom pass from HDR lighting values without running full-scene post processing.")]
@@ -198,18 +196,17 @@ namespace Seb.Fluid2D.Rendering
 			[Min(0f)] public float causticsLightFieldIntensity = 1f;
 			[Tooltip("0 makes caustics illuminate the existing fluid colour; 1 makes them a pure additive overlay.")]
 			[Range(0f, 1f)] public float causticsAdditiveBlend = 0.25f;
-			[Tooltip("Fluid index of refraction used at the inner analytic glass-fluid boundary.")]
-			[Min(1.0001f)] public float causticsIndexOfRefraction = 1.33f;
 			[Tooltip("Glass index of refraction used by the expanded analytic boundary shell.")]
 			[Min(1.0001f)] public float causticsGlassIndexOfRefraction = 1.516f;
 			[Tooltip("Index of refraction for phase 0 when bending caustic rays across visible phase boundaries.")]
 			[Min(1.0001f)] public float causticsPhase0IndexOfRefraction = 1.442f;
 			[Tooltip("Index of refraction for phase 1 when bending caustic rays across visible phase boundaries.")]
 			[Min(1.0001f)] public float causticsPhase1IndexOfRefraction = 1.333f;
-			[Tooltip("Energy retained by the transmitted caustic ray at each phase surface before Fresnel loss.")]
 			[Range(0f, 1f)] public float causticsSurfaceTransmittance = 1f;
-			[Tooltip("Strength of Fresnel energy loss at phase surfaces. 0 ignores Fresnel, 1 uses Schlick Fresnel.")]
-			[Range(0f, 1f)] public float causticsFresnelStrength = 1f;
+			[Tooltip("Minimum reflection probability at phase surfaces before Fresnel is applied. 0 uses Fresnel only; higher values make the material more reflective at all angles.")]
+			[Range(0f, 1f)] public float causticsReflectance = 0f;
+			[Tooltip("Multiplier for Fresnel reflection at phase surfaces. 0 disables stochastic reflections, 1 is physical Schlick Fresnel, higher values exaggerate internal reflections.")]
+			[Min(0f)] public float causticsFresnelStrength = 1f;
 			[Tooltip("Uses Fresnel as a probability to randomly reflect caustic rays at surfaces instead of always transmitting one refracted ray.")]
 			public bool causticsStochasticReflection = false;
 			[Tooltip("Relative IOR spread used by stochastic spectral caustic tracing. 0.02 means red/blue use roughly -/+2% IOR.")]
@@ -218,8 +215,6 @@ namespace Seb.Fluid2D.Rendering
 			[Min(0f)] public float causticsLightAngularRadiusDegrees = 0f;
 			[Tooltip("Refracts caustic rays through the analytic ellipse/cut simulation boundary when elliptical bounds are enabled.")]
 			public bool causticsUseAnalyticBoundary = true;
-			[Tooltip("Additional world-space padding added to the caustic analytic boundary on top of the generated ghost-particle layer thickness.")]
-			[Min(0f)] public float causticsAnalyticBoundaryPadding = 0f;
 			[Tooltip("Exponential energy loss per world unit travelled through phase 0.")]
 			[Min(0f)] public float causticsPhase0Absorption = 0f;
 			[Tooltip("Exponential energy loss per world unit travelled through phase 1.")]
@@ -238,7 +233,7 @@ namespace Seb.Fluid2D.Rendering
 			[Tooltip("Launches only every Nth caustic ray for easier debugging. 1 uses every ray.")]
 			[Min(1)] public int causticsRayStride = 1;
 			[Tooltip("Launches multiple caustic rays per source pixel for denser supersampling. Cost scales roughly linearly.")]
-			[Range(1, 8)] public int causticsRaysPerPixel = 1;
+			[Range(1, 64)] public int causticsRaysPerPixel = 1;
 			[Tooltip("Splats each caustic ray sample bilinearly into four pixels. Disable to use the cheaper single-pixel atomic write.")]
 			public bool causticsUseSoftSplat = true;
 			[Tooltip("Small blur applied to the resolved caustic texture to reduce atomic splat noise.")]
@@ -249,8 +244,8 @@ namespace Seb.Fluid2D.Rendering
 			[Range(0f, 0.99f)] public float causticsTemporalHistoryWeight = 0.55f;
 			[Tooltip("Frame-to-frame ray lattice jitter in caustic texture pixels. Useful with temporal blending.")]
 			[Min(0f)] public float causticsTemporalJitterPixels = 0f;
-			[Tooltip("Frame-to-frame relative IOR jitter used to slightly vary refracted ray paths for temporal smoothing. 0.005 means +/-0.5%.")]
-			[Min(0f)] public float causticsTemporalIorJitter = 0f;
+			[Tooltip("Subpixel normal resampling radius used for reflected and refracted caustic rays at phase boundaries. Helps multiple rays per pixel see different boundary normals.")]
+			[Min(0f)] public float causticsSurfaceNormalJitterPixels = 0f;
 
 			[Header("Tonemapping")]
 			[Tooltip("Compresses metaball lighting and custom bloom before output to reduce highlight clipping and hue shifts.")]

@@ -37,6 +37,14 @@ Shader "Hidden/Particle2DMetaballComposite" {
 		float phaseBlendWidth;
 		float phase0RenderBias;
 		float phaseBiasNormalStrength;
+		int useEllipticalBounds;
+		float2 ellipseBoundsCenter;
+		float2 ellipseBoundsSize;
+		float obstacleY;
+		float2 metaballWorldCenter;
+		float2 metaballWorldSize;
+		float analyticBoundaryExpansion;
+		float metaballGhostBoundaryNormalStrength;
 		float metaballRefractionStrength;
 		float metaballRefractionEdgeFade;
 		float metaballIridescenceIntensity;
@@ -150,6 +158,125 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			}
 			float normalZ = sqrt(saturate(1.0 - lenSq));
 			return normalize(float3(normalXY, normalZ));
+		}
+
+		float3 NormalFromStrengthenedXY(float2 normalXY)
+		{
+			float lenSq = dot(normalXY, normalXY);
+			if (lenSq > 0.999)
+			{
+				normalXY *= rsqrt(lenSq) * 0.999;
+				lenSq = dot(normalXY, normalXY);
+			}
+			return normalize(float3(normalXY, sqrt(saturate(1.0 - lenSq))));
+		}
+
+		float3 ReorientedNormal(float3 baseNormal, float3 detailNormal)
+		{
+			return normalize(float3(
+				baseNormal.xy + detailNormal.xy,
+				baseNormal.z * detailNormal.z - dot(baseNormal.xy, detailNormal.xy)
+			));
+		}
+
+		float2 WorldPosFromUv(float2 uv)
+		{
+			return metaballWorldCenter + (uv - 0.5) * max(metaballWorldSize, float2(0.0001, 0.0001));
+		}
+
+		float2 BoundaryDistances(float2 worldPos)
+		{
+			float2 radii = max(abs(ellipseBoundsSize), 0.0001);
+			float2 rel = worldPos - ellipseBoundsCenter;
+			float2 q = rel / radii;
+			float qLen = max(length(q), 0.0001);
+			float ellipseGradientLength = length(float2(q.x / radii.x, q.y / radii.y)) / qLen;
+			float ellipseDistance = (qLen - 1.0) / max(ellipseGradientLength, 0.0001);
+			float cutDistance = obstacleY - worldPos.y;
+			return float2(ellipseDistance, cutDistance);
+		}
+
+		float AnalyticBoundaryDistance(float2 worldPos)
+		{
+			float2 distances = BoundaryDistances(worldPos);
+			return max(distances.x, distances.y);
+		}
+
+		float OuterAnalyticBoundaryDistance(float2 worldPos)
+		{
+			float2 distances = BoundaryDistances(worldPos);
+			float outsideDistance = length(max(distances, 0.0)) + min(max(distances.x, distances.y), 0.0);
+			return outsideDistance - max(analyticBoundaryExpansion, 0.0);
+		}
+
+		float2 EllipseBoundaryNormal(float2 worldPos)
+		{
+			float2 radii = max(abs(ellipseBoundsSize), 0.0001);
+			float2 rel = worldPos - ellipseBoundsCenter;
+			float2 q = rel / radii;
+			return length(q) > 0.0001
+				? normalize(float2(q.x / radii.x, q.y / radii.y))
+				: float2(0.0, 1.0);
+		}
+
+		float2 AnalyticBoundaryNormal(float2 worldPos)
+		{
+			float2 distances = BoundaryDistances(worldPos);
+			float2 ellipseNormal = EllipseBoundaryNormal(worldPos);
+			float2 cutNormal = float2(0.0, -1.0);
+			return distances.x > distances.y ? ellipseNormal : cutNormal;
+		}
+
+		float2 OuterAnalyticBoundaryNormal(float2 worldPos)
+		{
+			float2 distances = BoundaryDistances(worldPos);
+			float2 ellipseNormal = EllipseBoundaryNormal(worldPos);
+			float2 cutNormal = float2(0.0, -1.0);
+			float2 outsideDistances = max(distances, 0.0);
+			if (outsideDistances.x > 0.0 && outsideDistances.y > 0.0)
+			{
+				return normalize(ellipseNormal * outsideDistances.x + cutNormal * outsideDistances.y);
+			}
+			return AnalyticBoundaryNormal(worldPos);
+		}
+
+		float3 ApplyAnalyticBoundaryNormal(float3 particleNormal, float2 worldPos)
+		{
+			if (useEllipticalBounds == 0 || abs(metaballGhostBoundaryNormalStrength) <= 0.0001)
+			{
+				return particleNormal;
+			}
+
+			float width = max(analyticBoundaryExpansion, 0.0001);
+			float shellDistance = analyticBoundaryExpansion > 0.0001
+				? OuterAnalyticBoundaryDistance(worldPos) + analyticBoundaryExpansion
+				: AnalyticBoundaryDistance(worldPos);
+			float filletT = smoothstep(0.0, 1.0, saturate(shellDistance / width));
+			float strength = abs(metaballGhostBoundaryNormalStrength);
+			float analyticT = filletT * saturate(strength);
+			float analyticMagnitude = saturate(sin(filletT * 1.57079633) * max(strength, 0.0));
+			float2 analyticXY = OuterAnalyticBoundaryNormal(worldPos) * sign(metaballGhostBoundaryNormalStrength) * analyticMagnitude;
+			float3 analyticNormal = NormalFromStrengthenedXY(analyticXY);
+			float3 combinedNormal = ReorientedNormal(analyticNormal, particleNormal);
+			float edgeT = smoothstep(0.95, 1.0, filletT);
+			combinedNormal = normalize(lerp(combinedNormal, analyticNormal, edgeT));
+			return normalize(lerp(particleNormal, combinedNormal, analyticT));
+		}
+
+		float AnalyticBoundaryNormalClipAmount(float2 worldPos)
+		{
+			if (useEllipticalBounds == 0 || debugShowClipping == 0 || abs(metaballGhostBoundaryNormalStrength) <= 0.0001)
+			{
+				return 0.0;
+			}
+
+			float width = max(analyticBoundaryExpansion, 0.0001);
+			float shellDistance = analyticBoundaryExpansion > 0.0001
+				? OuterAnalyticBoundaryDistance(worldPos) + analyticBoundaryExpansion
+				: AnalyticBoundaryDistance(worldPos);
+			float filletT = smoothstep(0.0, 1.0, saturate(shellDistance / width));
+			float analyticMagnitude = sin(filletT * 1.57079633) * abs(metaballGhostBoundaryNormalStrength);
+			return step(1.0, analyticMagnitude * analyticMagnitude);
 		}
 
 		float GetPhaseNormalStrength(bool usePhase1)
@@ -286,7 +413,18 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			density0 = Phase0Density(combined);
 			density1 = combined.a;
 			float density = max(density0, density1);
-			alpha = smoothstep(max(densityThreshold - edgeSoftness, 0), densityThreshold + edgeSoftness, density);
+			float particleAlpha = smoothstep(max(densityThreshold - edgeSoftness, 0), densityThreshold + edgeSoftness, density);
+			if (useEllipticalBounds != 0)
+			{
+				float boundsDistance = OuterAnalyticBoundaryDistance(WorldPosFromUv(i.uv));
+				float boundsAA = max(fwidth(boundsDistance), 0.0001);
+				float boundsAlpha = smoothstep(boundsAA, -boundsAA, boundsDistance);
+				alpha = min(particleAlpha, boundsAlpha);
+			}
+			else
+			{
+				alpha = particleAlpha;
+			}
 			if (alpha <= 0.0001)
 			{
 				phaseT = 0.0;
@@ -319,12 +457,15 @@ Shader "Hidden/Particle2DMetaballComposite" {
 				if (debugMode == 1)
 				{
 					float4 normalPacked = tex2D(NormalTex, i.uv);
+					float2 worldPos = WorldPosFromUv(i.uv);
 					float3 normal = GetBlendedPhaseNormal(normalPacked, density0, density1, phaseT);
+					normal = ApplyAnalyticBoundaryNormal(normal, worldPos);
 					float3 encodedNormal = saturate(0.5 + normal / 2.0);
-					float clipped = lerp(
+					float particleClipped = lerp(
 						PhaseNormalClipAmount(normalPacked, density0, density1, false),
 						PhaseNormalClipAmount(normalPacked, density0, density1, true),
 						step(0.5, phaseT));
+					float clipped = max(particleClipped, AnalyticBoundaryNormalClipAmount(worldPos));
 					float3 debugColour = lerp(encodedNormal, float3(0.0, 1.0, 0.0), clipped);
 					#if defined(UNITY_COLORSPACE_GAMMA)
 						litColour = debugColour;
@@ -381,6 +522,8 @@ Shader "Hidden/Particle2DMetaballComposite" {
 
 			float4 normalPacked = tex2D(NormalTex, i.uv);
 			float3 normal = GetBlendedPhaseNormal(normalPacked, density0, density1, phaseT);
+			float2 worldPos = WorldPosFromUv(i.uv);
+			normal = ApplyAnalyticBoundaryNormal(normal, worldPos);
 			float refractionMask = smoothstep(0.0, max(metaballRefractionEdgeFade, 0.0001), density - densityThreshold);
 			float2 refractedUv = saturate(i.uv - normal.xy * metaballRefractionStrength * refractionMask);
 			float4 refractedCombined = tex2D(CombinedTex, refractedUv);
@@ -388,6 +531,8 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			float refractedData1 = refractedCombined.a > 0.0001 ? refractedCombined.b / refractedCombined.a : data1;
 			float3 normal0 = GetPhaseNormal(normalPacked, density0, density1, false);
 			float3 normal1 = GetPhaseNormal(normalPacked, density0, density1, true);
+			normal0 = ApplyAnalyticBoundaryNormal(normal0, worldPos);
+			normal1 = ApplyAnalyticBoundaryNormal(normal1, worldPos);
 			float3 colour0 = SamplePhaseGradientColour(refractedData0, false, noise);
 			float3 colour1 = SamplePhaseGradientColour(refractedData1, true, noise);
 			albedoColour = lerp(colour0, colour1, phaseT);

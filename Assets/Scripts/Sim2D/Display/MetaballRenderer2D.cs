@@ -32,6 +32,7 @@ namespace Seb.Fluid2D.Rendering
 		bool clearCausticHistory;
 		bool hasPreviousCausticCamera;
 		int causticFrameIndex;
+		int causticTemporalFrameCount;
 		Vector2 previousCausticWorldCenter;
 		Vector2 previousCausticWorldSize;
 
@@ -144,6 +145,13 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
+		public void ClearCausticHistory()
+		{
+			clearCausticHistory = true;
+			hasPreviousCausticCamera = false;
+			causticTemporalFrameCount = 0;
+		}
+
 		void EnsureMaterials(ParticleDisplay2D display)
 		{
 			EnsureMaterial(ref metaballMaterial, display.metaballShader);
@@ -183,8 +191,6 @@ namespace Seb.Fluid2D.Rendering
 			metaballMaterial.SetVector("ellipseBoundsSize", new Vector4(display.sim.ellipseBoundsSize.x, display.sim.ellipseBoundsSize.y, 0f, 0f));
 			metaballMaterial.SetFloat("obstacleY", display.sim.obstacleY);
 			metaballMaterial.SetFloat("metaballGhostBoundaryNormalStrength", settings.ghostBoundaryNormalStrength);
-			metaballMaterial.SetFloat("metaballGhostBoundaryCornerBlendWidth", settings.ghostBoundaryCornerBlendWidth);
-			metaballMaterial.SetFloat("metaballGhostBoundaryNormalWidth", settings.ghostBoundaryNormalWidth);
 		}
 
 		void EnsureCommandBuffer(Camera cam)
@@ -269,6 +275,7 @@ namespace Seb.Fluid2D.Rendering
 					causticTemporalTexture = null;
 					clearCausticHistory = true;
 					hasPreviousCausticCamera = false;
+					causticTemporalFrameCount = 0;
 				}
 			}
 			else
@@ -283,6 +290,7 @@ namespace Seb.Fluid2D.Rendering
 				causticTemporalTexture = null;
 				clearCausticHistory = true;
 				hasPreviousCausticCamera = false;
+				causticTemporalFrameCount = 0;
 			}
 		}
 
@@ -294,6 +302,12 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetFloat("phaseBlendWidth", settings.phaseBlendWidth);
 			compositeMaterial.SetFloat("phase0RenderBias", settings.phase0RenderBias);
 			compositeMaterial.SetFloat("phaseBiasNormalStrength", settings.phaseBiasNormalStrength);
+			compositeMaterial.SetInt("useEllipticalBounds", display.sim.useEllipticalBounds ? 1 : 0);
+			compositeMaterial.SetVector("ellipseBoundsCenter", new Vector4(display.sim.ellipseBoundsCenter.x, display.sim.ellipseBoundsCenter.y, 0f, 0f));
+			compositeMaterial.SetVector("ellipseBoundsSize", new Vector4(display.sim.ellipseBoundsSize.x, display.sim.ellipseBoundsSize.y, 0f, 0f));
+			compositeMaterial.SetFloat("obstacleY", display.sim.obstacleY);
+			compositeMaterial.SetFloat("analyticBoundaryExpansion", GetAnalyticBoundaryExpansion(display));
+			compositeMaterial.SetFloat("metaballGhostBoundaryNormalStrength", settings.ghostBoundaryNormalStrength);
 			compositeMaterial.SetTexture("CombinedTex", combinedAccumulationTexture);
 			compositeMaterial.SetTexture("NormalTex", normalAccumulationTexture);
 			compositeMaterial.SetTexture("ColourMap", display.gradientTexture);
@@ -305,6 +319,11 @@ namespace Seb.Fluid2D.Rendering
 			float effectiveRefractionStrength = settings.refractionStrength * display.GetZoomScale(cam);
 			float effectiveBloomSampleScale = Mathf.Max(0.5f, settings.bloomRadius / 8f);
 			float effectiveConfiguredBlurRadius = display.EffectiveConfiguredBlurRadius;
+			float worldHeight = Mathf.Max(cam.orthographicSize * 2f, 0.0001f);
+			float worldWidth = Mathf.Max(worldHeight * cam.aspect, 0.0001f);
+			Vector2 worldCenter = new Vector2(cam.transform.position.x, cam.transform.position.y);
+			compositeMaterial.SetVector("metaballWorldCenter", new Vector4(worldCenter.x, worldCenter.y, 0f, 0f));
+			compositeMaterial.SetVector("metaballWorldSize", new Vector4(worldWidth, worldHeight, 0f, 0f));
 			metaballMaterial.SetFloat("metaballBlurRadius", effectiveConfiguredBlurRadius);
 			compositeMaterial.SetFloat("metaballRefractionStrength", effectiveRefractionStrength);
 			compositeMaterial.SetFloat("metaballRefractionEdgeFade", settings.refractionEdgeFade);
@@ -420,7 +439,7 @@ namespace Seb.Fluid2D.Rendering
 			int width = causticAccumulationRTexture.width;
 			int height = causticAccumulationRTexture.height;
 			Vector3 lightDirection = settings.LightDirection;
-			float analyticBoundaryExpansion = GetCausticAnalyticBoundaryExpansion(display);
+			float analyticBoundaryExpansion = GetAnalyticBoundaryExpansion(display);
 
 			float worldHeight = Mathf.Max(cam.orthographicSize * 2f, 0.0001f);
 			float worldWidth = Mathf.Max(worldHeight * cam.aspect, 0.0001f);
@@ -441,11 +460,11 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeFloatParam(compute, "densityThreshold", settings.densityThreshold);
 			targetCommandBuffer.SetComputeFloatParam(compute, "phase0RenderBias", settings.phase0RenderBias);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsStepPixels", settings.causticsStepPixels);
-			targetCommandBuffer.SetComputeFloatParam(compute, "causticsIndexOfRefraction", settings.causticsIndexOfRefraction);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsGlassIndexOfRefraction", settings.causticsGlassIndexOfRefraction);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsPhase0IndexOfRefraction", settings.causticsPhase0IndexOfRefraction);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsPhase1IndexOfRefraction", settings.causticsPhase1IndexOfRefraction);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsSurfaceTransmittance", settings.causticsSurfaceTransmittance);
+			targetCommandBuffer.SetComputeFloatParam(compute, "causticsReflectance", settings.causticsReflectance);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsFresnelStrength", settings.causticsFresnelStrength);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsStochasticReflection", settings.causticsStochasticReflection ? 1 : 0);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsDispersionStrength", settings.causticsDispersionStrength);
@@ -457,7 +476,7 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsTintBoost", settings.causticsTintBoost);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsRayBrightness", settings.causticsRayBrightness);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsTemporalJitterPixels", settings.causticsTemporalEnabled ? settings.causticsTemporalJitterPixels : 0f);
-			targetCommandBuffer.SetComputeFloatParam(compute, "causticsTemporalIorJitter", settings.causticsTemporalEnabled ? settings.causticsTemporalIorJitter : 0f);
+			targetCommandBuffer.SetComputeFloatParam(compute, "causticsSurfaceNormalJitterPixels", settings.causticsSurfaceNormalJitterPixels);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsFrameIndex", causticFrameIndex++);
 			targetCommandBuffer.SetComputeVectorParam(compute, "causticsLightDirection", new Vector4(lightDirection.x, lightDirection.y, lightDirection.z, 0f));
 			targetCommandBuffer.SetComputeIntParam(compute, "useEllipticalBounds", display.sim.useEllipticalBounds && settings.causticsUseAnalyticBoundary ? 1 : 0);
@@ -493,23 +512,28 @@ namespace Seb.Fluid2D.Rendering
 
 			if (settings.causticsTemporalEnabled)
 			{
-				if (clearCausticHistory)
+				if (clearCausticHistory || !hasPreviousCausticCamera)
 				{
-					targetCommandBuffer.SetRenderTarget(causticHistoryTexture);
-					targetCommandBuffer.ClearRenderTarget(false, true, Color.clear);
+					targetCommandBuffer.Blit(causticResolvedTexture, causticTemporalTexture);
+					targetCommandBuffer.Blit(causticResolvedTexture, causticHistoryTexture);
 					clearCausticHistory = false;
-					hasPreviousCausticCamera = false;
+					causticTemporalFrameCount = 1;
 				}
-
-				Vector2 historyWorldCenter = hasPreviousCausticCamera ? previousCausticWorldCenter : currentWorldCenter;
-				Vector2 historyWorldSize = hasPreviousCausticCamera ? previousCausticWorldSize : currentWorldSize;
-				targetCommandBuffer.SetGlobalVector("causticCurrentWorldCenter", new Vector4(currentWorldCenter.x, currentWorldCenter.y, 0f, 0f));
-				targetCommandBuffer.SetGlobalVector("causticCurrentWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
-				targetCommandBuffer.SetGlobalVector("causticHistoryWorldCenter", new Vector4(historyWorldCenter.x, historyWorldCenter.y, 0f, 0f));
-				targetCommandBuffer.SetGlobalVector("causticHistoryWorldSize", new Vector4(historyWorldSize.x, historyWorldSize.y, 0f, 0f));
-				targetCommandBuffer.SetGlobalTexture("CausticHistoryTex", causticHistoryTexture);
-				targetCommandBuffer.Blit(causticResolvedTexture, causticTemporalTexture, compositeMaterial, 5);
-				targetCommandBuffer.Blit(causticTemporalTexture, causticHistoryTexture);
+				else
+				{
+					int nextFrameCount = Mathf.Max(causticTemporalFrameCount + 1, 2);
+					float targetHistoryWeight = display.sim.IsPaused ? 0.99f : settings.causticsTemporalHistoryWeight;
+					float warmupHistoryWeight = (nextFrameCount - 1f) / nextFrameCount;
+					compositeMaterial.SetFloat("causticTemporalHistoryWeight", Mathf.Min(targetHistoryWeight, warmupHistoryWeight));
+					targetCommandBuffer.SetGlobalVector("causticCurrentWorldCenter", new Vector4(currentWorldCenter.x, currentWorldCenter.y, 0f, 0f));
+					targetCommandBuffer.SetGlobalVector("causticCurrentWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
+					targetCommandBuffer.SetGlobalVector("causticHistoryWorldCenter", new Vector4(previousCausticWorldCenter.x, previousCausticWorldCenter.y, 0f, 0f));
+					targetCommandBuffer.SetGlobalVector("causticHistoryWorldSize", new Vector4(previousCausticWorldSize.x, previousCausticWorldSize.y, 0f, 0f));
+					targetCommandBuffer.SetGlobalTexture("CausticHistoryTex", causticHistoryTexture);
+					targetCommandBuffer.Blit(causticResolvedTexture, causticTemporalTexture, compositeMaterial, 5);
+					targetCommandBuffer.Blit(causticTemporalTexture, causticHistoryTexture);
+					causticTemporalFrameCount = nextFrameCount;
+				}
 
 				previousCausticWorldCenter = currentWorldCenter;
 				previousCausticWorldSize = currentWorldSize;
@@ -518,6 +542,7 @@ namespace Seb.Fluid2D.Rendering
 			else
 			{
 				hasPreviousCausticCamera = false;
+				causticTemporalFrameCount = 0;
 			}
 
 		}
@@ -532,11 +557,9 @@ namespace Seb.Fluid2D.Rendering
 			DispatchCaustics(targetCommandBuffer, compute, kernel, rayCount * raysPerPixel, 1);
 		}
 
-		float GetCausticAnalyticBoundaryExpansion(ParticleDisplay2D display)
+		float GetAnalyticBoundaryExpansion(ParticleDisplay2D display)
 		{
-			float spacing = Mathf.Sqrt(1f / (display.sim.spawner2D.ghostDensity * display.sim.ResolvedResolutionFactor));
-			int numLayers = Mathf.CeilToInt(display.sim.EffectiveSmoothingRadius / spacing);
-			return spacing * numLayers + display.metaballs.causticsAnalyticBoundaryPadding;
+			return display.metaballs.analyticBoundaryPadding;
 		}
 
 		void GetCausticRayRange(ParticleDisplay2D display, ParticleDisplay2D.MetaballSettings settings, int width, int height, Vector3 lightDirection, Vector2 worldCenter, Vector2 worldSize, float analyticBoundaryExpansion, out float startOffset, out int rayCount)
