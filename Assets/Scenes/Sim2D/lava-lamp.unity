@@ -387,10 +387,9 @@ MonoBehaviour:
     lightElevationDegrees: 10
     lightColor: {r: 1, g: 1, b: 1, a: 1}
     ambientLight: 0.5
-    directionalLightIntensity: 0
+    directionalLightIntensity: 6.02
     normalStrength: 1.1
     normalBlurCompensation: 0.99
-    specularColor: {r: 1, g: 1, b: 1, a: 1}
     specularIntensity: 10
     specularPower: 500
     fresnelColor: {r: 0.75, g: 0.9, b: 1, a: 1}
@@ -419,38 +418,41 @@ MonoBehaviour:
     iridescenceScale: 2.5
     ghostBoundaryNormalStrength: 1
     analyticBoundaryPadding: 0.4
-    causticsComputeShader: {fileID: 7200000, guid: 8f4e77c1b8284da4ca6c929de309e7a1, type: 3}
-    causticsEnabled: 1
-    causticsRenderTextureScale: 1
-    causticsIntensity: 2
-    causticsLightFieldIntensity: 2
-    causticsAdditiveBlend: 0
-    causticsGlassIndexOfRefraction: 1.516
-    causticsPhase0IndexOfRefraction: 1.442
-    causticsPhase1IndexOfRefraction: 1.333
-    causticsSurfaceTransmittance: 0.99
-    causticsReflectance: 0.1
-    causticsFresnelStrength: 1
-    causticsStochasticReflection: 1
-    causticsDispersionStrength: 0.25
-    causticsLightAngularRadiusDegrees: 0
-    causticsUseAnalyticBoundary: 1
-    causticsPhase0Absorption: 0
-    causticsPhase1Absorption: 0
-    causticsPhase0ColorAbsorption: 0.3
-    causticsPhase1ColorAbsorption: 0.2
-    causticsTintBoost: 0.75
-    causticsRaySteps: 16
-    causticsStepPixels: 1
-    causticsRayBrightness: 1.38
-    causticsRayStride: 1
-    causticsRaysPerPixel: 16
-    causticsUseSoftSplat: 0
-    causticsBlurRadius: 2
-    causticsTemporalEnabled: 1
-    causticsTemporalHistoryWeight: 0.85
-    causticsTemporalJitterPixels: 0
-    causticsSurfaceNormalJitterPixels: 2
+    computeShader: {fileID: 7200000, guid: 8f4e77c1b8284da4ca6c929de309e7a1, type: 3}
+    enabled: 1
+    textureScale: 1
+    lightFieldIntensity: 2
+    phase0Material:
+      indexOfRefraction: 1.442
+      absorption: 0.15
+      reflectance: 0.05
+      metallic: 0
+    phase1Material:
+      indexOfRefraction: 1.333
+      absorption: 0.04
+      reflectance: 0.2
+      metallic: 0
+    boundaryMaterial:
+      indexOfRefraction: 1.516
+      absorption: 0
+      reflectance: 0
+      metallic: 0
+    fresnelStrength: 1
+    stochasticReflection: 1
+    dispersionStrength: 0.25
+    lightAngularRadiusDegrees: 0
+    useAnalyticBoundary: 1
+    raySteps: 16
+    stepPixels: 1
+    rayBrightness: 1.38
+    rayStride: 1
+    raysPerPixel: 16
+    colourSampleStride: 30
+    blur: 2
+    temporalEnabled: 1
+    temporalHistoryWeight: 0.85
+    temporalJitterPixels: 0
+    surfaceNormalJitterPixels: 2
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
   renderMode: 1
@@ -458,7 +460,7 @@ MonoBehaviour:
   metaballShader: {fileID: 4800000, guid: 85b87c70f093d411791140a3aca6ced6, type: 3}
   scale: 0.07
   gradientResolution: 64
-  debugMode: 0
+  debugMode: 7
   debugGradientMax: 30
   debugDensityMin: 210
   debugDensityMax: 380

@@ -52,10 +52,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 		int debugShowClipping;
 		float ditherStrength;
 		int metaballCausticsEnabled;
-		float metaballCausticsIntensity;
 		float metaballCausticsLightFieldIntensity;
-		float metaballCausticsAdditiveBlend;
-		float4 metaballCausticsColor;
 		float causticTemporalHistoryWeight;
 		float2 causticCurrentWorldCenter;
 		float2 causticCurrentWorldSize;
@@ -66,7 +63,8 @@ Shader "Hidden/Particle2DMetaballComposite" {
 		float particleAmbientLight;
 		float particleDirectionalLightIntensity;
 		float particleNormalStrength;
-		float4 particleSpecularColor;
+		float particlePhase0Metallic;
+		float particlePhase1Metallic;
 		float particleSpecularIntensity;
 		float particleSpecularPower;
 		float4 particleFresnelColor;
@@ -364,7 +362,7 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			return lerp(colour, colour * (0.65 + rainbow * 0.7), amount);
 		}
 
-		float3 ApplyParticleLighting(float3 colour, float3 normal, float density, float subsurfacePhaseMask, float3 directLightIrradiance)
+		float3 ApplyParticleLighting(float3 colour, float3 normal, float density, float subsurfacePhaseMask, float metallic, float3 directLightIrradiance)
 		{
 			float lightDirLength = max(length(particleLightDirection), 0.0001);
 			float3 lightDir = particleLightDirection / lightDirLength;
@@ -385,10 +383,13 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			float subsurfaceBacklight = pow(saturate(dot(-normal, float3(lightDir.xy, 0.0))), max(particleSubsurfacePower, 0.1));
 			float subsurfaceThicknessMask = lerp(thickness, thinRegion, particleSubsurfaceEdgeBoost);
 			float subsurface = subsurfacePhaseMask * subsurfaceBacklight * subsurfaceThicknessMask * particleSubsurfaceIntensity;
+			float maxColourChannel = max(max(colour.r, colour.g), colour.b);
+			float3 metallicSpecularTint = maxColourChannel > 0.0001 ? colour / maxColourChannel : float3(1.0, 1.0, 1.0);
+			float3 specularColour = lerp(float3(1.0, 1.0, 1.0), metallicSpecularTint, saturate(metallic));
 			colour *= 1.0 - edgeT;
 			return
 				colour * lighting
-				+ particleSpecularColor.rgb * directLight * specular
+				+ specularColour * directLight * specular
 				+ particleFresnelColor.rgb * fresnel
 				+ particleGlowColor.rgb * directLight * directionalGlow
 				+ colour * directLight * transmission
@@ -529,24 +530,12 @@ Shader "Hidden/Particle2DMetaballComposite" {
 			float3 directLightIrradiance = metaballCausticsEnabled != 0
 				? tex2D(CausticTex, i.uv).rgb * metaballCausticsLightFieldIntensity
 				: 1.0;
-			float3 lit0 = ApplyParticleLighting(colour0, normal0, maxDensity, 1.0, directLightIrradiance);
-			float3 lit1 = ApplyParticleLighting(colour1, normal1, maxDensity, 0.0, directLightIrradiance);
+			float3 lit0 = ApplyParticleLighting(colour0, normal0, maxDensity, 1.0, particlePhase0Metallic, directLightIrradiance);
+			float3 lit1 = ApplyParticleLighting(colour1, normal1, maxDensity, 0.0, particlePhase1Metallic, directLightIrradiance);
 			lit0 = ApplyIridescence(lit0, normal0);
 			lit1 = ApplyIridescence(lit1, normal1);
 			litColour = lerp(lit0, lit1, phaseT);
 			return true;
-		}
-
-		float3 ApplyCaustics(float2 uv, float3 colour, float3 albedo)
-		{
-			if (metaballCausticsEnabled == 0)
-			{
-				return colour;
-			}
-
-			float3 caustic = tex2D(CausticTex, uv).rgb * metaballCausticsColor.rgb * metaballCausticsIntensity;
-			float3 litCaustic = albedo * caustic;
-			return colour + lerp(litCaustic, caustic, saturate(metaballCausticsAdditiveBlend));
 		}
 
 		float4 frag(v2f i) : SV_Target
@@ -569,7 +558,6 @@ Shader "Hidden/Particle2DMetaballComposite" {
 
 			if (debugMode == 0)
 			{
-				colour = ApplyCaustics(i.uv, colour, albedo);
 				colour = DitherColour(colour, i.vertex.xy);
 			}
 

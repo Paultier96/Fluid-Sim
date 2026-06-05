@@ -16,29 +16,30 @@ int causticWidth;
 int causticHeight;
 int causticsRayCount;
 float causticsRayStartOffset;
+float causticsRaySpacing;
 int causticsPhase = 0;
 int causticsRaySteps;
 int causticsRayStride;
 int causticsRaysPerPixel;
-int causticsUseSoftSplat;
+int causticsColourSampleStride;
 int causticsStochasticReflection;
 int causticsFrameIndex;
 float densityThreshold;
 float phase0RenderBias;
 float causticsStepPixels;
 float causticsGlassIndexOfRefraction;
+float causticsGlassReflectance;
 float causticsPhase0IndexOfRefraction;
 float causticsPhase1IndexOfRefraction;
 float causticsDispersionStrength;
-float causticsSurfaceTransmittance;
-float causticsReflectance;
+float causticsPhase0Reflectance;
+float causticsPhase1Reflectance;
+float causticsPhase0Metallic;
+float causticsPhase1Metallic;
 float causticsFresnelStrength;
 float causticsLightAngularRadius;
 float causticsPhase0Absorption;
 float causticsPhase1Absorption;
-float causticsPhase0ColorAbsorption;
-float causticsPhase1ColorAbsorption;
-float causticsTintBoost;
 float causticsRayBrightness;
 float causticsTemporalJitterPixels;
 float causticsSurfaceNormalJitterPixels;
@@ -150,8 +151,14 @@ float3 RayColourFromCombined(float4 combined, int phase)
 	}
 
 	float maxChannel = max(max(colour.r, colour.g), colour.b);
-	float3 boostedColour = maxChannel > 0.0001 ? colour / maxChannel : colour;
-	return lerp(colour, boostedColour, saturate(causticsTintBoost));
+	if (maxChannel <= 0.0001)
+	{
+		return float3(1.0, 1.0, 1.0);
+	}
+
+	float targetMax = sqrt(saturate(maxChannel));
+	float3 boostedColour = colour * (targetMax / maxChannel);
+	return max(boostedColour, targetMax * 0.03);
 }
 
 float3 RayColourAt(float2 uv)
@@ -312,15 +319,25 @@ float FresnelSchlick2D(float2 rayDir, float2 normal, float eta)
 	return saturate(r0 + (1.0 - r0) * pow(1.0 - cosI, 5.0));
 }
 
-float SurfaceReflectance(float2 rayDir, float2 normal, float eta)
+float PhaseReflectance(int phase)
 {
-	float fresnel = FresnelSchlick2D(rayDir, normal, eta) * max(causticsFresnelStrength, 0.0);
-	return saturate(max(saturate(causticsReflectance), fresnel));
+	return saturate(phase == 0 ? causticsPhase0Reflectance : causticsPhase1Reflectance);
 }
 
-float SurfaceTransmission(float2 rayDir, float2 normal, float eta)
+float PhaseMetallic(int phase)
 {
-	return saturate(causticsSurfaceTransmittance) * saturate(1.0 - SurfaceReflectance(rayDir, normal, eta));
+	return saturate(phase == 0 ? causticsPhase0Metallic : causticsPhase1Metallic);
+}
+
+float SurfaceReflectance(float2 rayDir, float2 normal, float eta, float materialReflectance)
+{
+	float fresnel = FresnelSchlick2D(rayDir, normal, eta) * max(causticsFresnelStrength, 0.0);
+	return saturate(max(saturate(materialReflectance), fresnel));
+}
+
+float SurfaceTransmission(float2 rayDir, float2 normal, float eta, float materialReflectance)
+{
+	return saturate(1.0 - SurfaceReflectance(rayDir, normal, eta, materialReflectance));
 }
 
 float2 Reflect2D(float2 rayDir, float2 normal)
@@ -460,14 +477,15 @@ float2 SurfaceInteractionNormal(float2 uv, float2 rayDir, float2 baseNormal, int
 	return dot(sampledNormal, baseNormal) < 0.0 ? -sampledNormal : sampledNormal;
 }
 
-bool ResolveSurfaceDirection(inout float2 rayDir, float2 normal, float2 uv, float eta, int raySeed, int stepIndex, int subRay)
+bool ResolveSurfaceDirection(inout float2 rayDir, inout float3 rayEnergy, float2 normal, float2 uv, float eta, float materialReflectance, float materialMetallic, float3 materialColour, int raySeed, int stepIndex, int subRay)
 {
 	if (causticsStochasticReflection != 0)
 	{
-		float reflectance = SurfaceReflectance(rayDir, normal, eta);
+		float reflectance = SurfaceReflectance(rayDir, normal, eta, materialReflectance);
 		if (Random01(raySeed, stepIndex) < reflectance)
 		{
 			rayDir = Reflect2D(rayDir, SurfaceInteractionNormal(uv, rayDir, normal, raySeed, stepIndex, subRay));
+			rayEnergy *= lerp(float3(1.0, 1.0, 1.0), max(materialColour, 0.0), saturate(materialMetallic));
 			return false;
 		}
 
@@ -510,7 +528,7 @@ bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir)
 	int2 rayId = int2(id.xy);
 	float2 lightXY = float2(-causticsLightDirection.x, -causticsLightDirection.y);
 	rayDir = length(lightXY) > 0.0001 ? normalize(lightXY) : float2(1.0, 0.0);
-	uint initialRaySeed = id.x * 1973u ^ id.y * 9277u ^ (uint)causticsFrameIndex * 26699u;
+	uint initialRaySeed = (uint)rayId.x * 1973u ^ (uint)rayId.y * 9277u ^ (uint)causticsFrameIndex * 26699u;
 	float angleJitter = (Hash01(initialRaySeed) * 2.0 - 1.0) * max(causticsLightAngularRadius, 0.0);
 	rayDir = Rotate2D(rayDir, angleJitter);
 
@@ -528,7 +546,8 @@ bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir)
 	float halfSpan = length(causticSize) * 0.5 + causticsStepPixels * 2.0;
 	float jitter = (FrameJitter01(causticsFrameIndex) - 0.5) * causticsTemporalJitterPixels;
 	float rayOffset = (subRay + 0.5) / raysPerPixel;
-	float centreOffset = causticsRayStartOffset + baseRay + rayOffset + jitter;
+	float spacing = max(causticsRaySpacing, 0.0001);
+	float centreOffset = causticsRayStartOffset + (baseRay + rayOffset) * spacing + jitter;
 	float2 startPixel = causticSize * 0.5 - rayDir * halfSpan + tangent * centreOffset;
 	uv = startPixel / causticSize;
 	return true;
@@ -548,60 +567,11 @@ void AddCausticAtUv(float2 uv, float energy, float3 colour)
 	}
 
 	float2 splatCentre = uv * float2(causticWidth - 1, causticHeight - 1);
-	if (causticsUseSoftSplat == 0)
-	{
-		int2 splatPixel = (int2)round(splatCentre);
-		uint4 encodedEnergy = EncodeEnergy(colour * energy);
-		InterlockedAdd(CausticAccumR[splatPixel], encodedEnergy.r);
-		InterlockedAdd(CausticAccumG[splatPixel], encodedEnergy.g);
-		InterlockedAdd(CausticAccumB[splatPixel], encodedEnergy.b);
-		return;
-	}
-
-	float2 baseFloat = floor(splatCentre);
-	float2 f = splatCentre - baseFloat;
-	int2 basePixel = (int2)baseFloat;
-	int2 maxPixel = int2(causticWidth - 1, causticHeight - 1);
-
-	int2 p00 = basePixel;
-	int2 p10 = basePixel + int2(1, 0);
-	int2 p01 = basePixel + int2(0, 1);
-	int2 p11 = basePixel + int2(1, 1);
-
-	float w00 = (1.0 - f.x) * (1.0 - f.y);
-	float w10 = f.x * (1.0 - f.y);
-	float w01 = (1.0 - f.x) * f.y;
-	float w11 = f.x * f.y;
-
-	uint4 e00 = EncodeEnergy(colour * energy * w00);
-	uint4 e10 = EncodeEnergy(colour * energy * w10);
-	uint4 e01 = EncodeEnergy(colour * energy * w01);
-	uint4 e11 = EncodeEnergy(colour * energy * w11);
-
-	if (all(p00 >= 0) && all(p00 <= maxPixel))
-	{
-		InterlockedAdd(CausticAccumR[p00], e00.r);
-		InterlockedAdd(CausticAccumG[p00], e00.g);
-		InterlockedAdd(CausticAccumB[p00], e00.b);
-	}
-	if (all(p10 >= 0) && all(p10 <= maxPixel))
-	{
-		InterlockedAdd(CausticAccumR[p10], e10.r);
-		InterlockedAdd(CausticAccumG[p10], e10.g);
-		InterlockedAdd(CausticAccumB[p10], e10.b);
-	}
-	if (all(p01 >= 0) && all(p01 <= maxPixel))
-	{
-		InterlockedAdd(CausticAccumR[p01], e01.r);
-		InterlockedAdd(CausticAccumG[p01], e01.g);
-		InterlockedAdd(CausticAccumB[p01], e01.b);
-	}
-	if (all(p11 >= 0) && all(p11 <= maxPixel))
-	{
-		InterlockedAdd(CausticAccumR[p11], e11.r);
-		InterlockedAdd(CausticAccumG[p11], e11.g);
-		InterlockedAdd(CausticAccumB[p11], e11.b);
-	}
+	int2 splatPixel = (int2)round(splatCentre);
+	uint4 encodedEnergy = EncodeEnergy(colour * energy);
+	InterlockedAdd(CausticAccumR[splatPixel], encodedEnergy.r);
+	InterlockedAdd(CausticAccumG[splatPixel], encodedEnergy.g);
+	InterlockedAdd(CausticAccumB[splatPixel], encodedEnergy.b);
 }
 
 [numthreads(16, 16, 1)]
@@ -647,9 +617,8 @@ void Trace(uint3 id : SV_DispatchThreadID)
 	float spectralOffset;
 	float3 rayEnergy;
 	InitSpectralRay(spectralSeed, subRay, raysPerPixel, spectralOffset, rayEnergy);
-	bool useColourAbsorption = causticsPhase0ColorAbsorption > 0.0 || causticsPhase1ColorAbsorption > 0.0;
 	int currentPhase = MediumPhaseFromCombined(currentCombined, insideInnerBoundary);
-	float3 mediumColour = useColourAbsorption ? RayColourFromCombined(currentCombined, currentPhase) : 1.0;
+	float3 mediumColour = RayColourFromCombined(currentCombined, currentPhase);
 	int raySeed = (int)id.x + (int)id.y;
 	float effectiveGlassIor = EffectiveAbsoluteIor(causticsGlassIndexOfRefraction, spectralOffset);
 	float effectiveFluidIor = EffectiveAbsoluteIor(causticsPhase1IndexOfRefraction, spectralOffset);
@@ -683,7 +652,7 @@ void Trace(uint3 id : SV_DispatchThreadID)
 			float2 normal = enteringBoundary
 				? AnalyticSurfaceNormal(uv, rayDir, max(analyticBoundaryExpansion, 0.0))
 				: -AnalyticSurfaceNormal(uv, rayDir, max(analyticBoundaryExpansion, 0.0));
-			rayEnergy *= SurfaceTransmission(rayDir, normal, eta);
+			rayEnergy *= SurfaceTransmission(rayDir, normal, eta, causticsGlassReflectance);
 			rayDir = Refract2D(rayDir, normal, eta);
 
 			rayStep = rayDir * causticsStepPixels / causticSize;
@@ -697,7 +666,7 @@ void Trace(uint3 id : SV_DispatchThreadID)
 			float2 normal = enteringFluid
 				? AnalyticSurfaceNormal(uv, rayDir, 0.0)
 				: -AnalyticSurfaceNormal(uv, rayDir, 0.0);
-			rayEnergy *= SurfaceTransmission(rayDir, normal, eta);
+			rayEnergy *= SurfaceTransmission(rayDir, normal, eta, causticsGlassReflectance);
 			rayDir = Refract2D(rayDir, normal, eta);
 
 			rayStep = rayDir * causticsStepPixels / causticSize;
@@ -718,24 +687,29 @@ void Trace(uint3 id : SV_DispatchThreadID)
 		}
 
 		int phase = MediumPhaseFromCombined(currentCombined, insideInnerBoundary);
-		if (phase != currentPhase)
+		bool phaseChanged = phase != currentPhase;
+		if (phaseChanged)
 		{
 			currentPhase = phase;
-			mediumColour = useColourAbsorption ? RayColourFromCombined(currentCombined, currentPhase) : 1.0;
+			mediumColour = RayColourFromCombined(currentCombined, currentPhase);
 		}
 		float absorption = 0.0;
-		float colorAbsorption = 0.0;
 		if (insideInnerBoundary)
 		{
 			absorption = currentPhase == 0 ? causticsPhase0Absorption : causticsPhase1Absorption;
-			colorAbsorption = currentPhase == 0 ? causticsPhase0ColorAbsorption : causticsPhase1ColorAbsorption;
 		}
-		if (colorAbsorption > 0.0)
+		if (absorption > 0.0)
 		{
-			float colourFilterStrength = saturate(1.0 - exp(-colorAbsorption * stepWorldDistance));
-			rayEnergy *= lerp(1.0, mediumColour, colourFilterStrength);
+			int colourStride = max(causticsColourSampleStride, 1);
+			if (!phaseChanged && stepIndex % colourStride == 0)
+			{
+				mediumColour = RayColourFromCombined(currentCombined, currentPhase);
+			}
+
+			float3 transmissionColour = max(mediumColour, float3(0.001, 0.001, 0.001));
+			float3 spectralAbsorption = -log(transmissionColour) * absorption + absorption * 0.1;
+			rayEnergy *= exp(-spectralAbsorption * stepWorldDistance);
 		}
-		rayEnergy *= exp(-max(absorption, 0.0) * stepWorldDistance);
 		if (causticLineEnergy > 0.0 && (useEllipticalBounds == 0 || insideOuterBoundary))
 		{
 			AddCausticAtUv(uv, causticLineEnergy, rayEnergy);
@@ -745,10 +719,14 @@ void Trace(uint3 id : SV_DispatchThreadID)
 		{
 			float2 normal = SurfaceNormal(uv, rayDir);
 			float eta = EffectivePhaseEta(true, spectralOffset);
-			bool transmitted = ResolveSurfaceDirection(rayDir, normal, uv, eta, raySeed, stepIndex, subRay);
+			int selectedPhase = causticsPhase == 0 ? 0 : 1;
+			float materialReflectance = PhaseReflectance(selectedPhase);
+			float materialMetallic = PhaseMetallic(selectedPhase);
+			float3 materialColour = materialMetallic > 0.0 ? RayColourFromCombined(currentCombined, selectedPhase) : float3(1.0, 1.0, 1.0);
 			float surfaceEnergy = causticsStochasticReflection != 0
-				? saturate(causticsSurfaceTransmittance)
-				: SurfaceTransmission(rayDir, normal, eta);
+				? 1.0
+				: SurfaceTransmission(rayDir, normal, eta, materialReflectance);
+			bool transmitted = ResolveSurfaceDirection(rayDir, rayEnergy, normal, uv, eta, materialReflectance, materialMetallic, materialColour, raySeed, stepIndex, subRay);
 			rayEnergy *= surfaceEnergy;
 			rayStep = rayDir * causticsStepPixels / causticSize;
 			stepWorldDistance = length(rayStep * causticsWorldSize);
@@ -759,10 +737,15 @@ void Trace(uint3 id : SV_DispatchThreadID)
 		{
 			float2 normal = -SurfaceNormal(uv, rayDir);
 			float eta = EffectivePhaseEta(false, spectralOffset);
-			bool transmitted = ResolveSurfaceDirection(rayDir, normal, uv, eta, raySeed, stepIndex, subRay);
+			int selectedPhase = causticsPhase == 0 ? 0 : 1;
+			int otherPhase = selectedPhase == 0 ? 1 : 0;
+			float materialReflectance = PhaseReflectance(otherPhase);
+			float materialMetallic = PhaseMetallic(otherPhase);
+			float3 materialColour = materialMetallic > 0.0 ? RayColourFromCombined(currentCombined, otherPhase) : float3(1.0, 1.0, 1.0);
 			float surfaceEnergy = causticsStochasticReflection != 0
-				? saturate(causticsSurfaceTransmittance)
-				: SurfaceTransmission(rayDir, normal, eta);
+				? 1.0
+				: SurfaceTransmission(rayDir, normal, eta, materialReflectance);
+			bool transmitted = ResolveSurfaceDirection(rayDir, rayEnergy, normal, uv, eta, materialReflectance, materialMetallic, materialColour, raySeed, stepIndex, subRay);
 			rayEnergy *= surfaceEnergy;
 			rayStep = rayDir * causticsStepPixels / causticSize;
 			stepWorldDistance = length(rayStep * causticsWorldSize);
