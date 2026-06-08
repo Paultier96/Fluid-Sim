@@ -28,6 +28,10 @@ namespace Seb.Fluid2D.Rendering
 			Temperature = 5,
 			BlobIds = 6,
 			Caustics = 7,
+			Scattering = 8,
+			DirectionalLightField = 9,
+			CausticMotion = 10,
+			ParticleMotion = 11,
 		}
 
 		public enum VectorFieldSource
@@ -57,7 +61,7 @@ namespace Seb.Fluid2D.Rendering
 		public int gradientResolution;
 
 		[Header("Debug")]
-		[Tooltip("Selects what to show in debug mode. Press 0-7 to switch modes at runtime.")]
+		[Tooltip("Selects what to show in debug mode. Press 0-9 to switch modes at runtime.")]
 		public DebugVisualization debugMode = DebugVisualization.None;
 		[Tooltip("Maximum absolute value mapped in gradient debug visualisation.")]
 		public float debugGradientMax = 1.0f;
@@ -65,7 +69,7 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0f)] public float debugDensityMin = 0f;
 		[Tooltip("Upper density value used for density debug colour mapping.")]
 		[Min(0.0001f)] public float debugDensityMax = 500f;
-		[Tooltip("Marks debug clipping. Normals clip to green; heatmap values below range clip to cyan and above range clip to magenta.")]
+		[Tooltip("Marks debug clipping. Normals clip to green; heatmap values below continue range clip to cyan and above range clip to magenta.")]
 		public bool debugShowClipping = true;
 		[Tooltip("Colour gradient used by viscosity, density, and temperature debug views.")]
 		public Gradient heatMap;
@@ -204,6 +208,22 @@ namespace Seb.Fluid2D.Rendering
 			{
 				debugMode = DebugVisualization.Caustics;
 			}
+			else if (Input.GetKeyDown(KeyCode.Alpha8) || Input.GetKeyDown(KeyCode.Keypad8))
+			{
+				debugMode = DebugVisualization.Scattering;
+			}
+			else if (Input.GetKeyDown(KeyCode.Alpha9) || Input.GetKeyDown(KeyCode.Keypad9))
+			{
+				debugMode = DebugVisualization.DirectionalLightField;
+			}
+			else if (Input.GetKeyDown(KeyCode.Q))
+			{
+				debugMode = DebugVisualization.CausticMotion;
+			}
+			else if (Input.GetKeyDown(KeyCode.W))
+			{
+				debugMode = DebugVisualization.ParticleMotion;
+			}
 		}
 
         public void SetPhaseColors(Gradient[] gradients)
@@ -341,7 +361,16 @@ namespace Seb.Fluid2D.Rendering
 				};
 			}
 		}
-		DebugVisualization ParticleShaderDebugMode => debugMode == DebugVisualization.Caustics ? DebugVisualization.None : debugMode;
+		bool IsCompositeOnlyDebugMode(DebugVisualization mode)
+		{
+			return mode == DebugVisualization.Caustics
+			       || mode == DebugVisualization.Scattering
+			       || mode == DebugVisualization.DirectionalLightField
+			       || mode == DebugVisualization.CausticMotion
+			       || mode == DebugVisualization.ParticleMotion;
+		}
+
+		DebugVisualization ParticleShaderDebugMode => IsCompositeOnlyDebugMode(debugMode) ? DebugVisualization.None : debugMode;
 
 		internal void ApplyDebugClipSettings(Material targetMaterial)
 		{

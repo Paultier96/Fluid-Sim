@@ -1,4 +1,4 @@
-Shader "Hidden/Particle2DMetaballBlur" {
+Shader "Hidden/GaussianBlur" {
 	Properties {
 		_MainTex ("Texture", 2D) = "white" {}
 	}

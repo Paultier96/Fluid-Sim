@@ -29,6 +29,12 @@ namespace Seb.Fluid2D.Rendering
 			return EffectiveConfiguredBlurRadius * GetZoomScale(cam) * Mathf.Max(metaballs.renderTextureScale, 0.0001f);
 		}
 
+		internal float GetEffectiveMotionBlurRadius(Camera cam)
+		{
+			float motionBlurRadius = metaballs.motionBlurRadius * ParticleResolutionLengthScale;
+			return motionBlurRadius * GetZoomScale(cam) * Mathf.Max(metaballs.renderTextureScale, 0.0001f);
+		}
+
 		internal float GetZoomScale(Camera cam)
 		{
 			if (!cam.orthographic)
@@ -61,8 +67,14 @@ namespace Seb.Fluid2D.Rendering
 			[Min(0f)] public float absorption = 0f;
 			[Tooltip("Minimum reflection probability at this phase's surface before Fresnel is applied. 0 uses Fresnel only; higher values make the phase more reflective at all angles.")]
 			[Range(0f, 1f)] public float reflectance = 0f;
+			[Tooltip("Surface roughness used by the metaball direct lighting. Lower values make smaller, sharper highlights; higher values make broader, dimmer highlights.")]
+			[Range(0.02f, 1f)] public float roughness = 0.35f;
 			[Tooltip("Tints reflected rays toward this material's colour. 0 keeps reflections neutral, 1 fully applies the material colour to reflected light.")]
 			[Range(0f, 1f)] public float metallic = 0f;
+			[Tooltip("Strength of cheap screen-space reflections from neighbouring metaballs on this phase.")]
+			[Min(0f)] public float screenSpaceReflectionStrength = 0f;
+			[Tooltip("Converts sharp ray energy into soft scattered light while rays travel through this phase. Higher values make the material blur and weaken caustics more strongly.")]
+			[Min(0f)] public float scattering = 0f;
 
 			public PhaseMaterialSettings()
 			{
@@ -72,6 +84,13 @@ namespace Seb.Fluid2D.Rendering
 			{
 				this.indexOfRefraction = indexOfRefraction;
 			}
+		}
+
+		public enum TemporalMotionSource
+		{
+			Static,
+			ParticleMotion,
+			CausticMotion
 		}
 
 		[Serializable]
@@ -109,35 +128,45 @@ namespace Seb.Fluid2D.Rendering
 			[Tooltip("Screen-space dithering strength used by the metaball composite shader to reduce colour banding.")]
 			[Min(0f)] public float ditherStrength = 1.0f / 255.0f;
 
-			[Header("Lighting - Direction")]
-			[Tooltip("Horizontal screen/world angle of the light direction in degrees.")]
-			public float lightAzimuthDegrees = 122.5f;
-			[Tooltip("Vertical angle of the light direction in degrees. 0 lies in the 2D plane, 90 points toward the camera.")]
-			[Range(-89f, 89f)] public float lightElevationDegrees = 50.3f;
-			[Tooltip("Colour of the directional light used to shade particles in normal rendering mode.")]
-			[ColorUsage(false, true)] public Color lightColor = Color.white;
-			[Tooltip("Unlit colour multiplier. Increase if shadowed particles are too dark.")]
-			[Range(0f, 1f)] public float ambientLight = 0.65f;
-
 			[Header("Lighting - Normals")]
-			[Tooltip("Directional light strength applied from each particle's reconstructed normal.")]
-			[Min(0f)] public float directionalLightIntensity = 0.45f;
 			[Tooltip("Multiplier applied to reconstructed normal XY before rebuilding Z. Higher values make blurred normals look steeper.")]
 			[Min(0f)] public float normalStrength = 1f;
 			[Tooltip("Exponent used to increase normal strength with effective blur radius. 0 disables automatic compensation, 1 is linear.")]
 			[Min(0f)] public float normalBlurCompensation = 0.5f;
 
-			[Header("Lighting - Highlights")]
-			[Tooltip("Specular highlight strength applied from each particle's reconstructed normal.")]
-			[Min(0f)] public float specularIntensity = 0.25f;
-			[Tooltip("Specular exponent. Higher values make highlights smaller and sharper.")]
-			[Min(1f)] public float specularPower = 24f;
+			[Header("Light")]
+			[Tooltip("Horizontal screen/world angle of the light direction in degrees.")]
+			public float lightAzimuthDegrees = 122.5f;
+			[Tooltip("Vertical angle of the light direction in degrees. 0 lies in the 2D plane, 90 points toward the camera.")]
+			[Range(0, 89f)] public float lightElevationDegrees = 50.3f;
+			[Tooltip("Colour of the directional light used to shade particles in normal rendering mode.")]
+			[ColorUsage(false, true)] public Color lightColor = Color.white;
+			[Tooltip("Unlit colour multiplier. Increase if shadowed particles are too dark.")]
+			[Range(0f, 1f)] public float ambientLight = 0.65f;
+			[Tooltip("Intensity of the directional light used by diffuse, specular, transmission, glow, and subsurface lighting.")]
+			[Min(0f)] public float lightIntensity = 0.45f;
+			[Tooltip("Cheaply bends the direct metaball lighting direction once through the analytic boundary normal nearest the light direction. This approximates the broad highlight rotation caused by the boundary material IOR.")]
+			public bool refractDirectLightAtAnalyticBoundary = false;
+
+			[Header("Lighting - Fresnel")]
 			[Tooltip("Colour added at grazing view angles to fake transparent liquid edges.")]
 			[ColorUsage(false, true)] public Color fresnelColor = new Color(0.75f, 0.9f, 1f, 1f);
 			[Tooltip("Strength of the Fresnel edge glow.")]
 			[Min(0f)] public float fresnelIntensity = 0.25f;
 			[Tooltip("Fresnel exponent. Higher values concentrate the glow closer to grazing angles.")]
 			[Min(0.1f)] public float fresnelPower = 3f;
+
+			[Header("Lighting - Screen-Space Refraction And Reflections")]
+			[Tooltip("Screen-space UV offset strength for refracting the blurred colour data outward from the normal. This is separate from raymarched refraction. Alpha and phase remain unwarped.")]
+			[Min(0)]public float refractionStrength = 0.01f;
+			[Tooltip("Density distance over which screen-space refraction fades in from the visible edge. Higher values push refraction farther inward.")]
+			[Min(0)] public float refractionEdgeFade = 0.05f;
+			[Tooltip("Allows screen-space refraction to sample colours from the other fluid phase. Disable to preserve sharp same-phase refraction.")]
+			public bool screenSpaceRefractionCanCrossPhases = false;
+			[Tooltip("Reflection lookup distance in metaball texture pixels. Higher values let blobs reflect farther-away neighbours.")]
+			[Min(0f)] public float screenSpaceReflectionDistance = 24f;
+			[Tooltip("Edge mask exponent for screen-space reflections. Higher values keep reflections tighter to side-facing normals.")]
+			[Min(0.1f)] public float screenSpaceReflectionEdgePower = 1.5f;
 
 			[Header("Lighting - Rim And Transmission")]
 			[Tooltip("Screen/normal-space direction for the one-sided liquid-glass rim glow.")]
@@ -179,12 +208,6 @@ namespace Seb.Fluid2D.Rendering
 			[Tooltip("Configured blur radius range over which convex curvature boost reaches full strength.")]
 			[Min(0.0001f)] public float convexCurvatureBoostBlurRange = 12f;
 
-			[Header("Refraction")]
-			[Tooltip("Metaball-only UV offset strength for refracting the blurred colour data outward from the normal. Alpha and phase remain unwarped.")]
-			public float refractionStrength = 0.01f;
-			[Tooltip("Density distance over which refraction fades in from the visible edge. Higher values push refraction farther inward.")]
-			[Min(0.0001f)] public float refractionEdgeFade = 0.05f;
-
 			[Header("Iridescence")]
 			[Tooltip("Strength of fake thin-film iridescence in normal metaball rendering.")]
 			[Min(0f)] public float iridescenceIntensity = 0f;
@@ -204,8 +227,6 @@ namespace Seb.Fluid2D.Rendering
 			public bool enabled;
 			[Tooltip("Resolution of the raymarched lighting textures relative to the metaball render textures.")]
 			[Range(0.125f, 1f)] public float textureScale = 0.5f;
-			[Tooltip("Multiplier for using the raymarched lighting texture as coloured direct-light irradiance. Values above 1 allow focused rays to brighten lighting strongly.")]
-			[Min(0f)] public float lightFieldIntensity = 1f;
 
 			[Header("Phase Materials")]
 			public PhaseMaterialSettings phase0Material = new PhaseMaterialSettings(1.442f);
@@ -219,6 +240,8 @@ namespace Seb.Fluid2D.Rendering
 			public bool stochasticReflection = false;
 			[Tooltip("Relative IOR spread used by stochastic spectral raymarching. 0.02 means red/blue use roughly -/+2% IOR.")]
 			[Min(0f)] public float dispersionStrength = 0f;
+			[Tooltip("Randomly rotates the stratified spectral band assignment per ray and frame. 0 keeps fixed bands; 1 fully randomizes the band rotation to reduce stripes.")]
+			[Range(0f, 1f)] public float dispersionRotation = 1f;
 			[Tooltip("Angular radius of the raymarched light source in degrees. 0 keeps perfectly parallel rays.")]
 			[Min(0f)] public float lightAngularRadiusDegrees = 0f;
 			[Tooltip("Refracts lighting rays through the analytic ellipse/cut simulation boundary when elliptical bounds are enabled.")]
@@ -235,16 +258,36 @@ namespace Seb.Fluid2D.Rendering
 			[Range(1, 64)] public int raysPerPixel = 1;
 			[Tooltip("Samples the medium colour every N ray steps while absorption is active. 1 samples every step; higher values are cheaper but preserve less interior colour variation.")]
 			[Min(1)] public int colourSampleStride = 8;
-			[Tooltip("Small blur applied to the resolved raymarched lighting texture to reduce atomic splat noise.")]
+			[Tooltip("Small full-resolution pixel blur applied to the resolved raymarched lighting texture to reduce atomic splat noise. Internally scaled by render texture scale and lighting texture scale.")]
 			[Min(0f)] public float blur = 1.5f;
+			[Tooltip("Accumulates average ray direction into an extra texture and uses it for local diffuse/specular lighting direction. Disable to use the global light direction only.")]
+			public bool directionalLightFieldEnabled = false;
+			[Tooltip("Full-resolution pixel blur radius for the directional light-field texture. Higher values reduce specular noise but make local light direction less precise.")]
+			[Min(0f)] public float directionalLightFieldBlur = 1.5f;
+			[Tooltip("Enables the extra scattered-light texture used by material scattering. Disable to avoid the allocation, resolve, blur, and composite cost.")]
+			public bool scatteredLightEnabled = false;
+			[Tooltip("Multiplier for the blurred scattered-light texture before it is added to the raymarched lighting irradiance.")]
+			[Min(0f)] public float scatteredLightIntensity = 1f;
+			[Tooltip("Full-resolution pixel blur radius for the scattered-light texture. This can be larger than the ray blur to make scattering read as soft internal illumination.")]
+			[Min(0f)] public float scatteredLightBlur = 8f;
 
 			[Header("Raymarched Lighting - Temporal Smoothing")]
 			[Tooltip("Blends raymarched lighting with the previous frame to reduce flicker.")]
 			public bool temporalEnabled = false;
 			[Tooltip("Previous-frame weight used by temporal blending. 0 uses only current frame; 0.55 means current * 0.45 + previous * 0.55.")]
 			[Range(0f, 0.99f)] public float temporalHistoryWeight = 0.95f;
-			[Tooltip("Frame-to-frame ray lattice jitter in raymarched lighting texture pixels. Useful with temporal blending.")]
-			[Min(0f)] public float temporalJitterPixels = 0f;
+			[Tooltip("Motion source used to reproject temporal raymarched lighting history.")]
+			public TemporalMotionSource temporalMotionSource = TemporalMotionSource.Static;
+			[Tooltip("Radius in pixels at resolution factor 1 of the phase-separated velocity blur used by particle and caustic motion. Higher values smooth unstable boundary motion without mixing phase velocities.")]
+			[Min(0)] public float motionBlurRadius = 6;
+			[Tooltip("Full-resolution pixel blur radius applied to the caustic motion texture before dilation and temporal reprojection. Set to 0 to keep raw per-ray motion.")]
+			[Min(0f)] public float temporalMotionBlur = 1.5f;
+			[Tooltip("Spreads caustic motion vectors into nearby low-confidence pixels before temporal reprojection. Helps newly uncovered light regions move with nearby blobs instead of leaving trails.")]
+			[Min(0f)] public float temporalMotionDilationRadius = 12f;
+			[Tooltip("Number of dilation passes used to propagate caustic motion outward. Higher values cover larger newly revealed regions but cost one fullscreen blit per pass.")]
+			[Range(1, 8)] public int temporalMotionDilationIterations = 3;
+			[Tooltip("Frame-to-frame 2D jitter in raymarched lighting texture pixels. One component shifts ray positions, the other shifts the ray marching sample phase.")]
+			[Range(0f, 1f)] public float temporalJitterPixels = 0f;
 			[Tooltip("Subpixel normal resampling radius used for reflected and refracted lighting rays at phase boundaries. Helps multiple rays per pixel see different boundary normals.")]
 			[Min(0f)] public float surfaceNormalJitterPixels = 0f;
 

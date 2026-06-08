@@ -3,12 +3,21 @@
 #pragma kernel Resolve
 
 Texture2D<float4> CombinedTex;
+Texture2D<float4> VelocityTex0;
+Texture2D<float4> VelocityTex1;
 Texture2D<float4> ColourMap;
 Texture2D<float4> ColourMap2;
-RWTexture2D<uint> CausticAccumR;
-RWTexture2D<uint> CausticAccumG;
-RWTexture2D<uint> CausticAccumB;
+RWStructuredBuffer<uint> CausticAccum;
+RWStructuredBuffer<int> CausticMotionAccum;
+RWStructuredBuffer<uint> LightDirectionAccum;
+RWStructuredBuffer<uint> ScatteredAccum;
 RWTexture2D<float4> CausticResult;
+RWTexture2D<float4> CausticMotionResult;
+RWTexture2D<float4> LightDirectionResult;
+RWTexture2D<float4> ScatteredLightResult;
+
+static const float CausticMotionWeightScale = 1048576.0;
+static const float CausticMotionValueScale = 1048576.0;
 
 int combinedWidth;
 int combinedHeight;
@@ -22,6 +31,9 @@ int causticsRaySteps;
 int causticsRayStride;
 int causticsRaysPerPixel;
 int causticsColourSampleStride;
+int causticsMotionEnabled;
+int causticsScatteredLightEnabled;
+int causticsDirectionalLightFieldEnabled;
 int causticsStochasticReflection;
 int causticsFrameIndex;
 float densityThreshold;
@@ -32,6 +44,7 @@ float causticsGlassReflectance;
 float causticsPhase0IndexOfRefraction;
 float causticsPhase1IndexOfRefraction;
 float causticsDispersionStrength;
+float causticsDispersionRotation;
 float causticsPhase0Reflectance;
 float causticsPhase1Reflectance;
 float causticsPhase0Metallic;
@@ -40,9 +53,12 @@ float causticsFresnelStrength;
 float causticsLightAngularRadius;
 float causticsPhase0Absorption;
 float causticsPhase1Absorption;
+float causticsPhase0Scattering;
+float causticsPhase1Scattering;
 float causticsRayBrightness;
 float causticsTemporalJitterPixels;
 float causticsSurfaceNormalJitterPixels;
+float causticsDeltaTime;
 float3 causticsLightDirection;
 int useEllipticalBounds;
 float2 ellipseBoundsCenter;
@@ -64,9 +80,20 @@ float4 SampleCombined(float2 uv)
 	return LoadCombinedPixel(pixel);
 }
 
+int2 VelocityPixel(float2 uv)
+{
+	int2 pixel = (int2)round(saturate(uv) * float2(combinedWidth - 1, combinedHeight - 1));
+	return clamp(pixel, int2(0, 0), int2(combinedWidth - 1, combinedHeight - 1));
+}
+
 bool InsideTexture(float2 uv)
 {
 	return all(uv >= 0.0) && all(uv <= 1.0);
+}
+
+uint AccumIndex(int2 pixel)
+{
+	return (uint)((pixel.y * causticWidth + pixel.x) * 4);
 }
 
 float MaxPhaseDensity(float4 combined)
@@ -115,6 +142,44 @@ int PhaseFromCombined(float4 combined)
 	}
 
 	return PhaseRatio(combined) < PhaseBoundary() ? 0 : 1;
+}
+
+float4 LoadPhaseVelocityPacked(int2 pixel, int phase)
+{
+	pixel = clamp(pixel, int2(0, 0), int2(combinedWidth - 1, combinedHeight - 1));
+	return phase == 0
+		? VelocityTex0.Load(int3(pixel, 0))
+		: VelocityTex1.Load(int3(pixel, 0));
+}
+
+float4 SamplePhaseVelocityPackedNeighborhood(int2 pixel, int phase, int radius)
+{
+	float4 packedVelocity = 0.0;
+	[loop]
+	for (int y = -radius; y <= radius; y++)
+	{
+		[loop]
+		for (int x = -radius; x <= radius; x++)
+		{
+			int distance = abs(x) + abs(y);
+			float sampleWeight = 1.0 / (1.0 + (float)distance);
+			packedVelocity += LoadPhaseVelocityPacked(pixel + int2(x, y), phase) * sampleWeight;
+		}
+	}
+
+	return packedVelocity;
+}
+
+float2 SamplePhaseVelocity(float2 uv, int phase)
+{
+	int2 pixel = VelocityPixel(uv);
+	float4 packedVelocity = SamplePhaseVelocityPackedNeighborhood(pixel, phase, 1);
+	if (packedVelocity.b <= 0.0001)
+	{
+		packedVelocity = SamplePhaseVelocityPackedNeighborhood(pixel, phase, 3);
+	}
+
+	return packedVelocity.b > 0.0001 ? packedVelocity.rg / packedVelocity.b : 0.0;
 }
 
 int PhaseAt(float2 uv)
@@ -426,7 +491,7 @@ float SpectralOffsetFromWavelength(float wavelengthNm)
 	return saturate((700.0 - wavelengthNm) / 300.0) * 2.0 - 1.0;
 }
 
-void InitSpectralRay(uint spectralSeed, int subRay, int raysPerPixel, out float spectralOffset, out float3 spectralMask)
+void InitSpectralRay(uint spectralSeed, uint spectralRotationSeed, int subRay, int raysPerPixel, out float spectralOffset, out float3 spectralMask)
 {
 	if (causticsDispersionStrength <= 0.0)
 	{
@@ -437,7 +502,8 @@ void InitSpectralRay(uint spectralSeed, int subRay, int raysPerPixel, out float 
 
 	if (raysPerPixel >= 3)
 	{
-		float t = ((float)subRay + 0.5) / max((float)raysPerPixel, 1.0);
+		float spectralRotation = Hash01(spectralRotationSeed) * saturate(causticsDispersionRotation);
+		float t = frac(((float)subRay + 0.5) / max((float)raysPerPixel, 1.0) + spectralRotation);
 		float wavelength = lerp(380.0, 700.0, t);
 		spectralOffset = SpectralOffsetFromWavelength(wavelength);
 		spectralMask = VisibleWavelengthToRgb(wavelength) * 3.0;
@@ -497,9 +563,10 @@ bool ResolveSurfaceDirection(inout float2 rayDir, inout float3 rayEnergy, float2
 	return true;
 }
 
-float FrameJitter01(int frameIndex)
+float2 FrameJitter2D(int frameIndex)
 {
-	return frac(frameIndex * 0.61803398875 + 0.5);
+	float frame = (float)max(frameIndex, 0);
+	return frac(0.5 + frame * float2(0.754877666, 0.569840291)) - 0.5;
 }
 
 float EffectiveAbsoluteIor(float ior, float spectralOffset)
@@ -544,11 +611,11 @@ bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir)
 	float2 causticSize = float2(max(causticWidth, 1), max(causticHeight, 1));
 	float2 tangent = float2(-rayDir.y, rayDir.x);
 	float halfSpan = length(causticSize) * 0.5 + causticsStepPixels * 2.0;
-	float jitter = (FrameJitter01(causticsFrameIndex) - 0.5) * causticsTemporalJitterPixels;
+	float2 temporalJitter = FrameJitter2D(causticsFrameIndex) * causticsTemporalJitterPixels;
 	float rayOffset = (subRay + 0.5) / raysPerPixel;
 	float spacing = max(causticsRaySpacing, 0.0001);
-	float centreOffset = causticsRayStartOffset + (baseRay + rayOffset) * spacing + jitter;
-	float2 startPixel = causticSize * 0.5 - rayDir * halfSpan + tangent * centreOffset;
+	float centreOffset = causticsRayStartOffset + (baseRay + rayOffset) * spacing + temporalJitter.x;
+	float2 startPixel = causticSize * 0.5 - rayDir * halfSpan + tangent * centreOffset + rayDir * temporalJitter.y;
 	uv = startPixel / causticSize;
 	return true;
 }
@@ -569,9 +636,80 @@ void AddCausticAtUv(float2 uv, float energy, float3 colour)
 	float2 splatCentre = uv * float2(causticWidth - 1, causticHeight - 1);
 	int2 splatPixel = (int2)round(splatCentre);
 	uint4 encodedEnergy = EncodeEnergy(colour * energy);
-	InterlockedAdd(CausticAccumR[splatPixel], encodedEnergy.r);
-	InterlockedAdd(CausticAccumG[splatPixel], encodedEnergy.g);
-	InterlockedAdd(CausticAccumB[splatPixel], encodedEnergy.b);
+	uint splatIndex = AccumIndex(splatPixel);
+	InterlockedAdd(CausticAccum[splatIndex + 0], encodedEnergy.r);
+	InterlockedAdd(CausticAccum[splatIndex + 1], encodedEnergy.g);
+	InterlockedAdd(CausticAccum[splatIndex + 2], encodedEnergy.b);
+}
+
+void AddCausticMotionAtUv(float2 uv, float energy, float2 motionUv)
+{
+	if (energy <= 0.0 || !InsideTexture(uv))
+	{
+		return;
+	}
+
+	float weight = max(energy, 0.0);
+	if (weight <= 0.0)
+	{
+		return;
+	}
+
+	float2 splatCentre = uv * float2(causticWidth - 1, causticHeight - 1);
+	int2 splatPixel = (int2)round(splatCentre);
+	uint splatIndex = AccumIndex(splatPixel);
+	int encodedWeight = (int)round(weight * CausticMotionWeightScale);
+	if (encodedWeight <= 0)
+	{
+		return;
+	}
+
+	float2 encodedMotionFloat = clamp(motionUv * weight * CausticMotionValueScale, -2147483000.0, 2147483000.0);
+	int2 encodedMotion = (int2)round(encodedMotionFloat);
+	InterlockedAdd(CausticMotionAccum[splatIndex + 0], encodedMotion.x);
+	InterlockedAdd(CausticMotionAccum[splatIndex + 1], encodedMotion.y);
+	InterlockedAdd(CausticMotionAccum[splatIndex + 2], encodedWeight);
+}
+
+void AddScatteredAtUv(float2 uv, float energy, float3 colour)
+{
+	if (energy <= 0.0 || !InsideTexture(uv))
+	{
+		return;
+	}
+
+	float2 splatCentre = uv * float2(causticWidth - 1, causticHeight - 1);
+	int2 splatPixel = (int2)round(splatCentre);
+	uint4 encodedEnergy = EncodeEnergy(colour * energy);
+	uint splatIndex = AccumIndex(splatPixel);
+	InterlockedAdd(ScatteredAccum[splatIndex + 0], encodedEnergy.r);
+	InterlockedAdd(ScatteredAccum[splatIndex + 1], encodedEnergy.g);
+	InterlockedAdd(ScatteredAccum[splatIndex + 2], encodedEnergy.b);
+}
+
+void AddLightDirectionAtUv(float2 uv, float energy, float3 colour, float2 rayDir)
+{
+	if (energy <= 0.0 || causticsDirectionalLightFieldEnabled == 0 || !InsideTexture(uv))
+	{
+		return;
+	}
+
+	float luminance = dot(max(colour, 0.0), float3(0.2126, 0.7152, 0.0722));
+	float directionWeight = max(energy * luminance, 0.0);
+	if (directionWeight <= 0.0)
+	{
+		return;
+	}
+
+	float2 encodedDirection = saturate(normalize(rayDir) * 0.5 + 0.5);
+	uint encodedWeight = (uint)round(directionWeight * 65535.0);
+	uint2 encodedDirectionWeight = (uint2)round(encodedDirection * directionWeight * 65535.0);
+	float2 splatCentre = uv * float2(causticWidth - 1, causticHeight - 1);
+	int2 splatPixel = (int2)round(splatCentre);
+	uint splatIndex = AccumIndex(splatPixel);
+	InterlockedAdd(LightDirectionAccum[splatIndex + 0], encodedDirectionWeight.x);
+	InterlockedAdd(LightDirectionAccum[splatIndex + 1], encodedDirectionWeight.y);
+	InterlockedAdd(LightDirectionAccum[splatIndex + 2], encodedWeight);
 }
 
 [numthreads(16, 16, 1)]
@@ -582,10 +720,36 @@ void Clear(uint3 id : SV_DispatchThreadID)
 		return;
 	}
 
-	CausticAccumR[int2(id.xy)] = 0;
-	CausticAccumG[int2(id.xy)] = 0;
-	CausticAccumB[int2(id.xy)] = 0;
+	uint index = AccumIndex(int2(id.xy));
+	CausticAccum[index + 0] = 0;
+	CausticAccum[index + 1] = 0;
+	CausticAccum[index + 2] = 0;
+	CausticAccum[index + 3] = 0;
 	CausticResult[int2(id.xy)] = 0.0;
+	if (causticsMotionEnabled != 0)
+	{
+		CausticMotionAccum[index + 0] = 0;
+		CausticMotionAccum[index + 1] = 0;
+		CausticMotionAccum[index + 2] = 0;
+		CausticMotionAccum[index + 3] = 0;
+		CausticMotionResult[int2(id.xy)] = 0.0;
+	}
+	if (causticsDirectionalLightFieldEnabled != 0)
+	{
+		LightDirectionAccum[index + 0] = 0;
+		LightDirectionAccum[index + 1] = 0;
+		LightDirectionAccum[index + 2] = 0;
+		LightDirectionAccum[index + 3] = 0;
+		LightDirectionResult[int2(id.xy)] = 0.0;
+	}
+	if (causticsScatteredLightEnabled != 0)
+	{
+		ScatteredAccum[index + 0] = 0;
+		ScatteredAccum[index + 1] = 0;
+		ScatteredAccum[index + 2] = 0;
+		ScatteredAccum[index + 3] = 0;
+		ScatteredLightResult[int2(id.xy)] = 0.0;
+	}
 }
 
 [numthreads(16, 16, 1)]
@@ -613,13 +777,18 @@ void Trace(uint3 id : SV_DispatchThreadID)
 	float causticLineEnergy = max(causticsRayBrightness, 0.0) / max(causticsRaysPerPixel, 1);
 	uint spectralSeed = id.x * 73856093u ^ id.y * 19349663u ^ (uint)causticsFrameIndex * 83492791u;
 	int raysPerPixel = max(causticsRaysPerPixel, 1);
-	int subRay = (int)(id.x % (uint)raysPerPixel);
+	int baseRay = (int)(id.x / (uint)raysPerPixel);
+	int subRay = (int)(id.x - (uint)(baseRay * raysPerPixel));
+	uint spectralRotationSeed = (uint)baseRay * 2654435761u ^ (uint)causticsFrameIndex * 2246822519u;
 	float spectralOffset;
 	float3 rayEnergy;
-	InitSpectralRay(spectralSeed, subRay, raysPerPixel, spectralOffset, rayEnergy);
+	InitSpectralRay(spectralSeed, spectralRotationSeed, subRay, raysPerPixel, spectralOffset, rayEnergy);
 	int currentPhase = MediumPhaseFromCombined(currentCombined, insideInnerBoundary);
 	float3 mediumColour = RayColourFromCombined(currentCombined, currentPhase);
+	float2 rayMotionUv = 0.0;
+	bool hasRayMotion = false;
 	int raySeed = (int)id.x + (int)id.y;
+	bool rayIsRefractedOnly = true;
 	float effectiveGlassIor = EffectiveAbsoluteIor(causticsGlassIndexOfRefraction, spectralOffset);
 	float effectiveFluidIor = EffectiveAbsoluteIor(causticsPhase1IndexOfRefraction, spectralOffset);
 	int maxSteps = min(4096, (int)ceil(length(causticSize) / max(causticsStepPixels, 0.25)) + causticsRaySteps);
@@ -652,6 +821,7 @@ void Trace(uint3 id : SV_DispatchThreadID)
 			float2 normal = enteringBoundary
 				? AnalyticSurfaceNormal(uv, rayDir, max(analyticBoundaryExpansion, 0.0))
 				: -AnalyticSurfaceNormal(uv, rayDir, max(analyticBoundaryExpansion, 0.0));
+			rayIsRefractedOnly = rayIsRefractedOnly && CanRefract2D(rayDir, normal, eta);
 			rayEnergy *= SurfaceTransmission(rayDir, normal, eta, causticsGlassReflectance);
 			rayDir = Refract2D(rayDir, normal, eta);
 
@@ -666,6 +836,7 @@ void Trace(uint3 id : SV_DispatchThreadID)
 			float2 normal = enteringFluid
 				? AnalyticSurfaceNormal(uv, rayDir, 0.0)
 				: -AnalyticSurfaceNormal(uv, rayDir, 0.0);
+			rayIsRefractedOnly = rayIsRefractedOnly && CanRefract2D(rayDir, normal, eta);
 			rayEnergy *= SurfaceTransmission(rayDir, normal, eta, causticsGlassReflectance);
 			rayDir = Refract2D(rayDir, normal, eta);
 
@@ -694,39 +865,61 @@ void Trace(uint3 id : SV_DispatchThreadID)
 			mediumColour = RayColourFromCombined(currentCombined, currentPhase);
 		}
 		float absorption = 0.0;
+		float scattering = 0.0;
 		if (insideInnerBoundary)
 		{
 			absorption = currentPhase == 0 ? causticsPhase0Absorption : causticsPhase1Absorption;
+			scattering = currentPhase == 0 ? causticsPhase0Scattering : causticsPhase1Scattering;
 		}
 		if (absorption > 0.0)
 		{
 			int colourStride = max(causticsColourSampleStride, 1);
 			if (!phaseChanged && stepIndex % colourStride == 0)
 			{
-				mediumColour = RayColourFromCombined(currentCombined, currentPhase);
+				float2 colourUv = uv + rayStep * (0.5 * (float)colourStride);
+				float4 colourCombined = InsideTexture(colourUv) ? SampleCombined(colourUv) : currentCombined;
+				mediumColour = RayColourFromCombined(colourCombined, currentPhase);
 			}
 
 			float3 transmissionColour = max(mediumColour, float3(0.001, 0.001, 0.001));
 			float3 spectralAbsorption = -log(transmissionColour) * absorption + absorption * 0.1;
 			rayEnergy *= exp(-spectralAbsorption * stepWorldDistance);
 		}
-		if (causticLineEnergy > 0.0 && (useEllipticalBounds == 0 || insideOuterBoundary))
+		if (scattering > 0.0)
 		{
-			AddCausticAtUv(uv, causticLineEnergy, rayEnergy);
+			float scatterAmount = saturate(1.0 - exp(-scattering * stepWorldDistance));
+			float scatterSource = scatterAmount / max(stepWorldDistance, 0.0001);
+			float3 scatteredEnergy = rayEnergy * scatterSource * mediumColour;
+			rayEnergy *= 1.0 - scatterAmount;
+			AddScatteredAtUv(uv, causticLineEnergy, scatteredEnergy);
 		}
-
 		if (!inside && previousDensity < densityThreshold && density >= densityThreshold)
 		{
 			float2 normal = SurfaceNormal(uv, rayDir);
 			float eta = EffectivePhaseEta(true, spectralOffset);
 			int selectedPhase = causticsPhase == 0 ? 0 : 1;
+			if (causticsMotionEnabled != 0)
+			{
+				float2 surfaceMotionUv = SamplePhaseVelocity(uv, selectedPhase) * max(causticsDeltaTime, 0.0) / max(causticsWorldSize, 0.0001);
+				if (hasRayMotion)
+				{
+					rayMotionUv = lerp(rayMotionUv, surfaceMotionUv, 0.025);
+				}
+				else
+				{
+					rayMotionUv = surfaceMotionUv;
+					hasRayMotion = true;
+				}
+			}
 			float materialReflectance = PhaseReflectance(selectedPhase);
 			float materialMetallic = PhaseMetallic(selectedPhase);
 			float3 materialColour = materialMetallic > 0.0 ? RayColourFromCombined(currentCombined, selectedPhase) : float3(1.0, 1.0, 1.0);
+			bool canTransmit = CanRefract2D(rayDir, normal, eta);
 			float surfaceEnergy = causticsStochasticReflection != 0
 				? 1.0
 				: SurfaceTransmission(rayDir, normal, eta, materialReflectance);
 			bool transmitted = ResolveSurfaceDirection(rayDir, rayEnergy, normal, uv, eta, materialReflectance, materialMetallic, materialColour, raySeed, stepIndex, subRay);
+			rayIsRefractedOnly = rayIsRefractedOnly && transmitted && canTransmit;
 			rayEnergy *= surfaceEnergy;
 			rayStep = rayDir * causticsStepPixels / causticSize;
 			stepWorldDistance = length(rayStep * causticsWorldSize);
@@ -742,15 +935,32 @@ void Trace(uint3 id : SV_DispatchThreadID)
 			float materialReflectance = PhaseReflectance(otherPhase);
 			float materialMetallic = PhaseMetallic(otherPhase);
 			float3 materialColour = materialMetallic > 0.0 ? RayColourFromCombined(currentCombined, otherPhase) : float3(1.0, 1.0, 1.0);
+			bool canTransmit = CanRefract2D(rayDir, normal, eta);
 			float surfaceEnergy = causticsStochasticReflection != 0
 				? 1.0
 				: SurfaceTransmission(rayDir, normal, eta, materialReflectance);
 			bool transmitted = ResolveSurfaceDirection(rayDir, rayEnergy, normal, uv, eta, materialReflectance, materialMetallic, materialColour, raySeed, stepIndex, subRay);
+			rayIsRefractedOnly = rayIsRefractedOnly && transmitted && canTransmit;
 			rayEnergy *= surfaceEnergy;
 			rayStep = rayDir * causticsStepPixels / causticSize;
 			stepWorldDistance = length(rayStep * causticsWorldSize);
 			inside = !transmitted;
 			density = transmitted ? density : densityThreshold + 0.000001;
+		}
+
+		if (causticLineEnergy > 0.0 && (useEllipticalBounds == 0 || insideOuterBoundary))
+		{
+			AddCausticAtUv(uv, causticLineEnergy, rayEnergy);
+			if (causticsMotionEnabled != 0 && rayIsRefractedOnly)
+			{
+				float motionLuminance = dot(max(rayEnergy, 0.0), float3(0.2126, 0.7152, 0.0722));
+				float motionEnergyWeight = sqrt(saturate(motionLuminance));
+				AddCausticMotionAtUv(uv, causticLineEnergy * motionEnergyWeight, rayMotionUv);
+			}
+			if (rayIsRefractedOnly)
+			{
+				AddLightDirectionAtUv(uv, causticLineEnergy, rayEnergy, rayDir);
+			}
 		}
 
 		previousDensity = density;
@@ -768,6 +978,32 @@ void Resolve(uint3 id : SV_DispatchThreadID)
 	}
 
 	int2 pixel = int2(id.xy);
-	float3 caustic = float3((float)CausticAccumR[pixel], (float)CausticAccumG[pixel], (float)CausticAccumB[pixel]) / 65535.0;
+	uint index = AccumIndex(pixel);
+	float3 caustic = float3((float)CausticAccum[index + 0], (float)CausticAccum[index + 1], (float)CausticAccum[index + 2]) / 65535.0;
 	CausticResult[int2(id.xy)] = float4(caustic, 1.0);
+	if (causticsMotionEnabled != 0)
+	{
+		float motionWeight = (float)CausticMotionAccum[index + 2];
+		float2 motionUv = motionWeight > 0.0
+			? float2((float)CausticMotionAccum[index + 0], (float)CausticMotionAccum[index + 1]) / max(motionWeight, 1.0) * (CausticMotionWeightScale / CausticMotionValueScale)
+			: 0.0;
+		float motionConfidence = saturate(motionWeight / CausticMotionWeightScale);
+		CausticMotionResult[int2(id.xy)] = float4(motionUv, motionConfidence, 1.0);
+	}
+	if (causticsDirectionalLightFieldEnabled != 0)
+	{
+		float weight = (float)LightDirectionAccum[index + 2];
+		float2 encodedDirection = weight > 0.0
+			? float2((float)LightDirectionAccum[index + 0], (float)LightDirectionAccum[index + 1]) / weight
+			: float2(0.5, 0.5);
+		float2 direction = encodedDirection * 2.0 - 1.0;
+		float directionLength = length(direction);
+		direction = directionLength > 0.0001 ? direction / directionLength : float2(0.0, 0.0);
+		LightDirectionResult[int2(id.xy)] = float4(direction, directionLength > 0.0001 ? 1.0 : 0.0, 1.0);
+	}
+	if (causticsScatteredLightEnabled != 0)
+	{
+		float3 scattered = float3((float)ScatteredAccum[index + 0], (float)ScatteredAccum[index + 1], (float)ScatteredAccum[index + 2]) / 65535.0;
+		ScatteredLightResult[int2(id.xy)] = float4(scattered, 1.0);
+	}
 }

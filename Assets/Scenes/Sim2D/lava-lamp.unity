@@ -383,23 +383,27 @@ MonoBehaviour:
     sharpness: 1
     intensity: 20
     ditherStrength: 0
+    normalStrength: 1.1
+    normalBlurCompensation: 0.99
     lightAzimuthDegrees: 132.3
     lightElevationDegrees: 10
     lightColor: {r: 1, g: 1, b: 1, a: 1}
-    ambientLight: 0.5
-    directionalLightIntensity: 6.02
-    normalStrength: 1.1
-    normalBlurCompensation: 0.99
-    specularIntensity: 10
-    specularPower: 500
+    ambientLight: 0.35
+    lightIntensity: 3
+    refractDirectLightAtAnalyticBoundary: 1
     fresnelColor: {r: 0.75, g: 0.9, b: 1, a: 1}
     fresnelIntensity: 0.2
     fresnelPower: 3
+    refractionStrength: 0.03
+    refractionEdgeFade: 0.0001
+    screenSpaceRefractionCanCrossPhases: 0
+    screenSpaceReflectionDistance: 50
+    screenSpaceReflectionEdgePower: 2
     glowDirection: {x: -0.75, y: -0.93}
     glowColor: {r: 1, g: 1, b: 1, a: 1}
     glowIntensity: 1
     glowPower: 10
-    transmissionIntensity: 50
+    transmissionIntensity: 20
     transmissionPower: 4.5
     edgeDarkening: 1
     edgeDarkeningPower: 0.5
@@ -412,46 +416,63 @@ MonoBehaviour:
     convexCurvatureBoostMax: 5
     convexCurvatureBoostStartBlurRadius: 6
     convexCurvatureBoostBlurRange: 12
-    refractionStrength: 0.03
-    refractionEdgeFade: 0.0001
     iridescenceIntensity: 74.65
     iridescenceScale: 2.5
     ghostBoundaryNormalStrength: 1
     analyticBoundaryPadding: 0.4
     computeShader: {fileID: 7200000, guid: 8f4e77c1b8284da4ca6c929de309e7a1, type: 3}
     enabled: 1
-    textureScale: 1
-    lightFieldIntensity: 2
+    textureScale: 0.5
     phase0Material:
       indexOfRefraction: 1.442
       absorption: 0.15
       reflectance: 0.05
+      roughness: 0.25
       metallic: 0
+      screenSpaceReflectionStrength: 2
+      scattering: 0.4
     phase1Material:
       indexOfRefraction: 1.333
-      absorption: 0.04
+      absorption: 0.05
       reflectance: 0.2
+      roughness: 0.3
       metallic: 0
+      screenSpaceReflectionStrength: 0
+      scattering: 0.08
     boundaryMaterial:
       indexOfRefraction: 1.516
       absorption: 0
       reflectance: 0
+      roughness: 0.35
       metallic: 0
+      screenSpaceReflectionStrength: 2
+      scattering: 0
     fresnelStrength: 1
-    stochasticReflection: 1
+    stochasticReflection: 0
     dispersionStrength: 0.25
+    dispersionRotation: 0.1
     lightAngularRadiusDegrees: 0
     useAnalyticBoundary: 1
     raySteps: 16
     stepPixels: 1
     rayBrightness: 1.38
     rayStride: 1
-    raysPerPixel: 16
-    colourSampleStride: 30
+    raysPerPixel: 10
+    colourSampleStride: 5
     blur: 2
+    directionalLightFieldEnabled: 1
+    directionalLightFieldBlur: 10
+    scatteredLightEnabled: 1
+    scatteredLightIntensity: 41.05
+    scatteredLightBlur: 10
     temporalEnabled: 1
-    temporalHistoryWeight: 0.85
-    temporalJitterPixels: 0
+    temporalHistoryWeight: 0.95
+    temporalMotionSource: 2
+    motionBlurRadius: 25
+    temporalMotionBlur: 25
+    temporalMotionDilationRadius: 20
+    temporalMotionDilationIterations: 3
+    temporalJitterPixels: 0.75
     surfaceNormalJitterPixels: 2
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
@@ -460,11 +481,11 @@ MonoBehaviour:
   metaballShader: {fileID: 4800000, guid: 85b87c70f093d411791140a3aca6ced6, type: 3}
   scale: 0.07
   gradientResolution: 64
-  debugMode: 7
-  debugGradientMax: 30
+  debugMode: 0
+  debugGradientMax: 15
   debugDensityMin: 210
   debugDensityMax: 380
-  debugShowClipping: 1
+  debugShowClipping: 0
   heatMap:
     serializedVersion: 2
     key0: {r: 0, g: 0, b: 0, a: 1}
