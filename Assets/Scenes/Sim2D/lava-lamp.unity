@@ -385,19 +385,20 @@ MonoBehaviour:
     ditherStrength: 0
     normalStrength: 1.1
     normalBlurCompensation: 0.99
-    lightAzimuthDegrees: 132.3
+    lightAzimuthDegrees: 130
     lightElevationDegrees: 10
+    lightTemperatureKelvin: 6500
     lightColor: {r: 1, g: 1, b: 1, a: 1}
-    ambientLight: 0.35
-    lightIntensity: 3
+    ambientLight: 0.02
+    lightIntensity: 4
     refractDirectLightAtAnalyticBoundary: 1
     fresnelColor: {r: 0.75, g: 0.9, b: 1, a: 1}
-    fresnelIntensity: 0.2
+    fresnelIntensity: 0.01
     fresnelPower: 3
     refractionStrength: 0.03
     refractionEdgeFade: 0.0001
     screenSpaceRefractionCanCrossPhases: 0
-    screenSpaceReflectionDistance: 50
+    screenSpaceReflectionDistance: 180
     screenSpaceReflectionEdgePower: 2
     glowDirection: {x: -0.75, y: -0.93}
     glowColor: {r: 1, g: 1, b: 1, a: 1}
@@ -407,15 +408,6 @@ MonoBehaviour:
     transmissionPower: 4.5
     edgeDarkening: 1
     edgeDarkeningPower: 0.5
-    subsurfaceColor: {r: 0.039546248, g: 0, b: 0.11953845, a: 1}
-    subsurfaceIntensity: 20
-    subsurfacePower: 2
-    subsurfaceThickness: 0.25
-    subsurfaceEdgeBoost: 0.6
-    convexCurvatureBoost: 0
-    convexCurvatureBoostMax: 5
-    convexCurvatureBoostStartBlurRadius: 6
-    convexCurvatureBoostBlurRange: 12
     iridescenceIntensity: 74.65
     iridescenceScale: 2.5
     ghostBoundaryNormalStrength: 1
@@ -426,19 +418,19 @@ MonoBehaviour:
     phase0Material:
       indexOfRefraction: 1.442
       absorption: 0.15
-      reflectance: 0.05
+      reflectance: 0.1
       roughness: 0.25
       metallic: 0
-      screenSpaceReflectionStrength: 2
-      scattering: 0.4
+      screenSpaceReflectionStrength: 1
+      scattering: 0.5
     phase1Material:
       indexOfRefraction: 1.333
       absorption: 0.05
-      reflectance: 0.2
+      reflectance: 0.5
       roughness: 0.3
       metallic: 0
-      screenSpaceReflectionStrength: 0
-      scattering: 0.08
+      screenSpaceReflectionStrength: 0.2
+      scattering: 0
     boundaryMaterial:
       indexOfRefraction: 1.516
       absorption: 0
@@ -448,12 +440,12 @@ MonoBehaviour:
       screenSpaceReflectionStrength: 2
       scattering: 0
     fresnelStrength: 1
-    stochasticReflection: 0
+    stochasticReflection: 1
     dispersionStrength: 0.25
     dispersionRotation: 0.1
     lightAngularRadiusDegrees: 0
     useAnalyticBoundary: 1
-    raySteps: 16
+    raySteps: 192
     stepPixels: 1
     rayBrightness: 1.38
     rayStride: 1
@@ -463,10 +455,10 @@ MonoBehaviour:
     directionalLightFieldEnabled: 1
     directionalLightFieldBlur: 10
     scatteredLightEnabled: 1
-    scatteredLightIntensity: 41.05
+    scatteredLightIntensity: 60
     scatteredLightBlur: 10
     temporalEnabled: 1
-    temporalHistoryWeight: 0.95
+    temporalHistoryWeight: 0.9
     temporalMotionSource: 2
     motionBlurRadius: 25
     temporalMotionBlur: 25
@@ -485,7 +477,7 @@ MonoBehaviour:
   debugGradientMax: 15
   debugDensityMin: 210
   debugDensityMax: 380
-  debugShowClipping: 0
+  debugShowClipping: 1
   heatMap:
     serializedVersion: 2
     key0: {r: 0, g: 0, b: 0, a: 1}

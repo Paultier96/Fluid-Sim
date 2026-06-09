@@ -139,11 +139,13 @@ namespace Seb.Fluid2D.Rendering
 			public float lightAzimuthDegrees = 122.5f;
 			[Tooltip("Vertical angle of the light direction in degrees. 0 lies in the 2D plane, 90 points toward the camera.")]
 			[Range(0, 89f)] public float lightElevationDegrees = 50.3f;
+			[Tooltip("Colour temperature of the directional light in Kelvin. 6500 is neutral daylight; lower values are warmer, higher values are cooler.")]
+			[Range(1000f, 20000f)] public float lightTemperatureKelvin = 6500f;
 			[Tooltip("Colour of the directional light used to shade particles in normal rendering mode.")]
 			[ColorUsage(false, true)] public Color lightColor = Color.white;
 			[Tooltip("Unlit colour multiplier. Increase if shadowed particles are too dark.")]
 			[Range(0f, 1f)] public float ambientLight = 0.65f;
-			[Tooltip("Intensity of the directional light used by diffuse, specular, transmission, glow, and subsurface lighting.")]
+			[Tooltip("Intensity of the directional light used by diffuse, specular, transmission, and glow lighting.")]
 			[Min(0f)] public float lightIntensity = 0.45f;
 			[Tooltip("Cheaply bends the direct metaball lighting direction once through the analytic boundary normal nearest the light direction. This approximates the broad highlight rotation caused by the boundary material IOR.")]
 			public bool refractDirectLightAtAnalyticBoundary = false;
@@ -185,28 +187,6 @@ namespace Seb.Fluid2D.Rendering
 			[Range(0f, 1f)] public float edgeDarkening = 0.2f;
 			[Tooltip("Edge darkening exponent. Higher values keep the darkening tighter to the edge.")]
 			[Min(0.1f)] public float edgeDarkeningPower = 2f;
-
-			[Header("Lighting - Phase 0 Subsurface")]
-			[Tooltip("Warm colour added to phase 0 to fake wax subsurface scattering.")]
-			[ColorUsage(false, true)] public Color subsurfaceColor = new Color(1.0f, 0.45f, 0.18f, 1f);
-			[Tooltip("Strength of the phase 0 fake subsurface scattering term.")]
-			[Min(0f)] public float subsurfaceIntensity = 0f;
-			[Tooltip("Directional exponent for subsurface backscatter. Higher values make it more light-direction dependent.")]
-			[Min(0.1f)] public float subsurfacePower = 2f;
-			[Tooltip("Density range above the visible threshold used as fake thickness for subsurface scattering.")]
-			[Min(0.0001f)] public float subsurfaceThickness = 0.25f;
-			[Tooltip("How much subsurface scattering is boosted near thin edge regions.")]
-			[Range(0f, 1f)] public float subsurfaceEdgeBoost = 0.6f;
-
-			[Header("Curvature Boost")]
-			[Tooltip("Render-only boost applied to convex high-curvature particles so small blobs survive larger blur radii. Set to 0 to disable.")]
-			[Min(0f)] public float convexCurvatureBoost = 0f;
-			[Tooltip("Curvature value that maps to full convex metaball boost.")]
-			[Min(0.0001f)] public float convexCurvatureBoostMax = 5f;
-			[Tooltip("Configured blur radius where convex curvature boost starts fading in.")]
-			[Min(0f)] public float convexCurvatureBoostStartBlurRadius = 6f;
-			[Tooltip("Configured blur radius range over which convex curvature boost reaches full strength.")]
-			[Min(0.0001f)] public float convexCurvatureBoostBlurRange = 12f;
 
 			[Header("Iridescence")]
 			[Tooltip("Strength of fake thin-film iridescence in normal metaball rendering.")]
@@ -304,6 +284,47 @@ namespace Seb.Fluid2D.Rendering
 						Mathf.Sin(elevation)
 					).normalized;
 				}
+			}
+
+			public Color EffectiveLightColor
+			{
+				get
+				{
+					Color kelvinColor = KelvinToRgb(lightTemperatureKelvin);
+					return new Color(
+						lightColor.r * kelvinColor.r,
+						lightColor.g * kelvinColor.g,
+						lightColor.b * kelvinColor.b,
+						lightColor.a
+					);
+				}
+			}
+
+			static Color KelvinToRgb(float kelvin)
+			{
+				float temperature = Mathf.Clamp(kelvin, 1000f, 20000f) / 100f;
+				float red;
+				float green;
+				float blue;
+
+				if (temperature <= 66f)
+				{
+					red = 1f;
+					green = Mathf.Clamp01((99.4708025861f * Mathf.Log(temperature) - 161.1195681661f) / 255f);
+				}
+				else
+				{
+					red = Mathf.Clamp01((329.698727446f * Mathf.Pow(temperature - 60f, -0.1332047592f)) / 255f);
+					green = Mathf.Clamp01((288.1221695283f * Mathf.Pow(temperature - 60f, -0.0755148492f)) / 255f);
+				}
+
+				blue = temperature >= 66f
+					? 1f
+					: temperature <= 19f
+						? 0f
+						: Mathf.Clamp01((138.5177312231f * Mathf.Log(temperature - 10f) - 305.0447927307f) / 255f);
+
+				return new Color(red, green, blue, 1f);
 			}
 		}
 	}

@@ -34,11 +34,6 @@ Shader "Instanced/Particle2DMetaball" {
 			float debugDensityMax;
 			float metaballSharpness;
 			float metaballIntensity;
-			float metaballBlurRadius;
-			float convexCurvatureMetaballBoost;
-			float convexCurvatureBoostMax;
-			float convexCurvatureBoostStartBlurRadius;
-			float convexCurvatureBoostBlurRange;
 			int debugMode;
 
 			struct v2f {
@@ -51,13 +46,6 @@ Shader "Instanced/Particle2DMetaball" {
 				nointerpolation float3 blobCol : TEXCOORD6;
 				float curvature : TEXCOORD7;
 			};
-
-			float GetCurvatureMetaballBoost(float curvature)
-			{
-				float convexT = saturate(max(curvature, 0.0) / max(convexCurvatureBoostMax, 0.0001));
-				float blurT = saturate((metaballBlurRadius - convexCurvatureBoostStartBlurRadius) / max(convexCurvatureBoostBlurRange, 0.0001));
-				return 1.0 + convexT * convexCurvatureMetaballBoost * blurT;
-			}
 
 			float3 HashBlobColor(uint blobId)
 			{
@@ -105,7 +93,6 @@ Shader "Instanced/Particle2DMetaball" {
 				if (r2 >= 1.0) discard;
 
 				float kernel = exp(-r2 * max(metaballSharpness, 0.01)) * metaballIntensity;
-				kernel *= GetCurvatureMetaballBoost(i.curvature);
 				float maxAbsValue = max(debugGradientMax, 0.0001);
 
 				// Debug mode 6: non-water blob IDs contribute colour; water/ignored ID contributes black weight.
@@ -180,11 +167,6 @@ Shader "Instanced/Particle2DMetaball" {
 			float scale;
 			float metaballSharpness;
 			float metaballIntensity;
-			float metaballBlurRadius;
-			float convexCurvatureMetaballBoost;
-			float convexCurvatureBoostMax;
-			float convexCurvatureBoostStartBlurRadius;
-			float convexCurvatureBoostBlurRange;
 
 			struct v2f {
 				float4 pos : SV_POSITION;
@@ -193,13 +175,6 @@ Shader "Instanced/Particle2DMetaball" {
 				nointerpolation float phase : TEXCOORD2;
 				float curvature : TEXCOORD3;
 			};
-
-			float GetCurvatureMetaballBoost(float curvature)
-			{
-				float convexT = saturate(max(curvature, 0.0) / max(convexCurvatureBoostMax, 0.0001));
-				float blurT = saturate((metaballBlurRadius - convexCurvatureBoostStartBlurRadius) / max(convexCurvatureBoostBlurRange, 0.0001));
-				return 1.0 + convexT * convexCurvatureMetaballBoost * blurT;
-			}
 
 			v2f vert(appdata_full v, uint instanceID : SV_InstanceID)
 			{
@@ -225,7 +200,6 @@ Shader "Instanced/Particle2DMetaball" {
 				if (r2 >= 1.0) discard;
 
 				float kernel = exp(-r2 * max(metaballSharpness, 0.01)) * metaballIntensity;
-				kernel *= GetCurvatureMetaballBoost(i.curvature);
 				float2 normalXY = i.normalXY;
 				float2 packedNormal = saturate(normalXY * 0.5 + 0.5) * kernel;
 				return i.phase < 0.5 ? float4(packedNormal, 0, 0) : float4(0, 0, packedNormal);
@@ -251,11 +225,6 @@ Shader "Instanced/Particle2DMetaball" {
 			float scale;
 			float metaballSharpness;
 			float metaballIntensity;
-			float metaballBlurRadius;
-			float convexCurvatureMetaballBoost;
-			float convexCurvatureBoostMax;
-			float convexCurvatureBoostStartBlurRadius;
-			float convexCurvatureBoostBlurRange;
 
 			struct v2f {
 				float4 pos : SV_POSITION;
@@ -264,13 +233,6 @@ Shader "Instanced/Particle2DMetaball" {
 				float curvature : TEXCOORD2;
 				nointerpolation float phase : TEXCOORD3;
 			};
-
-			float GetCurvatureMetaballBoost(float curvature)
-			{
-				float convexT = saturate(max(curvature, 0.0) / max(convexCurvatureBoostMax, 0.0001));
-				float blurT = saturate((metaballBlurRadius - convexCurvatureBoostStartBlurRadius) / max(convexCurvatureBoostBlurRange, 0.0001));
-				return 1.0 + convexT * convexCurvatureMetaballBoost * blurT;
-			}
 
 			v2f vert(appdata_full v, uint instanceID : SV_InstanceID)
 			{
@@ -294,7 +256,6 @@ Shader "Instanced/Particle2DMetaball" {
 				if (r2 >= 1.0) discard;
 
 				float kernel = exp(-r2 * max(metaballSharpness, 0.01)) * metaballIntensity;
-				kernel *= GetCurvatureMetaballBoost(i.curvature);
 				return i.phase < 0.5 ? float4(i.velocity * kernel, kernel, 0.0) : 0.0;
 			}
 
@@ -318,11 +279,6 @@ Shader "Instanced/Particle2DMetaball" {
 			float scale;
 			float metaballSharpness;
 			float metaballIntensity;
-			float metaballBlurRadius;
-			float convexCurvatureMetaballBoost;
-			float convexCurvatureBoostMax;
-			float convexCurvatureBoostStartBlurRadius;
-			float convexCurvatureBoostBlurRange;
 
 			struct v2f {
 				float4 pos : SV_POSITION;
@@ -331,13 +287,6 @@ Shader "Instanced/Particle2DMetaball" {
 				float curvature : TEXCOORD2;
 				nointerpolation float phase : TEXCOORD3;
 			};
-
-			float GetCurvatureMetaballBoost(float curvature)
-			{
-				float convexT = saturate(max(curvature, 0.0) / max(convexCurvatureBoostMax, 0.0001));
-				float blurT = saturate((metaballBlurRadius - convexCurvatureBoostStartBlurRadius) / max(convexCurvatureBoostBlurRange, 0.0001));
-				return 1.0 + convexT * convexCurvatureMetaballBoost * blurT;
-			}
 
 			v2f vert(appdata_full v, uint instanceID : SV_InstanceID)
 			{
@@ -361,7 +310,6 @@ Shader "Instanced/Particle2DMetaball" {
 				if (r2 >= 1.0) discard;
 
 				float kernel = exp(-r2 * max(metaballSharpness, 0.01)) * metaballIntensity;
-				kernel *= GetCurvatureMetaballBoost(i.curvature);
 				return i.phase >= 0.5 ? float4(i.velocity * kernel, kernel, 0.0) : 0.0;
 			}
 

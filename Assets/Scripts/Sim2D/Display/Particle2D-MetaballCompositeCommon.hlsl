@@ -87,12 +87,6 @@ float particleTransmissionIntensity;
 float particleTransmissionPower;
 float particleEdgeDarkening;
 float particleEdgeDarkeningPower;
-float4 particleSubsurfaceColor;
-float particleSubsurfaceIntensity;
-float particleSubsurfacePower;
-float particleSubsurfaceThickness;
-float particleSubsurfaceEdgeBoost;
-
 v2f vert(appdata v)
 {
 	v2f o;

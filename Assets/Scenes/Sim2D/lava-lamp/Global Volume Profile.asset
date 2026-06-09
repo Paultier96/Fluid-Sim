@@ -27,7 +27,7 @@ MonoBehaviour:
     m_Value: 0
   detectPaperWhite:
     m_OverrideState: 1
-    m_Value: 1
+    m_Value: 0
   paperWhite:
     m_OverrideState: 1
     m_Value: 200
@@ -61,7 +61,7 @@ MonoBehaviour:
     m_Value: 1
   intensity:
     m_OverrideState: 1
-    m_Value: 0.5
+    m_Value: 0.15
   scatter:
     m_OverrideState: 1
     m_Value: 0.5
@@ -128,9 +128,9 @@ MonoBehaviour:
   m_Name: Global Volume Profile
   m_EditorClassIdentifier: Unity.RenderPipelines.Core.Runtime::UnityEngine.Rendering.VolumeProfile
   components:
-  - {fileID: -5799388077689502648}
   - {fileID: -8162728890836338494}
   - {fileID: 547537552111316861}
+  - {fileID: -5799388077689502648}
   - {fileID: -5094110055437614282}
   - {fileID: 2288648541002559690}
 --- !u!114 &547537552111316861

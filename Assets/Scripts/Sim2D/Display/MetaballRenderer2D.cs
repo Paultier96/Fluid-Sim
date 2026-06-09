@@ -269,10 +269,6 @@ namespace Seb.Fluid2D.Rendering
 			display.ApplyCommonParticleSettings(metaballMaterial);
 			metaballMaterial.SetFloat("metaballSharpness", settings.sharpness);
 			metaballMaterial.SetFloat("metaballIntensity", settings.intensity);
-			metaballMaterial.SetFloat("convexCurvatureMetaballBoost", settings.convexCurvatureBoost);
-			metaballMaterial.SetFloat("convexCurvatureBoostMax", settings.convexCurvatureBoostMax);
-			metaballMaterial.SetFloat("convexCurvatureBoostStartBlurRadius", settings.convexCurvatureBoostStartBlurRadius);
-			metaballMaterial.SetFloat("convexCurvatureBoostBlurRange", settings.convexCurvatureBoostBlurRange);
 			metaballMaterial.SetInt("useEllipticalBounds", display.sim.useEllipticalBounds ? 1 : 0);
 			metaballMaterial.SetVector("ellipseBoundsCenter", new Vector4(display.sim.ellipseBoundsCenter.x, display.sim.ellipseBoundsCenter.y, 0f, 0f));
 			metaballMaterial.SetVector("ellipseBoundsSize", new Vector4(display.sim.ellipseBoundsSize.x, display.sim.ellipseBoundsSize.y, 0f, 0f));
@@ -453,7 +449,6 @@ namespace Seb.Fluid2D.Rendering
 			Vector2 worldCenter = new Vector2(cam.transform.position.x, cam.transform.position.y);
 			compositeMaterial.SetVector("metaballWorldCenter", new Vector4(worldCenter.x, worldCenter.y, 0f, 0f));
 			compositeMaterial.SetVector("metaballWorldSize", new Vector4(worldWidth, worldHeight, 0f, 0f));
-			metaballMaterial.SetFloat("metaballBlurRadius", effectiveConfiguredBlurRadius);
 			compositeMaterial.SetFloat("metaballRefractionStrength", effectiveRefractionStrength);
 			compositeMaterial.SetFloat("metaballRefractionEdgeFade", settings.refractionEdgeFade);
 			compositeMaterial.SetInt("screenSpaceRefractionCanCrossPhases", settings.screenSpaceRefractionCanCrossPhases ? 1 : 0);
@@ -491,7 +486,7 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetFloat("ditherStrength", settings.ditherStrength);
 			compositeMaterial.SetVector("particleBaseLightDirection", settings.LightDirection);
 			compositeMaterial.SetVector("particleLightDirection", GetDirectLightingDirection(display));
-			compositeMaterial.SetColor("particleLightColor", settings.lightColor);
+			compositeMaterial.SetColor("particleLightColor", settings.EffectiveLightColor);
 			compositeMaterial.SetFloat("particleAmbientLight", settings.ambientLight);
 			compositeMaterial.SetFloat("particleLightIntensity", settings.lightIntensity);
 			compositeMaterial.SetFloat("particleNormalStrength", effectiveNormalStrength);
@@ -516,11 +511,6 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetFloat("particleTransmissionPower", settings.transmissionPower);
 			compositeMaterial.SetFloat("particleEdgeDarkening", settings.edgeDarkening);
 			compositeMaterial.SetFloat("particleEdgeDarkeningPower", settings.edgeDarkeningPower);
-			compositeMaterial.SetColor("particleSubsurfaceColor", settings.subsurfaceColor);
-			compositeMaterial.SetFloat("particleSubsurfaceIntensity", settings.subsurfaceIntensity);
-			compositeMaterial.SetFloat("particleSubsurfacePower", settings.subsurfacePower);
-			compositeMaterial.SetFloat("particleSubsurfaceThickness", settings.subsurfaceThickness);
-			compositeMaterial.SetFloat("particleSubsurfaceEdgeBoost", settings.subsurfaceEdgeBoost);
 			blurMaterial.SetFloat("blurRadius", effectiveBlurRadius);
 		}
 

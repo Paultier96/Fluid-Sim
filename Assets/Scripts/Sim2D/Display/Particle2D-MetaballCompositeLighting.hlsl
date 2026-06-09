@@ -85,7 +85,7 @@ float3 ResolveParticleLightDirection(float2 uv, float2 worldPos)
 	return normalize(lerp(localLightDir, baseLightDir, boundaryExclusion));
 }
 
-float3 ApplyParticleLighting(float3 colour, float3 normal, float3 lightDir, float density, float subsurfacePhaseMask, float reflectance, float roughness, float metallic, float3 directLightIrradiance)
+float3 ApplyParticleLighting(float3 colour, float3 normal, float3 lightDir, float reflectance, float roughness, float metallic, float3 directLightIrradiance)
 {
 	float nDotL = saturate(dot(normal, lightDir));
 	float3 directLight = particleLightColor.rgb * directLightIrradiance * particleLightIntensity;
@@ -103,11 +103,6 @@ float3 ApplyParticleLighting(float3 colour, float3 normal, float3 lightDir, floa
 	float directionalGlow = pow(saturate(dot(normal.xy, glowDir)), max(particleGlowPower, 0.1)) * saturate(1.0 - normal.z) * particleGlowIntensity;
 	float transmission = pow(saturate(dot(-normal, float3(lightDir.xy,0))), max(particleTransmissionPower, 0.1)) * particleTransmissionIntensity;
 	float edgeT = pow(saturate(1.0 - normal.z), max(particleEdgeDarkeningPower, 0.1)) * particleEdgeDarkening;
-	float thickness = saturate((density - densityThreshold) / max(particleSubsurfaceThickness, 0.0001));
-	float thinRegion = 1.0 - thickness;
-	float subsurfaceBacklight = pow(saturate(dot(-normal, float3(lightDir.xy, 0.0))), max(particleSubsurfacePower, 0.1));
-	float subsurfaceThicknessMask = lerp(thickness, thinRegion, particleSubsurfaceEdgeBoost);
-	float subsurface = subsurfacePhaseMask * subsurfaceBacklight * subsurfaceThicknessMask * particleSubsurfaceIntensity;
 	float maxColourChannel = max(max(colour.r, colour.g), colour.b);
 	float3 metallicSpecularTint = maxColourChannel > 0.0001 ? colour / maxColourChannel : float3(1.0, 1.0, 1.0);
 	float3 specularColour = lerp(float3(1.0, 1.0, 1.0), metallicSpecularTint, saturate(metallic));
@@ -121,6 +116,5 @@ float3 ApplyParticleLighting(float3 colour, float3 normal, float3 lightDir, floa
 		+ particleFresnelColor.rgb * fresnel
 		+ particleGlowColor.rgb * directLight * directionalGlow
 		+ colour * directLight * transmission
-		+ particleSubsurfaceColor.rgb * directLight * subsurface
 	;
 }

@@ -145,8 +145,8 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 		directLightIrradiance1 = lightField + scatteredLight * metaballPhase1ScatteringEnabled;
 	}
 	float3 lightDir = ResolveParticleLightDirection(i.uv, worldPos);
-	float3 lit0 = ApplyParticleLighting(colour0, normal0, lightDir, maxDensity, 1.0, particlePhase0Reflectance, particlePhase0Roughness, particlePhase0Metallic, directLightIrradiance0);
-	float3 lit1 = ApplyParticleLighting(colour1, normal1, lightDir, maxDensity, 0.0, particlePhase1Reflectance, particlePhase1Roughness, particlePhase1Metallic, directLightIrradiance1);
+	float3 lit0 = ApplyParticleLighting(colour0, normal0, lightDir, particlePhase0Reflectance, particlePhase0Roughness, particlePhase0Metallic, directLightIrradiance0);
+	float3 lit1 = ApplyParticleLighting(colour1, normal1, lightDir, particlePhase1Reflectance, particlePhase1Roughness, particlePhase1Metallic, directLightIrradiance1);
 	lit0 = ApplyIridescence(lit0, normal0);
 	lit1 = ApplyIridescence(lit1, normal1);
 	lit0 = ApplyScreenSpaceReflection(lit0, normal0, i.uv, particlePhase0Roughness, particlePhase0Metallic, screenSpaceReflectionStrength0, noise);
