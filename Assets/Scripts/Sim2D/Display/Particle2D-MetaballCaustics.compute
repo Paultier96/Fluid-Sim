@@ -10,11 +10,9 @@ Texture2D<float4> ColourMap2;
 RWStructuredBuffer<uint> CausticAccum;
 RWStructuredBuffer<int> CausticMotionAccum;
 RWStructuredBuffer<uint> LightDirectionAccum;
-RWStructuredBuffer<uint> ScatteredAccum;
 RWTexture2D<float4> CausticResult;
 RWTexture2D<float4> CausticMotionResult;
 RWTexture2D<float4> LightDirectionResult;
-RWTexture2D<float4> ScatteredLightResult;
 
 static const float CausticMotionWeightScale = 1048576.0;
 static const float CausticMotionValueScale = 1048576.0;
@@ -32,7 +30,6 @@ int causticsRayStride;
 int causticsRaysPerPixel;
 int causticsColourSampleStride;
 int causticsMotionEnabled;
-int causticsScatteredLightEnabled;
 int causticsDirectionalLightFieldEnabled;
 int causticsStochasticReflection;
 int causticsFrameIndex;
@@ -53,8 +50,12 @@ float causticsFresnelStrength;
 float causticsLightAngularRadius;
 float causticsPhase0Absorption;
 float causticsPhase1Absorption;
-float causticsPhase0Scattering;
-float causticsPhase1Scattering;
+float3 causticsPhase0AbsorptionTint;
+float3 causticsPhase1AbsorptionTint;
+float causticsPhase0AbsorptionTintBlend;
+float causticsPhase1AbsorptionTintBlend;
+float causticsAbsorptionAlbedoBrightnessInfluence;
+float causticsAbsorptionAlbedoSaturationInfluence;
 float causticsRayBrightness;
 float causticsTemporalJitterPixels;
 float causticsSurfaceNormalJitterPixels;
@@ -224,6 +225,31 @@ float3 RayColourFromCombined(float4 combined, int phase)
 	float targetMax = sqrt(saturate(maxChannel));
 	float3 boostedColour = colour * (targetMax / maxChannel);
 	return max(boostedColour, targetMax * 0.03);
+}
+
+float3 AbsorptionColourFromCombined(float4 combined, int phase)
+{
+	float3 albedoColour = RayColourFromCombined(combined, phase);
+	float maxChannel = max(max(albedoColour.r, albedoColour.g), albedoColour.b);
+	float3 hueColour = maxChannel > 0.0001 ? albedoColour / maxChannel : float3(1.0, 1.0, 1.0);
+	if (phase == 0)
+	{
+		float brightness = lerp(1.0, maxChannel, saturate(causticsAbsorptionAlbedoBrightnessInfluence));
+		float luminance = dot(hueColour, float3(0.2126, 0.7152, 0.0722));
+		float3 controlledHue = lerp(float3(luminance, luminance, luminance), hueColour, saturate(causticsAbsorptionAlbedoSaturationInfluence));
+		float3 brightnessControlledAlbedo = controlledHue * brightness;
+		return lerp(brightnessControlledAlbedo, max(causticsPhase0AbsorptionTint, 0.0), saturate(causticsPhase0AbsorptionTintBlend));
+	}
+	if (phase == 1)
+	{
+		float brightness = lerp(1.0, maxChannel, saturate(causticsAbsorptionAlbedoBrightnessInfluence));
+		float luminance = dot(hueColour, float3(0.2126, 0.7152, 0.0722));
+		float3 controlledHue = lerp(float3(luminance, luminance, luminance), hueColour, saturate(causticsAbsorptionAlbedoSaturationInfluence));
+		float3 brightnessControlledAlbedo = controlledHue * brightness;
+		return lerp(brightnessControlledAlbedo, max(causticsPhase1AbsorptionTint, 0.0), saturate(causticsPhase1AbsorptionTintBlend));
+	}
+
+	return albedoColour;
 }
 
 float3 RayColourAt(float2 uv)
@@ -671,22 +697,6 @@ void AddCausticMotionAtUv(float2 uv, float energy, float2 motionUv)
 	InterlockedAdd(CausticMotionAccum[splatIndex + 2], encodedWeight);
 }
 
-void AddScatteredAtUv(float2 uv, float energy, float3 colour)
-{
-	if (energy <= 0.0 || !InsideTexture(uv))
-	{
-		return;
-	}
-
-	float2 splatCentre = uv * float2(causticWidth - 1, causticHeight - 1);
-	int2 splatPixel = (int2)round(splatCentre);
-	uint4 encodedEnergy = EncodeEnergy(colour * energy);
-	uint splatIndex = AccumIndex(splatPixel);
-	InterlockedAdd(ScatteredAccum[splatIndex + 0], encodedEnergy.r);
-	InterlockedAdd(ScatteredAccum[splatIndex + 1], encodedEnergy.g);
-	InterlockedAdd(ScatteredAccum[splatIndex + 2], encodedEnergy.b);
-}
-
 void AddLightDirectionAtUv(float2 uv, float energy, float3 colour, float2 rayDir)
 {
 	if (energy <= 0.0 || causticsDirectionalLightFieldEnabled == 0 || !InsideTexture(uv))
@@ -742,17 +752,9 @@ void Clear(uint3 id : SV_DispatchThreadID)
 		LightDirectionAccum[index + 3] = 0;
 		LightDirectionResult[int2(id.xy)] = 0.0;
 	}
-	if (causticsScatteredLightEnabled != 0)
-	{
-		ScatteredAccum[index + 0] = 0;
-		ScatteredAccum[index + 1] = 0;
-		ScatteredAccum[index + 2] = 0;
-		ScatteredAccum[index + 3] = 0;
-		ScatteredLightResult[int2(id.xy)] = 0.0;
-	}
 }
 
-[numthreads(16, 16, 1)]
+[numthreads(64, 1, 1)]
 void Trace(uint3 id : SV_DispatchThreadID)
 {
 	float2 uv;
@@ -784,7 +786,7 @@ void Trace(uint3 id : SV_DispatchThreadID)
 	float3 rayEnergy;
 	InitSpectralRay(spectralSeed, spectralRotationSeed, subRay, raysPerPixel, spectralOffset, rayEnergy);
 	int currentPhase = MediumPhaseFromCombined(currentCombined, insideInnerBoundary);
-	float3 mediumColour = RayColourFromCombined(currentCombined, currentPhase);
+	float3 mediumColour = AbsorptionColourFromCombined(currentCombined, currentPhase);
 	float2 rayMotionUv = 0.0;
 	bool hasRayMotion = false;
 	int raySeed = (int)id.x + (int)id.y;
@@ -862,14 +864,12 @@ void Trace(uint3 id : SV_DispatchThreadID)
 		if (phaseChanged)
 		{
 			currentPhase = phase;
-			mediumColour = RayColourFromCombined(currentCombined, currentPhase);
+			mediumColour = AbsorptionColourFromCombined(currentCombined, currentPhase);
 		}
 		float absorption = 0.0;
-		float scattering = 0.0;
 		if (insideInnerBoundary)
 		{
 			absorption = currentPhase == 0 ? causticsPhase0Absorption : causticsPhase1Absorption;
-			scattering = currentPhase == 0 ? causticsPhase0Scattering : causticsPhase1Scattering;
 		}
 		if (absorption > 0.0)
 		{
@@ -878,20 +878,12 @@ void Trace(uint3 id : SV_DispatchThreadID)
 			{
 				float2 colourUv = uv + rayStep * (0.5 * (float)colourStride);
 				float4 colourCombined = InsideTexture(colourUv) ? SampleCombined(colourUv) : currentCombined;
-				mediumColour = RayColourFromCombined(colourCombined, currentPhase);
+				mediumColour = AbsorptionColourFromCombined(colourCombined, currentPhase);
 			}
 
 			float3 transmissionColour = max(mediumColour, float3(0.001, 0.001, 0.001));
 			float3 spectralAbsorption = -log(transmissionColour) * absorption + absorption * 0.1;
 			rayEnergy *= exp(-spectralAbsorption * stepWorldDistance);
-		}
-		if (scattering > 0.0)
-		{
-			float scatterAmount = saturate(1.0 - exp(-scattering * stepWorldDistance));
-			float scatterSource = scatterAmount / max(stepWorldDistance, 0.0001);
-			float3 scatteredEnergy = rayEnergy * scatterSource * mediumColour;
-			rayEnergy *= 1.0 - scatterAmount;
-			AddScatteredAtUv(uv, causticLineEnergy, scatteredEnergy);
 		}
 		if (!inside && previousDensity < densityThreshold && density >= densityThreshold)
 		{
@@ -1000,10 +992,5 @@ void Resolve(uint3 id : SV_DispatchThreadID)
 		float directionLength = length(direction);
 		direction = directionLength > 0.0001 ? direction / directionLength : float2(0.0, 0.0);
 		LightDirectionResult[int2(id.xy)] = float4(direction, directionLength > 0.0001 ? 1.0 : 0.0, 1.0);
-	}
-	if (causticsScatteredLightEnabled != 0)
-	{
-		float3 scattered = float3((float)ScatteredAccum[index + 0], (float)ScatteredAccum[index + 1], (float)ScatteredAccum[index + 2]) / 65535.0;
-		ScatteredLightResult[int2(id.xy)] = float4(scattered, 1.0);
 	}
 }

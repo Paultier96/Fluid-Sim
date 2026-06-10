@@ -8,7 +8,10 @@ float3 ApplyScreenSpaceReflection(float3 colour, float3 normal, float2 uv, float
 	float3 viewDir = float3(0.0, 0.0, 1.0);
 	float3 reflectedView = reflect(-viewDir, normal);
 	float2 reflectionOffset = reflectedView.xy * CombinedTex_TexelSize.xy * screenSpaceReflectionDistance;
-	float3 reflectedColour = SampleMetaballAlbedo(uv + reflectionOffset, noise);
+	float2 reflectedUv = uv + reflectionOffset;
+	float3 reflectedColour = SampleMetaballAlbedo(reflectedUv, noise);
+	float3 reflectedIrradiance = metaballCausticsEnabled != 0 ? tex2D(CausticTex, reflectedUv).rgb : 1.0;
+	reflectedColour *= particleLightColor.rgb * reflectedIrradiance * particleLightIntensity;
 	float maxColourChannel = max(max(colour.r, colour.g), colour.b);
 	float3 metallicTint = maxColourChannel > 0.0001 ? colour / maxColourChannel : float3(1.0, 1.0, 1.0);
 	reflectedColour *= lerp(float3(1.0, 1.0, 1.0), metallicTint, saturate(metallic));
@@ -36,17 +39,6 @@ float3 ApplyIridescence(float3 colour, float3 normal)
 	float3 rainbow = IridescenceRamp(frac(filmPhase));
 	float amount = saturate(metaballIridescenceIntensity * fresnelMask);
 	return lerp(colour, colour * (0.65 + rainbow * 0.7), amount);
-}
-
-float ScatteringPhaseMask(float2 uv)
-{
-	float4 combined = tex2D(CombinedTex, uv);
-	float density0 = Phase0Density(combined);
-	float density1 = combined.a;
-	float phaseRatio = density1 / max(density0 + density1, 0.0001);
-	float phaseBoundary = saturate(0.5 + phase0RenderBias * 0.5);
-	float phaseScatteringMask = phaseRatio < phaseBoundary ? metaballPhase0ScatteringEnabled : metaballPhase1ScatteringEnabled;
-	return phaseScatteringMask * step(densityThreshold, max(density0, density1));
 }
 
 float AnalyticBoundaryLightExclusion(float2 worldPos)

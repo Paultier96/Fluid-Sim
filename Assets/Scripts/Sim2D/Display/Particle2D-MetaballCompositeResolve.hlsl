@@ -84,8 +84,7 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 		if (debugMode == 3)
 		{
 			float viscosityRaw = lerp(data0, data1, phaseT);
-			float viscosity = Dither01(viscosityRaw, noise);
-			litColour = SampleDebugHeatMap(DebugHeatMap, viscosityRaw, viscosity);
+			litColour = SampleDebugHeatMap(DebugHeatMap, viscosityRaw, viscosityRaw);
 			albedoColour = litColour;
 			return true;
 		}
@@ -93,8 +92,7 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 		if (debugMode == 4)
 		{
 			float densityRaw = lerp(data0, data1, phaseT);
-			float densityVal = Dither01(densityRaw, noise);
-			litColour = SampleDebugHeatMap(DebugHeatMap, densityRaw, densityVal);
+			litColour = SampleDebugHeatMap(DebugHeatMap, densityRaw, densityRaw);
 			albedoColour = litColour;
 			return true;
 		}
@@ -102,8 +100,7 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 		if (debugMode == 5)
 		{
 			float tempRaw = lerp(data0, data1, phaseT);
-			float tempVal = Dither01(tempRaw, noise);
-			litColour = SampleDebugHeatMap(DebugHeatMap, tempRaw, tempVal);
+			litColour = SampleDebugHeatMap(DebugHeatMap, tempRaw, tempRaw);
 			albedoColour = litColour;
 			return true;
 		}
@@ -129,6 +126,8 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 	normal1 = ApplyAnalyticBoundaryNormal(normal1, worldPos);
 	float3 colour0 = refractedColour;
 	float3 colour1 = refractedColour;
+	float3 diffuseAlbedo0 = SamplePhaseGradientColour(data0, false, noise);
+	float3 diffuseAlbedo1 = SamplePhaseGradientColour(data1, true, noise);
 	albedoColour = refractedColour;
 	float maxDensity = max(density0, density1);
 	float3 directLightIrradiance0 = 1.0;
@@ -136,17 +135,20 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 	if (metaballCausticsEnabled != 0)
 	{
 		float3 lightField = tex2D(CausticTex, i.uv).rgb;
-		float3 scatteredLight = 0.0;
-		if (metaballScatteredLightEnabled != 0)
-		{
-			scatteredLight = tex2D(ScatteredLightTex, i.uv).rgb * metaballScatteredLightIntensity;
-		}
-		directLightIrradiance0 = lightField + scatteredLight * metaballPhase0ScatteringEnabled;
-		directLightIrradiance1 = lightField + scatteredLight * metaballPhase1ScatteringEnabled;
+		directLightIrradiance0 = lightField;
+		directLightIrradiance1 = lightField;
 	}
 	float3 lightDir = ResolveParticleLightDirection(i.uv, worldPos);
 	float3 lit0 = ApplyParticleLighting(colour0, normal0, lightDir, particlePhase0Reflectance, particlePhase0Roughness, particlePhase0Metallic, directLightIrradiance0);
 	float3 lit1 = ApplyParticleLighting(colour1, normal1, lightDir, particlePhase1Reflectance, particlePhase1Roughness, particlePhase1Metallic, directLightIrradiance1);
+	if (metaballPhaseDiffuseLightEnabled != 0)
+	{
+		float4 softLight = tex2D(SoftLightTex, i.uv);
+		float3 diffuseTint0 = lerp(metaballPhase0DiffuseLightTint.rgb, diffuseAlbedo0, saturate(metaballPhase0DiffuseAlbedoTintBlend));
+		float3 diffuseTint1 = lerp(metaballPhase1DiffuseLightTint.rgb, diffuseAlbedo1, saturate(metaballPhase1DiffuseAlbedoTintBlend));
+		lit0 += softLight.rgb * (1.0 - phaseT) * diffuseTint0;
+		lit1 += softLight.rgb * phaseT * diffuseTint1;
+	}
 	lit0 = ApplyIridescence(lit0, normal0);
 	lit1 = ApplyIridescence(lit1, normal1);
 	lit0 = ApplyScreenSpaceReflection(lit0, normal0, i.uv, particlePhase0Roughness, particlePhase0Metallic, screenSpaceReflectionStrength0, noise);
@@ -169,21 +171,29 @@ float4 frag(v2f i) : SV_Target
 {
 	if (debugMode == 7)
 	{
-		float3 causticDebug = tex2D(CausticTex, i.uv).rgb;
-		if (metaballScatteredLightEnabled != 0)
-		{
-			causticDebug += tex2D(ScatteredLightTex, i.uv).rgb * metaballScatteredLightIntensity * ScatteringPhaseMask(i.uv);
-		}
-		return float4(causticDebug, 1.0);
+		return float4(tex2D(CausticTex, i.uv).rgb, 1.0);
 	}
 	if (debugMode == 8)
 	{
-		float3 scatteredDebug = 0.0;
-		if (metaballScatteredLightEnabled != 0)
+		float3 softLight = 0.0;
+		if (metaballPhaseDiffuseLightEnabled != 0)
 		{
-			scatteredDebug = tex2D(ScatteredLightTex, i.uv).rgb * metaballScatteredLightIntensity * ScatteringPhaseMask(i.uv);
+			float4 combined = tex2D(CombinedTex, i.uv);
+			float density0 = Phase0Density(combined);
+			float density1 = combined.a;
+			float phaseT = ShiftedPhaseT(density0, density1);
+			float data0 = combined.r / max(density0, 0.0001);
+			float data1 = combined.b / max(density1, 0.0001);
+			float noise = InterleavedGradientNoise(i.vertex.xy);
+			float3 diffuseAlbedo0 = SamplePhaseGradientColour(data0, false, noise);
+			float3 diffuseAlbedo1 = SamplePhaseGradientColour(data1, true, noise);
+			float3 diffuseTint0 = lerp(metaballPhase0DiffuseLightTint.rgb, diffuseAlbedo0, saturate(metaballPhase0DiffuseAlbedoTintBlend));
+			float3 diffuseTint1 = lerp(metaballPhase1DiffuseLightTint.rgb, diffuseAlbedo1, saturate(metaballPhase1DiffuseAlbedoTintBlend));
+			float4 packedSoftLight = tex2D(SoftLightTex, i.uv);
+			softLight += packedSoftLight.rgb * (1.0 - phaseT) * diffuseTint0;
+			softLight += packedSoftLight.rgb * phaseT * diffuseTint1;
 		}
-		return float4(scatteredDebug, 1.0);
+		return float4(softLight, 1.0);
 	}
 	if (debugMode == 9)
 	{
@@ -258,11 +268,6 @@ float4 frag(v2f i) : SV_Target
 	if (!ResolveMetaball(i, alpha, phaseT, density0, density1, colour, albedo))
 	{
 		discard;
-	}
-
-	if (debugMode == 0)
-	{
-		colour = DitherColour(colour, i.vertex.xy);
 	}
 
 	return float4(colour, alpha);

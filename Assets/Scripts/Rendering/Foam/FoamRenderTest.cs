@@ -23,7 +23,7 @@ namespace Seb.Fluid.Rendering
 
 		void Awake()
 		{
-			sim = FindObjectOfType<FluidSim>();
+			sim = FindAnyObjectByType<FluidSim>();
 			sim.SimulationInitCompleted += Init;
 		}
 

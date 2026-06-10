@@ -14,8 +14,8 @@ namespace Seb.Fluid2D.Rendering
 		public enum RenderMode
 		{
 			DirectParticles,
-			Metaballs,
 			JumpFlood,
+			Metaballs
 		}
 
 		public enum DebugVisualization
@@ -28,7 +28,7 @@ namespace Seb.Fluid2D.Rendering
 			Temperature = 5,
 			BlobIds = 6,
 			Caustics = 7,
-			Scattering = 8,
+			SoftLight = 8,
 			DirectionalLightField = 9,
 			CausticMotion = 10,
 			ParticleMotion = 11,
@@ -210,7 +210,7 @@ namespace Seb.Fluid2D.Rendering
 			}
 			else if (Input.GetKeyDown(KeyCode.Alpha8) || Input.GetKeyDown(KeyCode.Keypad8))
 			{
-				debugMode = DebugVisualization.Scattering;
+				debugMode = DebugVisualization.SoftLight;
 			}
 			else if (Input.GetKeyDown(KeyCode.Alpha9) || Input.GetKeyDown(KeyCode.Keypad9))
 			{
@@ -364,10 +364,10 @@ namespace Seb.Fluid2D.Rendering
 		bool IsCompositeOnlyDebugMode(DebugVisualization mode)
 		{
 			return mode == DebugVisualization.Caustics
-			       || mode == DebugVisualization.Scattering
 			       || mode == DebugVisualization.DirectionalLightField
 			       || mode == DebugVisualization.CausticMotion
-			       || mode == DebugVisualization.ParticleMotion;
+			       || mode == DebugVisualization.ParticleMotion
+			       || mode == DebugVisualization.SoftLight;
 		}
 
 		DebugVisualization ParticleShaderDebugMode => IsCompositeOnlyDebugMode(debugMode) ? DebugVisualization.None : debugMode;

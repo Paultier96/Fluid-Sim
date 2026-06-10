@@ -20,7 +20,7 @@ sampler2D _MainTex;
 sampler2D CausticTex;
 sampler2D CausticMotionTex;
 sampler2D LightDirectionTex;
-sampler2D ScatteredLightTex;
+sampler2D SoftLightTex;
 sampler2D CausticHistoryTex;
 float4 CombinedTex_TexelSize;
 float4 _MainTex_TexelSize;
@@ -47,13 +47,13 @@ int debugMode;
 int debugShowClipping;
 float debugGradientMax;
 float motionDebugDeltaTime;
-float ditherStrength;
 int metaballCausticsEnabled;
 int metaballDirectionalLightFieldEnabled;
-int metaballScatteredLightEnabled;
-float metaballScatteredLightIntensity;
-float metaballPhase0ScatteringEnabled;
-float metaballPhase1ScatteringEnabled;
+int metaballPhaseDiffuseLightEnabled;
+float4 metaballPhase0DiffuseLightTint;
+float4 metaballPhase1DiffuseLightTint;
+float metaballPhase0DiffuseAlbedoTintBlend;
+float metaballPhase1DiffuseAlbedoTintBlend;
 float causticTemporalHistoryWeight;
 int causticTemporalMotionSource;
 float2 causticCurrentWorldCenter;
@@ -99,17 +99,6 @@ float InterleavedGradientNoise(float2 pixel)
 {
 	float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
 	return frac(magic.z * frac(dot(pixel, magic.xy)));
-}
-
-float Dither01(float t, float noise)
-{
-	return saturate(t + (noise - 0.5) * ditherStrength);
-}
-
-float3 DitherColour(float3 colour, float2 pixel)
-{
-	float noise = InterleavedGradientNoise(pixel);
-	return max(0.0, colour + (noise - 0.5) * ditherStrength);
 }
 
 float3 HeatMapClipColour(float t)
@@ -338,16 +327,16 @@ float3 SampleGradientColour(float2 uv, float fallbackData0, float fallbackData1,
 	float samplePhaseT = screenSpaceRefractionCanCrossPhases != 0 && sampleDensity >= densityThreshold ? step(phaseBoundary, phaseRatio) : fallbackPhaseT;
 	float data0 = NormalizedData(combined.r, density0, fallbackData0);
 	float data1 = NormalizedData(combined.b, density1, fallbackData1);
-	float3 colour0 = tex2D(ColourMap,  float2(Dither01(data0, noise), 0.5)).rgb;
-	float3 colour1 = tex2D(ColourMap2, float2(Dither01(data1, noise), 0.5)).rgb;
+	float3 colour0 = tex2D(ColourMap,  float2(saturate(data0), 0.5)).rgb;
+	float3 colour1 = tex2D(ColourMap2, float2(saturate(data1), 0.5)).rgb;
 	return lerp(colour0, colour1, samplePhaseT);
 }
 
 float3 SamplePhaseGradientColour(float data, bool usePhase1, float noise)
 {
 	return usePhase1
-		? tex2D(ColourMap2, float2(Dither01(data, noise), 0.5)).rgb
-		: tex2D(ColourMap,  float2(Dither01(data, noise), 0.5)).rgb;
+		? tex2D(ColourMap2, float2(saturate(data), 0.5)).rgb
+		: tex2D(ColourMap,  float2(saturate(data), 0.5)).rgb;
 }
 
 float3 SampleMetaballAlbedo(float2 uv, float noise)

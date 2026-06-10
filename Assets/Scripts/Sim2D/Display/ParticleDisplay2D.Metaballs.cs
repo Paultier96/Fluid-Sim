@@ -65,6 +65,8 @@ namespace Seb.Fluid2D.Rendering
 			[Min(1.0001f)] public float indexOfRefraction = 1.333f;
 			[Tooltip("Exponential energy loss per world unit travelled through this phase.")]
 			[Min(0f)] public float absorption = 0f;
+			[Tooltip("Blends ray absorption colour from the phase albedo gradient toward Diffuse Light Tint. 0 uses the current albedo-based absorption; 1 uses Diffuse Light Tint.")]
+			[Range(0f, 1f)] public float absorptionDiffuseTintBlend = 0f;
 			[Tooltip("Minimum reflection probability at this phase's surface before Fresnel is applied. 0 uses Fresnel only; higher values make the phase more reflective at all angles.")]
 			[Range(0f, 1f)] public float reflectance = 0f;
 			[Tooltip("Surface roughness used by the metaball direct lighting. Lower values make smaller, sharper highlights; higher values make broader, dimmer highlights.")]
@@ -73,8 +75,14 @@ namespace Seb.Fluid2D.Rendering
 			[Range(0f, 1f)] public float metallic = 0f;
 			[Tooltip("Strength of cheap screen-space reflections from neighbouring metaballs on this phase.")]
 			[Min(0f)] public float screenSpaceReflectionStrength = 0f;
-			[Tooltip("Converts sharp ray energy into soft scattered light while rays travel through this phase. Higher values make the material blur and weaken caustics more strongly.")]
-			[Min(0f)] public float scattering = 0f;
+			[Tooltip("Initial fraction of sharp raymarched light injected into the phase-aware diffuse lighting pass.")]
+			[Min(0f)] public float diffuseScatterStrength = 0f;
+			[Tooltip("Per-iteration diffusion amount for the phase-aware diffuse lighting pass.")]
+			[Range(0f, 1f)] public float diffuseDiffusionRate = 0.2f;
+			[Tooltip("Tint applied to this phase's phase-aware diffuse lighting.")]
+			[ColorUsage(false, true)] public Color diffuseLightTint = Color.white;
+			[Tooltip("Blends phase-aware diffuse lighting tint from Diffuse Light Tint toward the local phase albedo gradient. 0 uses Diffuse Light Tint; 1 uses albedo.")]
+			[Range(0f, 1f)] public float diffuseAlbedoTintBlend = 0f;
 
 			public PhaseMaterialSettings()
 			{
@@ -96,11 +104,20 @@ namespace Seb.Fluid2D.Rendering
 		[Serializable]
 		public sealed class MetaballSettings
 		{
+			public enum AnalyticBoundaryLightingMode
+			{
+				Off,
+				SimpleRefractAtAnalyticBoundary,
+				FullDirectionalLightField
+			}
+
 			[Header("Shaders")]
 			[Tooltip("Shader that blits the blurred accumulation texture onto the camera, applying the density threshold and colour lookup.")]
 			public Shader compositeShader;
 			[Tooltip("Shader used for the separable Gaussian blur applied to the accumulation texture.")]
 			public Shader blurShader;
+			[Tooltip("Compute shader used for the optional phase-aware diffuse caustics/SSS lighting pass.")]
+			public ComputeShader phaseDiffuseLightCompute;
 
 			[Header("Shape - Surface")]
 			[Tooltip("Resolution of the metaball render textures relative to the screen. Lower values improve performance at the cost of sharpness.")]
@@ -125,8 +142,6 @@ namespace Seb.Fluid2D.Rendering
 			[Min(0.01f)] public float sharpness = 3.5f;
 			[Tooltip("Uniform scale applied to each particle's density contribution. Increase if particles are too sparse to merge.")]
 			[Min(0)] public float intensity = 1.0f;
-			[Tooltip("Screen-space dithering strength used by the metaball composite shader to reduce colour banding.")]
-			[Min(0f)] public float ditherStrength = 1.0f / 255.0f;
 
 			[Header("Lighting - Normals")]
 			[Tooltip("Multiplier applied to reconstructed normal XY before rebuilding Z. Higher values make blurred normals look steeper.")]
@@ -222,6 +237,10 @@ namespace Seb.Fluid2D.Rendering
 			[Min(0f)] public float dispersionStrength = 0f;
 			[Tooltip("Randomly rotates the stratified spectral band assignment per ray and frame. 0 keeps fixed bands; 1 fully randomizes the band rotation to reduce stripes.")]
 			[Range(0f, 1f)] public float dispersionRotation = 1f;
+			[Tooltip("How much albedo brightness affects ray absorption when using albedo-based absorption. 0 mostly uses hue only; 1 uses the brightened albedo value directly.")]
+			[Range(0f, 1f)] public float absorptionAlbedoBrightnessInfluence = 1f;
+			[Tooltip("How saturated albedo-based ray absorption is allowed to be. Lower values reduce pure RGB caustic tinting while keeping brightness control separate.")]
+			[Range(0f, 1f)] public float absorptionAlbedoSaturationInfluence = 1f;
 			[Tooltip("Angular radius of the raymarched light source in degrees. 0 keeps perfectly parallel rays.")]
 			[Min(0f)] public float lightAngularRadiusDegrees = 0f;
 			[Tooltip("Refracts lighting rays through the analytic ellipse/cut simulation boundary when elliptical bounds are enabled.")]
@@ -244,13 +263,14 @@ namespace Seb.Fluid2D.Rendering
 			public bool directionalLightFieldEnabled = false;
 			[Tooltip("Full-resolution pixel blur radius for the directional light-field texture. Higher values reduce specular noise but make local light direction less precise.")]
 			[Min(0f)] public float directionalLightFieldBlur = 1.5f;
-			[Tooltip("Enables the extra scattered-light texture used by material scattering. Disable to avoid the allocation, resolve, blur, and composite cost.")]
-			public bool scatteredLightEnabled = false;
-			[Tooltip("Multiplier for the blurred scattered-light texture before it is added to the raymarched lighting irradiance.")]
-			[Min(0f)] public float scatteredLightIntensity = 1f;
-			[Tooltip("Full-resolution pixel blur radius for the scattered-light texture. This can be larger than the ray blur to make scattering read as soft internal illumination.")]
-			[Min(0f)] public float scatteredLightBlur = 8f;
-
+			[Tooltip("Enables a separate phase-aware diffuse lighting pass derived from the sharp raymarched lighting.")]
+			public bool phaseDiffuseLightEnabled = false;
+			[Tooltip("Resolution of the phase-aware diffuse lighting textures relative to the raymarched lighting texture.")]
+			[Range(0.25f, 1f)] public float phaseDiffuseLightTextureScale = 0.5f;
+			[Tooltip("Number of Jacobi diffusion iterations for phase-aware diffuse lighting.")]
+			[Range(1, 40)] public int phaseDiffuseLightIterations = 16;
+			[Tooltip("How strongly phase boundaries block phase-aware diffuse lighting. Higher values keep light inside each phase.")]
+			[Min(0f)] public float phaseDiffuseLightBoundarySharpness = 12f;
 			[Header("Raymarched Lighting - Temporal Smoothing")]
 			[Tooltip("Blends raymarched lighting with the previous frame to reduce flicker.")]
 			public bool temporalEnabled = false;

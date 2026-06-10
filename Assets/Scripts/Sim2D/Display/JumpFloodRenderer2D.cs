@@ -134,6 +134,7 @@ namespace Seb.Fluid2D.Rendering
 			compute.SetInt("_ParticleCount", display.sim.positionBuffer.count);
 			compute.SetInt("debugMode", (int)display.debugMode);
 			compute.SetInt("debugShowClipping", display.debugShowClipping ? 1 : 0);
+			compute.SetInt("useLinearColorSpace", QualitySettings.activeColorSpace == ColorSpace.Linear ? 1 : 0);
 			compute.SetFloat("debugGradientMax", display.debugGradientMax);
 			compute.SetFloat("debugCurvatureMax", display.sim.MaxDebugCurvature);
 			compute.SetFloat("debugViscosityMax", display.sim.MaxDebugViscosity);

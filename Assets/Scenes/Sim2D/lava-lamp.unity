@@ -373,6 +373,7 @@ MonoBehaviour:
   metaballs:
     compositeShader: {fileID: 4800000, guid: db6a0932797cd49b1a42ac6d2c30ac61, type: 3}
     blurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
+    phaseDiffuseLightCompute: {fileID: 7200000, guid: 6bbf221f0ffb42e4a93f4b9e0a63a64d, type: 3}
     renderTextureScale: 1
     blurRadius: 10
     densityThreshold: 0.18
@@ -382,15 +383,14 @@ MonoBehaviour:
     phaseBiasNormalStrength: 2.25
     sharpness: 1
     intensity: 20
-    ditherStrength: 0
     normalStrength: 1.1
     normalBlurCompensation: 0.99
     lightAzimuthDegrees: 130
     lightElevationDegrees: 10
     lightTemperatureKelvin: 6500
     lightColor: {r: 1, g: 1, b: 1, a: 1}
-    ambientLight: 0.02
-    lightIntensity: 4
+    ambientLight: 0.015
+    lightIntensity: 7.5
     refractDirectLightAtAnalyticBoundary: 1
     fresnelColor: {r: 0.75, g: 0.9, b: 1, a: 1}
     fresnelIntensity: 0.01
@@ -417,32 +417,46 @@ MonoBehaviour:
     textureScale: 0.5
     phase0Material:
       indexOfRefraction: 1.442
-      absorption: 0.15
+      absorption: 1
+      absorptionDiffuseTintBlend: 0.05
       reflectance: 0.1
       roughness: 0.25
       metallic: 0
       screenSpaceReflectionStrength: 1
-      scattering: 0.5
+      diffuseScatterStrength: 0.1
+      diffuseDiffusionRate: 1
+      diffuseLightTint: {r: 1, g: 0.62578607, b: 0.62578607, a: 1}
+      diffuseAlbedoTintBlend: 0.25
     phase1Material:
       indexOfRefraction: 1.333
       absorption: 0.05
+      absorptionDiffuseTintBlend: 0
       reflectance: 0.5
       roughness: 0.3
       metallic: 0
       screenSpaceReflectionStrength: 0.2
-      scattering: 0
+      diffuseScatterStrength: 0
+      diffuseDiffusionRate: 0.2
+      diffuseLightTint: {r: 0, g: 0.44119108, b: 1, a: 1}
+      diffuseAlbedoTintBlend: 0
     boundaryMaterial:
       indexOfRefraction: 1.516
       absorption: 0
+      absorptionDiffuseTintBlend: 0
       reflectance: 0
       roughness: 0.35
       metallic: 0
       screenSpaceReflectionStrength: 2
-      scattering: 0
+      diffuseScatterStrength: 0
+      diffuseDiffusionRate: 0.2
+      diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
+      diffuseAlbedoTintBlend: 0
     fresnelStrength: 1
     stochasticReflection: 1
-    dispersionStrength: 0.25
+    dispersionStrength: 0.33
     dispersionRotation: 0.1
+    absorptionAlbedoBrightnessInfluence: 0.7
+    absorptionAlbedoSaturationInfluence: 0.7
     lightAngularRadiusDegrees: 0
     useAnalyticBoundary: 1
     raySteps: 192
@@ -454,9 +468,10 @@ MonoBehaviour:
     blur: 2
     directionalLightFieldEnabled: 1
     directionalLightFieldBlur: 10
-    scatteredLightEnabled: 1
-    scatteredLightIntensity: 60
-    scatteredLightBlur: 10
+    phaseDiffuseLightEnabled: 1
+    phaseDiffuseLightTextureScale: 1
+    phaseDiffuseLightIterations: 16
+    phaseDiffuseLightBoundarySharpness: 12
     temporalEnabled: 1
     temporalHistoryWeight: 0.9
     temporalMotionSource: 2
@@ -468,7 +483,7 @@ MonoBehaviour:
     surfaceNormalJitterPixels: 2
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
-  renderMode: 1
+  renderMode: 2
   directParticleShader: {fileID: 4800000, guid: 441b7193936682446b30d2140d15792a, type: 3}
   metaballShader: {fileID: 4800000, guid: 85b87c70f093d411791140a3aca6ced6, type: 3}
   scale: 0.07

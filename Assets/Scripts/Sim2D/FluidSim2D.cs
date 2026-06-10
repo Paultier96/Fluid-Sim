@@ -376,7 +376,7 @@ namespace Seb.Fluid2D.Simulation
                 throw new InvalidOperationException("At least one phase is required.");
 
             if (heatSource == null)
-                heatSource = FindObjectOfType<HeatSource2D>();
+                heatSource = FindAnyObjectByType<HeatSource2D>();
 
             float deltaTime = 1 / 60f;
             Time.fixedDeltaTime = deltaTime;

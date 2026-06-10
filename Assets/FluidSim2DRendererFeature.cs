@@ -25,7 +25,7 @@ namespace Seb.Fluid2D.Simulation
             if (renderingData.cameraData.cameraType != CameraType.Game)
                 return;
 
-            ParticleDisplay2D display = Object.FindFirstObjectByType<ParticleDisplay2D>();
+            ParticleDisplay2D display = Object.FindAnyObjectByType<ParticleDisplay2D>();
             if (display == null || !display.isActiveAndEnabled)
                 return;
             if (display.sim == null || display.sim.positionBuffer == null)
