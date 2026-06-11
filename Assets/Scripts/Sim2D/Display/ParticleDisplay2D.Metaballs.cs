@@ -100,17 +100,17 @@ namespace Seb.Fluid2D.Rendering
 			ParticleMotion,
 			CausticMotion
 		}
+		
+		public enum DirectionalLightingMode
+		{
+			Direct,
+			RefractAtAnalyticBoundary,
+			DirectionalLightField
+		}
 
 		[Serializable]
 		public sealed class MetaballSettings
 		{
-			public enum AnalyticBoundaryLightingMode
-			{
-				Off,
-				SimpleRefractAtAnalyticBoundary,
-				FullDirectionalLightField
-			}
-
 			[Header("Shaders")]
 			[Tooltip("Shader that blits the blurred accumulation texture onto the camera, applying the density threshold and colour lookup.")]
 			public Shader compositeShader;
@@ -149,7 +149,7 @@ namespace Seb.Fluid2D.Rendering
 			[Tooltip("Exponent used to increase normal strength with effective blur radius. 0 disables automatic compensation, 1 is linear.")]
 			[Min(0f)] public float normalBlurCompensation = 0.5f;
 
-			[Header("Light")]
+			[Header("Directional Light")]
 			[Tooltip("Horizontal screen/world angle of the light direction in degrees.")]
 			public float lightAzimuthDegrees = 122.5f;
 			[Tooltip("Vertical angle of the light direction in degrees. 0 lies in the 2D plane, 90 points toward the camera.")]
@@ -158,13 +158,12 @@ namespace Seb.Fluid2D.Rendering
 			[Range(1000f, 20000f)] public float lightTemperatureKelvin = 6500f;
 			[Tooltip("Colour of the directional light used to shade particles in normal rendering mode.")]
 			[ColorUsage(false, true)] public Color lightColor = Color.white;
-			[Tooltip("Unlit colour multiplier. Increase if shadowed particles are too dark.")]
-			[Range(0f, 1f)] public float ambientLight = 0.65f;
 			[Tooltip("Intensity of the directional light used by diffuse, specular, transmission, and glow lighting.")]
 			[Min(0f)] public float lightIntensity = 0.45f;
-			[Tooltip("Cheaply bends the direct metaball lighting direction once through the analytic boundary normal nearest the light direction. This approximates the broad highlight rotation caused by the boundary material IOR.")]
-			public bool refractDirectLightAtAnalyticBoundary = false;
-
+			[Space]
+			[Tooltip("Unlit colour multiplier. Increase if shadowed particles are too dark.")]
+			[Range(0f, 1f)] public float ambientLight = 0.65f;
+			
 			[Header("Lighting - Fresnel")]
 			[Tooltip("Colour added at grazing view angles to fake transparent liquid edges.")]
 			[ColorUsage(false, true)] public Color fresnelColor = new Color(0.75f, 0.9f, 1f, 1f);
@@ -180,6 +179,7 @@ namespace Seb.Fluid2D.Rendering
 			[Min(0)] public float refractionEdgeFade = 0.05f;
 			[Tooltip("Allows screen-space refraction to sample colours from the other fluid phase. Disable to preserve sharp same-phase refraction.")]
 			public bool screenSpaceRefractionCanCrossPhases = false;
+			[Space]
 			[Tooltip("Reflection lookup distance in metaball texture pixels. Higher values let blobs reflect farther-away neighbours.")]
 			[Min(0f)] public float screenSpaceReflectionDistance = 24f;
 			[Tooltip("Edge mask exponent for screen-space reflections. Higher values keep reflections tighter to side-facing normals.")]
@@ -259,8 +259,7 @@ namespace Seb.Fluid2D.Rendering
 			[Min(1)] public int colourSampleStride = 8;
 			[Tooltip("Small full-resolution pixel blur applied to the resolved raymarched lighting texture to reduce atomic splat noise. Internally scaled by render texture scale and lighting texture scale.")]
 			[Min(0f)] public float blur = 1.5f;
-			[Tooltip("Accumulates average ray direction into an extra texture and uses it for local diffuse/specular lighting direction. Disable to use the global light direction only.")]
-			public bool directionalLightFieldEnabled = false;
+			public DirectionalLightingMode directionalLightingMode = DirectionalLightingMode.RefractAtAnalyticBoundary;
 			[Tooltip("Full-resolution pixel blur radius for the directional light-field texture. Higher values reduce specular noise but make local light direction less precise.")]
 			[Min(0f)] public float directionalLightFieldBlur = 1.5f;
 			[Tooltip("Enables a separate phase-aware diffuse lighting pass derived from the sharp raymarched lighting.")]

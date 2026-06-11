@@ -824,7 +824,7 @@ namespace Seb.Fluid2D.Rendering
 		{
 			ParticleDisplay2D.MetaballSettings settings = display.metaballs;
 			Vector3 lightDirection = settings.LightDirection;
-			if (!settings.refractDirectLightAtAnalyticBoundary || !display.sim.useEllipticalBounds)
+			if (settings.directionalLightingMode == ParticleDisplay2D.DirectionalLightingMode.Direct || !display.sim.useEllipticalBounds)
 			{
 				return lightDirection;
 			}
@@ -1055,7 +1055,7 @@ namespace Seb.Fluid2D.Rendering
 
 		bool ShouldRenderDirectionalLightField(ParticleDisplay2D.MetaballSettings settings)
 		{
-			return ShouldRenderCaustics(settings) && settings.directionalLightFieldEnabled;
+			return ShouldRenderCaustics(settings) && settings.directionalLightingMode == ParticleDisplay2D.DirectionalLightingMode.DirectionalLightField;
 		}
 
 		bool ShouldRenderCausticMotion(ParticleDisplay2D display, ParticleDisplay2D.MetaballSettings settings)
