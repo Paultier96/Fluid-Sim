@@ -11,7 +11,9 @@ float3 ApplyScreenSpaceReflection(float3 colour, float3 normal, float2 uv, float
 	float2 reflectedUv = uv + reflectionOffset;
 	float3 reflectedColour = SampleMetaballAlbedo(reflectedUv, noise);
 	float3 reflectedIrradiance = metaballCausticsEnabled != 0 ? tex2D(CausticTex, reflectedUv).rgb : 1.0;
-	reflectedColour *= particleLightColor.rgb * reflectedIrradiance * particleLightIntensity;
+	reflectedColour *= metaballCausticsEnabled != 0
+		? reflectedIrradiance
+		: particleLightColor.rgb * reflectedIrradiance * particleLightIntensity;
 	float maxColourChannel = max(max(colour.r, colour.g), colour.b);
 	float3 metallicTint = maxColourChannel > 0.0001 ? colour / maxColourChannel : float3(1.0, 1.0, 1.0);
 	reflectedColour *= lerp(float3(1.0, 1.0, 1.0), metallicTint, saturate(metallic));
@@ -77,10 +79,20 @@ float3 ResolveParticleLightDirection(float2 uv, float2 worldPos)
 	return normalize(lerp(localLightDir, baseLightDir, boundaryExclusion));
 }
 
-float3 ApplyParticleLighting(float3 colour, float3 normal, float3 lightDir, float reflectance, float roughness, float metallic, float3 directLightIrradiance)
+float3 ResolveParticleSecondaryLightDirection(float2 worldPos)
+{
+	float baseLightDirLength = max(length(particleSecondaryBaseLightDirection), 0.0001);
+	float3 baseLightDir = particleSecondaryBaseLightDirection / baseLightDirLength;
+	float lightDirLength = max(length(particleSecondaryLightDirection), 0.0001);
+	float3 globalLightDir = particleSecondaryLightDirection / lightDirLength;
+	float boundaryExclusion = AnalyticBoundaryLightExclusion(worldPos);
+	return normalize(lerp(globalLightDir, baseLightDir, boundaryExclusion));
+}
+
+float3 ParticleDirectLightTerm(float3 colour, float3 normal, float3 lightDir, float reflectance, float roughness, float metallic, float3 directLightIrradiance, float3 lightColor, float lightIntensity)
 {
 	float nDotL = saturate(dot(normal, lightDir));
-	float3 directLight = particleLightColor.rgb * directLightIrradiance * particleLightIntensity;
+	float3 directLight = lightColor * directLightIrradiance * lightIntensity;
 	float3 viewDir = float3(0.0, 0.0, 1.0);
 	float3 halfVector = lightDir + viewDir;
 	float3 halfDir = halfVector / max(length(halfVector), 0.0001);
@@ -90,23 +102,40 @@ float3 ApplyParticleLighting(float3 colour, float3 normal, float3 lightDir, floa
 	float dielectricReflectance = 0.04 * (1.0 - saturate(metallic));
 	float surfaceReflectance = saturate(max(reflectance, dielectricReflectance));
 	float specular = pow(saturate(dot(normal, halfDir)), specularPower) * ((specularPower + 2.0) * 0.125) * surfaceReflectance;
-	float fresnel = pow(saturate(1.0 - dot(normal, viewDir)), max(particleFresnelPower, 0.1)) * particleFresnelIntensity;
-	float2 glowDir = particleGlowDirection / max(length(particleGlowDirection), 0.0001);
-	float directionalGlow = pow(saturate(dot(normal.xy, glowDir)), max(particleGlowPower, 0.1)) * saturate(1.0 - normal.z) * particleGlowIntensity;
 	float transmission = pow(saturate(dot(-normal, float3(lightDir.xy,0))), max(particleTransmissionPower, 0.1)) * particleTransmissionIntensity;
-	float edgeT = pow(saturate(1.0 - normal.z), max(particleEdgeDarkeningPower, 0.1)) * particleEdgeDarkening;
 	float maxColourChannel = max(max(colour.r, colour.g), colour.b);
 	float3 metallicSpecularTint = maxColourChannel > 0.0001 ? colour / maxColourChannel : float3(1.0, 1.0, 1.0);
 	float3 specularColour = lerp(float3(1.0, 1.0, 1.0), metallicSpecularTint, saturate(metallic));
 	float diffuseWeight = (1.0 - saturate(metallic)) * (1.0 - surfaceReflectance);
+	return
+		colour * directLight * nDotL * diffuseWeight
+		+ specularColour * directLight * specular
+		+ colour * directLight * transmission
+	;
+}
+
+float3 ApplyParticleLightingWithSource(float3 colour, float3 normal, float3 lightDir, float reflectance, float roughness, float metallic, float3 directLightIrradiance, float3 lightColor, float lightIntensity)
+{
+	float3 viewDir = float3(0.0, 0.0, 1.0);
+	float fresnel = pow(saturate(1.0 - dot(normal, viewDir)), max(particleFresnelPower, 0.1)) * particleFresnelIntensity;
+	float edgeT = pow(saturate(1.0 - normal.z), max(particleEdgeDarkeningPower, 0.1)) * particleEdgeDarkening;
 	colour *= 1.0 - edgeT;
 	float3 ambient = colour * particleAmbientLight;
 	return
 		ambient
-		+ colour * directLight * nDotL * diffuseWeight
-		+ specularColour * directLight * specular
+		+ ParticleDirectLightTerm(colour, normal, lightDir, reflectance, roughness, metallic, directLightIrradiance, lightColor, lightIntensity)
 		+ particleFresnelColor.rgb * fresnel
-		+ particleGlowColor.rgb * directLight * directionalGlow
-		+ colour * directLight * transmission
 	;
+}
+
+float3 ApplyParticleLighting(float3 colour, float3 normal, float3 lightDir, float reflectance, float roughness, float metallic, float3 directLightIrradiance)
+{
+	return ApplyParticleLightingWithSource(colour, normal, lightDir, reflectance, roughness, metallic, directLightIrradiance, particleLightColor.rgb, particleLightIntensity);
+}
+
+float3 ApplyParticleSecondaryLighting(float3 colour, float3 normal, float3 lightDir, float reflectance, float roughness, float metallic, float3 directLightIrradiance)
+{
+	float edgeT = pow(saturate(1.0 - normal.z), max(particleEdgeDarkeningPower, 0.1)) * particleEdgeDarkening;
+	colour *= 1.0 - edgeT;
+	return ParticleDirectLightTerm(colour, normal, lightDir, reflectance, roughness, metallic, directLightIrradiance, particleSecondaryLightColor.rgb, particleSecondaryLightIntensity);
 }

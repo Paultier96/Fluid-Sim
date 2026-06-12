@@ -460,10 +460,16 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetFloat("motionDebugDeltaTime", display.sim.CurrentSimulationDeltaTime);
 			display.ApplyDebugClipSettings(compositeMaterial);
 			compositeMaterial.SetVector("particleBaseLightDirection", settings.LightDirection);
-			compositeMaterial.SetVector("particleLightDirection", GetDirectLightingDirection(display));
+			compositeMaterial.SetVector("particleLightDirection", GetDirectLightingDirection(display, settings.LightDirection));
+			compositeMaterial.SetVector("particleSecondaryBaseLightDirection", settings.SecondaryLightDirection);
+			compositeMaterial.SetVector("particleSecondaryLightDirection", GetDirectLightingDirection(display, settings.SecondaryLightDirection));
+			compositeMaterial.SetInt("particleSecondaryLightEnabled", settings.secondaryLightEnabled && settings.SecondaryLight.intensity > 0f ? 1 : 0);
 			compositeMaterial.SetColor("particleLightColor", settings.EffectiveLightColor);
+			compositeMaterial.SetColor("particleSecondaryLightColor", settings.EffectiveSecondaryLightColor);
 			compositeMaterial.SetFloat("particleAmbientLight", settings.ambientLight);
-			compositeMaterial.SetFloat("particleLightIntensity", settings.lightIntensity);
+			compositeMaterial.SetFloat("particleLightIntensity", settings.PrimaryLight.intensity);
+			compositeMaterial.SetFloat("particleSecondaryLightIntensity", settings.SecondaryLight.intensity);
+			compositeMaterial.SetFloat("particleCausticDebugExposure", GetCausticDebugExposure(settings));
 			compositeMaterial.SetFloat("particleNormalStrength", effectiveNormalStrength);
 			compositeMaterial.SetFloat("particlePhase0Reflectance", settings.phase0Material.reflectance);
 			compositeMaterial.SetFloat("particlePhase1Reflectance", settings.phase1Material.reflectance);
@@ -478,10 +484,6 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetFloat("screenSpaceReflectionStrength1", settings.phase1Material.screenSpaceReflectionStrength);
 			compositeMaterial.SetFloat("screenSpaceReflectionDistance", settings.screenSpaceReflectionDistance * display.GetZoomScale(cam));
 			compositeMaterial.SetFloat("screenSpaceReflectionEdgePower", settings.screenSpaceReflectionEdgePower);
-			compositeMaterial.SetVector("particleGlowDirection", new Vector4(settings.glowDirection.x, settings.glowDirection.y, 0f, 0f));
-			compositeMaterial.SetColor("particleGlowColor", settings.glowColor);
-			compositeMaterial.SetFloat("particleGlowIntensity", settings.glowIntensity);
-			compositeMaterial.SetFloat("particleGlowPower", settings.glowPower);
 			compositeMaterial.SetFloat("particleTransmissionIntensity", settings.transmissionIntensity);
 			compositeMaterial.SetFloat("particleTransmissionPower", settings.transmissionPower);
 			compositeMaterial.SetFloat("particleEdgeDarkening", settings.edgeDarkening);
@@ -549,28 +551,49 @@ namespace Seb.Fluid2D.Rendering
 			int width = causticResolvedTexture.width;
 			int height = causticResolvedTexture.height;
 			Vector3 lightDirection = settings.LightDirection;
+			Vector3 secondaryLightDirection = settings.SecondaryLightDirection;
+			bool secondaryLightEnabled = settings.secondaryLightEnabled && settings.SecondaryLight.intensity > 0f;
 			float analyticBoundaryExpansion = GetAnalyticBoundaryExpansion(display);
 
 			float worldHeight = Mathf.Max(cam.orthographicSize * 2f, 0.0001f);
 			float worldWidth = Mathf.Max(worldHeight * cam.aspect, 0.0001f);
 			Vector2 currentWorldCenter = new Vector2(cam.transform.position.x, cam.transform.position.y);
 			Vector2 currentWorldSize = new Vector2(worldWidth, worldHeight);
-			GetCausticRayRange(display, settings, width, height, lightDirection, currentWorldCenter, currentWorldSize, analyticBoundaryExpansion, out float rayStartOffset, out int rayCount);
+			GetCausticRayRange(display, settings, width, height, lightDirection, currentWorldCenter, currentWorldSize, analyticBoundaryExpansion, out float primaryRayStartOffset, out int primaryRangeRayCount);
+			GetCausticRayRange(display, settings, width, height, secondaryLightDirection, currentWorldCenter, currentWorldSize, analyticBoundaryExpansion, out float secondaryRayStartOffset, out int secondaryRangeRayCount);
 			int raysPerPixel = Mathf.Max(1, settings.raysPerPixel);
-			int uncappedRayCount = rayCount;
 			int maxRayCount = Mathf.Max(1, MaxCausticTraceThreads / raysPerPixel);
-			rayCount = Mathf.Min(rayCount, maxRayCount);
-			float raySpacing = uncappedRayCount > 1 && rayCount > 1
-				? (uncappedRayCount - 1f) / (rayCount - 1f)
+			int totalRayBudget = Mathf.Max(1, Mathf.Min(primaryRangeRayCount, maxRayCount));
+			int secondarySubRaysPerPixel = secondaryLightEnabled && raysPerPixel > 1
+				? Mathf.RoundToInt(raysPerPixel * Mathf.Clamp01(settings.secondaryLightRayShare))
+				: 0;
+			secondarySubRaysPerPixel = Mathf.Clamp(secondarySubRaysPerPixel, 0, raysPerPixel);
+			int primarySubRaysPerPixel = Mathf.Max(0, raysPerPixel - secondarySubRaysPerPixel);
+			bool splitBySubRay = secondarySubRaysPerPixel > 0;
+			int secondaryRayBudget = secondaryLightEnabled && !splitBySubRay ? Mathf.RoundToInt(totalRayBudget * Mathf.Clamp01(settings.secondaryLightRayShare)) : 0;
+			secondaryRayBudget = Mathf.Clamp(secondaryRayBudget, 0, totalRayBudget);
+			int primaryRayBudget = splitBySubRay ? totalRayBudget : Mathf.Max(0, totalRayBudget - secondaryRayBudget);
+			float primaryRaySpacing = primaryRangeRayCount > 1 && primaryRayBudget > 1
+				? (primaryRangeRayCount - 1f) / (primaryRayBudget - 1f)
+				: 1f;
+			int secondarySpacingRayCount = splitBySubRay ? totalRayBudget : secondaryRayBudget;
+			float secondaryRaySpacing = secondaryRangeRayCount > 1 && secondarySpacingRayCount > 1
+				? (secondaryRangeRayCount - 1f) / (secondarySpacingRayCount - 1f)
 				: 1f;
 
 			targetCommandBuffer.SetComputeIntParam(compute, "combinedWidth", combinedAccumulationTexture.width);
 			targetCommandBuffer.SetComputeIntParam(compute, "combinedHeight", combinedAccumulationTexture.height);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticWidth", width);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticHeight", height);
-			targetCommandBuffer.SetComputeIntParam(compute, "causticsRayCount", rayCount);
-			targetCommandBuffer.SetComputeFloatParam(compute, "causticsRayStartOffset", rayStartOffset);
-			targetCommandBuffer.SetComputeFloatParam(compute, "causticsRaySpacing", raySpacing);
+			targetCommandBuffer.SetComputeIntParam(compute, "causticsRayCount", totalRayBudget);
+			targetCommandBuffer.SetComputeIntParam(compute, "causticsPrimaryRayCount", primaryRayBudget);
+			targetCommandBuffer.SetComputeIntParam(compute, "causticsSecondaryRayCount", secondaryRayBudget);
+			targetCommandBuffer.SetComputeIntParam(compute, "causticsPrimarySubRaysPerPixel", primarySubRaysPerPixel);
+			targetCommandBuffer.SetComputeIntParam(compute, "causticsSecondarySubRaysPerPixel", secondarySubRaysPerPixel);
+			targetCommandBuffer.SetComputeFloatParam(compute, "causticsRayStartOffset", primaryRayStartOffset);
+			targetCommandBuffer.SetComputeFloatParam(compute, "causticsRaySpacing", primaryRaySpacing);
+			targetCommandBuffer.SetComputeFloatParam(compute, "causticsSecondaryRayStartOffset", secondaryRayStartOffset);
+			targetCommandBuffer.SetComputeFloatParam(compute, "causticsSecondaryRaySpacing", secondaryRaySpacing);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsRaySteps", settings.raySteps);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsRayStride", settings.rayStride);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsRaysPerPixel", raysPerPixel);
@@ -607,6 +630,10 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsDeltaTime", display.sim.CurrentSimulationDeltaTime);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsFrameIndex", causticFrameIndex++);
 			targetCommandBuffer.SetComputeVectorParam(compute, "causticsLightDirection", new Vector4(lightDirection.x, lightDirection.y, lightDirection.z, 0f));
+			targetCommandBuffer.SetComputeVectorParam(compute, "causticsLightMultiplier", GetCausticMultiplier(settings.EffectiveLightColor, settings.PrimaryLight.intensity));
+			targetCommandBuffer.SetComputeIntParam(compute, "causticsSecondaryLightEnabled", splitBySubRay || secondaryRayBudget > 0 ? 1 : 0);
+			targetCommandBuffer.SetComputeVectorParam(compute, "causticsSecondaryLightDirection", new Vector4(secondaryLightDirection.x, secondaryLightDirection.y, secondaryLightDirection.z, 0f));
+			targetCommandBuffer.SetComputeVectorParam(compute, "causticsSecondaryLightMultiplier", GetCausticMultiplier(settings.EffectiveSecondaryLightColor, settings.SecondaryLight.intensity));
 			targetCommandBuffer.SetComputeIntParam(compute, "useEllipticalBounds", display.sim.useEllipticalBounds && settings.useAnalyticBoundary ? 1 : 0);
 			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsCenter", new Vector4(display.sim.ellipseBoundsCenter.x, display.sim.ellipseBoundsCenter.y, 0f, 0f));
 			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsSize", new Vector4(display.sim.ellipseBoundsSize.x, display.sim.ellipseBoundsSize.y, 0f, 0f));
@@ -631,7 +658,7 @@ namespace Seb.Fluid2D.Rendering
 			BindCausticAccumulationTextures(targetCommandBuffer, compute, traceKernel);
 			BindCausticMotionTextures(targetCommandBuffer, compute, traceKernel);
 			BindLightDirectionTextures(targetCommandBuffer, compute, traceKernel, renderDirectionalLightField);
-			DispatchCausticTrace(targetCommandBuffer, compute, traceKernel, rayCount, raysPerPixel);
+			DispatchCausticTrace(targetCommandBuffer, compute, traceKernel, totalRayBudget, raysPerPixel);
 
 			BindCausticAccumulationTextures(targetCommandBuffer, compute, resolveKernel);
 			BindCausticMotionTextures(targetCommandBuffer, compute, resolveKernel);
@@ -794,7 +821,7 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetGlobalFloat("phase0RenderBias", settings.phase0RenderBias);
 			targetCommandBuffer.SetGlobalFloat("scatterStrengthA", settings.phase0Material.diffuseScatterStrength);
 			targetCommandBuffer.SetGlobalFloat("scatterStrengthB", settings.phase1Material.diffuseScatterStrength);
-			targetCommandBuffer.SetGlobalFloat("lightIntensity", settings.lightIntensity);
+			targetCommandBuffer.SetGlobalFloat("lightIntensity", 1f);
 			targetCommandBuffer.SetGlobalFloat("causticsPhase0Absorption", settings.phase0Material.absorption);
 			targetCommandBuffer.SetGlobalFloat("causticsPhase1Absorption", settings.phase1Material.absorption);
 			targetCommandBuffer.SetGlobalVector("causticsPhase0AbsorptionTint", settings.phase0Material.diffuseLightTint);
@@ -869,7 +896,7 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeFloatParam(compute, "phaseBoundarySharpness", settings.phaseDiffuseLightBoundarySharpness);
 			targetCommandBuffer.SetComputeFloatParam(compute, "scatterStrengthA", settings.phase0Material.diffuseScatterStrength);
 			targetCommandBuffer.SetComputeFloatParam(compute, "scatterStrengthB", settings.phase1Material.diffuseScatterStrength);
-			targetCommandBuffer.SetComputeFloatParam(compute, "lightIntensity", settings.lightIntensity);
+			targetCommandBuffer.SetComputeFloatParam(compute, "lightIntensity", 1f);
 			float gaussianRadiusScale = GetRayTextureBlurScale(settings) * Mathf.Max(settings.phaseDiffuseLightTextureScale, 0.0001f);
 			targetCommandBuffer.SetComputeFloatParam(compute, "gaussianRadius0", settings.phaseDiffuseLightGaussianRadius0 * gaussianRadiusScale);
 			targetCommandBuffer.SetComputeFloatParam(compute, "gaussianRadius1", settings.phaseDiffuseLightGaussianRadius1 * gaussianRadiusScale);
@@ -906,10 +933,36 @@ namespace Seb.Fluid2D.Rendering
 			return Mathf.Max(settings.renderTextureScale * settings.textureScale, 0.0001f);
 		}
 
-		Vector3 GetDirectLightingDirection(ParticleDisplay2D display)
+		static Vector4 GetCausticMultiplier(Color colour, float intensity)
+		{
+			float clampedIntensity = Mathf.Max(intensity, 0f);
+			return new Vector4(
+				colour.r * clampedIntensity,
+				colour.g * clampedIntensity,
+				colour.b * clampedIntensity,
+				0f
+			);
+		}
+
+		static float GetCausticDebugExposure(ParticleDisplay2D.MetaballSettings settings)
+		{
+			float exposure = Luminance(settings.EffectiveLightColor) * Mathf.Max(settings.PrimaryLight.intensity, 0f);
+			if (settings.secondaryLightEnabled)
+			{
+				exposure += Luminance(settings.EffectiveSecondaryLightColor) * Mathf.Max(settings.SecondaryLight.intensity, 0f);
+			}
+
+			return Mathf.Max(exposure, 0.0001f);
+		}
+
+		static float Luminance(Color colour)
+		{
+			return colour.r * 0.2126f + colour.g * 0.7152f + colour.b * 0.0722f;
+		}
+
+		Vector3 GetDirectLightingDirection(ParticleDisplay2D display, Vector3 lightDirection)
 		{
 			ParticleDisplay2D.MetaballSettings settings = display.metaballs;
-			Vector3 lightDirection = settings.LightDirection;
 			if (settings.directionalLightingMode == ParticleDisplay2D.DirectionalLightingMode.Direct || !display.sim.useEllipticalBounds)
 			{
 				return lightDirection;

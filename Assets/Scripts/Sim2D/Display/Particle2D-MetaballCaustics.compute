@@ -22,8 +22,14 @@ int combinedHeight;
 int causticWidth;
 int causticHeight;
 int causticsRayCount;
+int causticsPrimaryRayCount;
+int causticsSecondaryRayCount;
+int causticsPrimarySubRaysPerPixel;
+int causticsSecondarySubRaysPerPixel;
 float causticsRayStartOffset;
 float causticsRaySpacing;
+float causticsSecondaryRayStartOffset;
+float causticsSecondaryRaySpacing;
 int causticsPhase = 0;
 int causticsRaySteps;
 int causticsRayStride;
@@ -61,6 +67,10 @@ float causticsTemporalJitterPixels;
 float causticsSurfaceNormalJitterPixels;
 float causticsDeltaTime;
 float3 causticsLightDirection;
+float3 causticsLightMultiplier;
+int causticsSecondaryLightEnabled;
+float3 causticsSecondaryLightDirection;
+float3 causticsSecondaryLightMultiplier;
 int useEllipticalBounds;
 float2 ellipseBoundsCenter;
 float2 ellipseBoundsSize;
@@ -616,20 +626,44 @@ float EffectivePhaseEta(bool enteringSelectedPhase, float spectralOffset)
 	return max(0.0001, eta);
 }
 
-bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir)
+bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir, out float3 lightMultiplier, out float lightSampleWeight, out int lightSubRay, out int lightSubRayCount)
 {
 	int2 rayId = int2(id.xy);
-	float2 lightXY = float2(-causticsLightDirection.x, -causticsLightDirection.y);
+	int raysPerPixel = max(causticsRaysPerPixel, 1);
+	int baseRay = rayId.x / raysPerPixel;
+	int subRay = rayId.x - baseRay * raysPerPixel;
+	int primaryRayCount = max(causticsPrimaryRayCount, 0);
+	int secondaryRayCount = max(causticsSecondaryRayCount, 0);
+	int primarySubRaysPerPixel = clamp(causticsPrimarySubRaysPerPixel, 0, raysPerPixel);
+	int secondarySubRaysPerPixel = clamp(causticsSecondarySubRaysPerPixel, 0, raysPerPixel - primarySubRaysPerPixel);
+	bool splitBySubRay = causticsSecondaryLightEnabled != 0 && secondarySubRaysPerPixel > 0;
+	bool secondaryRay = splitBySubRay
+		? subRay >= primarySubRaysPerPixel
+		: causticsSecondaryLightEnabled != 0 && baseRay >= primaryRayCount && baseRay < primaryRayCount + secondaryRayCount;
+	int localBaseRay = secondaryRay && !splitBySubRay ? baseRay - primaryRayCount : baseRay;
+	int localRayCount = secondaryRay
+		? (splitBySubRay ? causticsRayCount : secondaryRayCount)
+		: primaryRayCount;
+	int localSubRay = secondaryRay && splitBySubRay ? subRay - primarySubRaysPerPixel : subRay;
+	int localSubRayCount = secondaryRay && splitBySubRay ? secondarySubRaysPerPixel : (splitBySubRay ? primarySubRaysPerPixel : raysPerPixel);
+	lightSubRay = localSubRay;
+	lightSubRayCount = max(localSubRayCount, 1);
+	float3 lightDirection = secondaryRay ? causticsSecondaryLightDirection : causticsLightDirection;
+	float rayStartOffset = secondaryRay ? causticsSecondaryRayStartOffset : causticsRayStartOffset;
+	float raySpacing = secondaryRay ? causticsSecondaryRaySpacing : causticsRaySpacing;
+	lightMultiplier = secondaryRay ? max(causticsSecondaryLightMultiplier, 0.0) : max(causticsLightMultiplier, 0.0);
+	lightSampleWeight = splitBySubRay
+		? (float)raysPerPixel / (float)lightSubRayCount
+		: (float)max(causticsRayCount, 1) / (float)max(localRayCount, 1);
+
+	float2 lightXY = float2(-lightDirection.x, -lightDirection.y);
 	rayDir = length(lightXY) > 0.0001 ? normalize(lightXY) : float2(1.0, 0.0);
 	uint initialRaySeed = (uint)rayId.x * 1973u ^ (uint)rayId.y * 9277u ^ (uint)causticsFrameIndex * 26699u;
 	float angleJitter = (Hash01(initialRaySeed) * 2.0 - 1.0) * max(causticsLightAngularRadius, 0.0);
 	rayDir = Rotate2D(rayDir, angleJitter);
 
 	int rayStride = max(causticsRayStride, 1);
-	int raysPerPixel = max(causticsRaysPerPixel, 1);
-	int baseRay = rayId.x / raysPerPixel;
-	int subRay = rayId.x - baseRay * raysPerPixel;
-	if (rayId.y != 0 || baseRay >= causticsRayCount || baseRay % rayStride != 0)
+	if (rayId.y != 0 || baseRay >= causticsRayCount || localRayCount <= 0 || localSubRayCount <= 0 || localBaseRay >= localRayCount || localBaseRay % rayStride != 0)
 	{
 		return false;
 	}
@@ -638,9 +672,9 @@ bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir)
 	float2 tangent = float2(-rayDir.y, rayDir.x);
 	float halfSpan = length(causticSize) * 0.5 + causticsStepPixels * 2.0;
 	float2 temporalJitter = FrameJitter2D(causticsFrameIndex) * causticsTemporalJitterPixels;
-	float rayOffset = (subRay + 0.5) / raysPerPixel;
-	float spacing = max(causticsRaySpacing, 0.0001);
-	float centreOffset = causticsRayStartOffset + (baseRay + rayOffset) * spacing + temporalJitter.x;
+	float rayOffset = splitBySubRay ? (lightSubRay + 0.5) / lightSubRayCount : (subRay + 0.5) / raysPerPixel;
+	float spacing = max(raySpacing, 0.0001);
+	float centreOffset = rayStartOffset + (localBaseRay + rayOffset) * spacing + temporalJitter.x;
 	float2 startPixel = causticSize * 0.5 - rayDir * halfSpan + tangent * centreOffset + rayDir * temporalJitter.y;
 	uv = startPixel / causticSize;
 	return true;
@@ -759,7 +793,11 @@ void Trace(uint3 id : SV_DispatchThreadID)
 {
 	float2 uv;
 	float2 rayDir;
-	if (!InitializeRay(id, uv, rayDir))
+	float3 lightMultiplier;
+	float lightSampleWeight;
+	int lightSubRay;
+	int lightSubRayCount;
+	if (!InitializeRay(id, uv, rayDir, lightMultiplier, lightSampleWeight, lightSubRay, lightSubRayCount))
 	{
 		return;
 	}
@@ -776,7 +814,7 @@ void Trace(uint3 id : SV_DispatchThreadID)
 	bool previousInsideInnerBoundary = insideInnerBoundary;
 	bool enteredBoundary = useEllipticalBounds == 0 || insideOuterBoundary;
 	bool enteredTexture = InsideTexture(uv);
-	float causticLineEnergy = max(causticsRayBrightness, 0.0) / max(causticsRaysPerPixel, 1);
+	float causticLineEnergy = max(causticsRayBrightness, 0.0) * lightSampleWeight / max(causticsRaysPerPixel, 1);
 	uint spectralSeed = id.x * 73856093u ^ id.y * 19349663u ^ (uint)causticsFrameIndex * 83492791u;
 	int raysPerPixel = max(causticsRaysPerPixel, 1);
 	int baseRay = (int)(id.x / (uint)raysPerPixel);
@@ -784,7 +822,8 @@ void Trace(uint3 id : SV_DispatchThreadID)
 	uint spectralRotationSeed = (uint)baseRay * 2654435761u ^ (uint)causticsFrameIndex * 2246822519u;
 	float spectralOffset;
 	float3 rayEnergy;
-	InitSpectralRay(spectralSeed, spectralRotationSeed, subRay, raysPerPixel, spectralOffset, rayEnergy);
+	InitSpectralRay(spectralSeed, spectralRotationSeed, lightSubRay, lightSubRayCount, spectralOffset, rayEnergy);
+	rayEnergy *= lightMultiplier;
 	int currentPhase = MediumPhaseFromCombined(currentCombined, insideInnerBoundary);
 	float3 mediumColour = AbsorptionColourFromCombined(currentCombined, currentPhase);
 	float2 rayMotionUv = 0.0;

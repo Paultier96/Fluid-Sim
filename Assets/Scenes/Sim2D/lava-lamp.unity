@@ -386,12 +386,21 @@ MonoBehaviour:
     intensity: 20
     normalStrength: 1.1
     normalBlurCompensation: 0.99
-    lightAzimuthDegrees: 130
-    lightElevationDegrees: 10
-    lightTemperatureKelvin: 6500
-    lightColor: {r: 1, g: 1, b: 1, a: 1}
-    lightIntensity: 7.5
-    ambientLight: 0.015
+    primaryLight:
+      azimuthDegrees: 130
+      elevationDegrees: 50
+      temperatureKelvin: 4000
+      color: {r: 1, g: 1, b: 1, a: 1}
+      intensity: 7.5
+    secondaryLightEnabled: 1
+    secondaryLightRayShare: 0.3
+    secondaryLight:
+      azimuthDegrees: -120
+      elevationDegrees: 20
+      temperatureKelvin: 20000
+      color: {r: 1, g: 1, b: 1, a: 1}
+      intensity: 0.1
+    ambientLight: 0
     fresnelColor: {r: 0.75, g: 0.9, b: 1, a: 1}
     fresnelIntensity: 0.01
     fresnelPower: 3
@@ -400,10 +409,6 @@ MonoBehaviour:
     screenSpaceRefractionCanCrossPhases: 0
     screenSpaceReflectionDistance: 180
     screenSpaceReflectionEdgePower: 2
-    glowDirection: {x: -0.75, y: -0.93}
-    glowColor: {r: 1, g: 1, b: 1, a: 1}
-    glowIntensity: 1
-    glowPower: 10
     transmissionIntensity: 20
     transmissionPower: 4.5
     edgeDarkening: 1
@@ -480,7 +485,7 @@ MonoBehaviour:
     radianceCascadeAbsorption: 1
     temporalEnabled: 1
     temporalHistoryWeight: 0.9
-    temporalMotionSource: 1
+    temporalMotionSource: 2
     motionBlurRadius: 25
     temporalMotionBlur: 25
     temporalMotionDilationRadius: 20

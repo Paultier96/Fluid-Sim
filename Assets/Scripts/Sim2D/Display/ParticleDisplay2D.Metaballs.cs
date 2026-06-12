@@ -92,6 +92,88 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
+		[Serializable]
+		public sealed class DirectionalLightSettings
+		{
+			[Tooltip("Horizontal screen/world angle of the light direction in degrees.")]
+			public float azimuthDegrees = 122.5f;
+			[Tooltip("Vertical angle of the light direction in degrees. 0 lies in the 2D plane, 90 points toward the camera.")]
+			[Range(0, 89f)] public float elevationDegrees = 50.3f;
+			[Tooltip("Colour temperature of the directional light in Kelvin. 6500 is neutral daylight; lower values are warmer, higher values are cooler.")]
+			[Range(1000f, 20000f)] public float temperatureKelvin = 6500f;
+			[Tooltip("Colour of the directional light.")]
+			[ColorUsage(false, true)] public Color color = Color.white;
+			[Tooltip("Intensity of the directional light.")]
+			[Min(0f)] public float intensity = 0.45f;
+
+			public DirectionalLightSettings()
+			{
+			}
+
+			public DirectionalLightSettings(float azimuthDegrees, float elevationDegrees, float intensity)
+			{
+				this.azimuthDegrees = azimuthDegrees;
+				this.elevationDegrees = elevationDegrees;
+				this.intensity = intensity;
+			}
+
+			public Vector3 Direction
+			{
+				get
+				{
+					float azimuth = azimuthDegrees * Mathf.Deg2Rad;
+					float elevation = elevationDegrees * Mathf.Deg2Rad;
+					float planarLength = Mathf.Cos(elevation);
+					return new Vector3(
+						Mathf.Cos(azimuth) * planarLength,
+						Mathf.Sin(azimuth) * planarLength,
+						Mathf.Sin(elevation)
+					).normalized;
+				}
+			}
+
+			public Color EffectiveColor
+			{
+				get
+				{
+					Color kelvinColor = KelvinToRgb(temperatureKelvin);
+					return new Color(
+						color.r * kelvinColor.r,
+						color.g * kelvinColor.g,
+						color.b * kelvinColor.b,
+						color.a
+					);
+				}
+			}
+
+			static Color KelvinToRgb(float kelvin)
+			{
+				float temperature = Mathf.Clamp(kelvin, 1000f, 20000f) / 100f;
+				float red;
+				float green;
+				float blue;
+
+				if (temperature <= 66f)
+				{
+					red = 1f;
+					green = Mathf.Clamp01((99.4708025861f * Mathf.Log(temperature) - 161.1195681661f) / 255f);
+				}
+				else
+				{
+					red = Mathf.Clamp01((329.698727446f * Mathf.Pow(temperature - 60f, -0.1332047592f)) / 255f);
+					green = Mathf.Clamp01((288.1221695283f * Mathf.Pow(temperature - 60f, -0.0755148492f)) / 255f);
+				}
+
+				blue = temperature >= 66f
+					? 1f
+					: temperature <= 19f
+						? 0f
+						: Mathf.Clamp01((138.5177312231f * Mathf.Log(temperature - 10f) - 305.0447927307f) / 255f);
+
+				return new Color(red, green, blue, 1f);
+			}
+		}
+
 		public enum TemporalMotionSource
 		{
 			Static,
@@ -150,16 +232,13 @@ namespace Seb.Fluid2D.Rendering
 			[Min(0f)] public float normalBlurCompensation = 0.5f;
 
 			[Header("Directional Light")]
-			[Tooltip("Horizontal screen/world angle of the light direction in degrees.")]
-			public float lightAzimuthDegrees = 122.5f;
-			[Tooltip("Vertical angle of the light direction in degrees. 0 lies in the 2D plane, 90 points toward the camera.")]
-			[Range(0, 89f)] public float lightElevationDegrees = 50.3f;
-			[Tooltip("Colour temperature of the directional light in Kelvin. 6500 is neutral daylight; lower values are warmer, higher values are cooler.")]
-			[Range(1000f, 20000f)] public float lightTemperatureKelvin = 6500f;
-			[Tooltip("Colour of the directional light used to shade particles in normal rendering mode.")]
-			[ColorUsage(false, true)] public Color lightColor = Color.white;
-			[Tooltip("Intensity of the directional light used by diffuse, specular, transmission, and glow lighting.")]
-			[Min(0f)] public float lightIntensity = 0.45f;
+			public DirectionalLightSettings primaryLight = new DirectionalLightSettings(122.5f, 50.3f, 0.45f);
+			[Header("Secondary Directional Light")]
+			[Tooltip("Adds a second directional light. Rasterized lighting evaluates both lights; raymarched lighting splits the existing ray budget between them.")]
+			public bool secondaryLightEnabled = false;
+			[Tooltip("Fraction of raymarched lighting rays assigned to the secondary light. The total ray budget stays unchanged.")]
+			[Range(0f, 1f)] public float secondaryLightRayShare = 0.35f;
+			public DirectionalLightSettings secondaryLight = new DirectionalLightSettings(45f, 40f, 0.2f);
 			[Space]
 			[Tooltip("Unlit colour multiplier. Increase if shadowed particles are too dark.")]
 			[Range(0f, 1f)] public float ambientLight = 0.65f;
@@ -185,15 +264,7 @@ namespace Seb.Fluid2D.Rendering
 			[Tooltip("Edge mask exponent for screen-space reflections. Higher values keep reflections tighter to side-facing normals.")]
 			[Min(0.1f)] public float screenSpaceReflectionEdgePower = 1.5f;
 
-			[Header("Lighting - Rim And Transmission")]
-			[Tooltip("Screen/normal-space direction for the one-sided liquid-glass rim glow.")]
-			public Vector2 glowDirection = new Vector2(-0.75f, -0.45f);
-			[Tooltip("Colour of the one-sided liquid-glass rim glow.")]
-			[ColorUsage(false, true)] public Color glowColor = Color.white;
-			[Tooltip("Strength of the one-sided liquid-glass rim glow.")]
-			[Min(0f)] public float glowIntensity = 0.35f;
-			[Tooltip("Directional glow exponent. Higher values make the glow narrower along its chosen side.")]
-			[Min(0.1f)] public float glowPower = 1.5f;
+			[Header("Lighting - Transmission")]
 			[Tooltip("Strength of the fake transmission/backlight term.")]
 			[Min(0f)] public float transmissionIntensity = 0.2f;
 			[Tooltip("Transmission exponent. Higher values make transmission more directional.")]
@@ -312,14 +383,15 @@ namespace Seb.Fluid2D.Rendering
 			{
 				get
 				{
-					float azimuth = lightAzimuthDegrees * Mathf.Deg2Rad;
-					float elevation = lightElevationDegrees * Mathf.Deg2Rad;
-					float planarLength = Mathf.Cos(elevation);
-					return new Vector3(
-						Mathf.Cos(azimuth) * planarLength,
-						Mathf.Sin(azimuth) * planarLength,
-						Mathf.Sin(elevation)
-					).normalized;
+					return PrimaryLight.Direction;
+				}
+			}
+
+			public Vector3 SecondaryLightDirection
+			{
+				get
+				{
+					return SecondaryLight.Direction;
 				}
 			}
 
@@ -327,42 +399,21 @@ namespace Seb.Fluid2D.Rendering
 			{
 				get
 				{
-					Color kelvinColor = KelvinToRgb(lightTemperatureKelvin);
-					return new Color(
-						lightColor.r * kelvinColor.r,
-						lightColor.g * kelvinColor.g,
-						lightColor.b * kelvinColor.b,
-						lightColor.a
-					);
+					return PrimaryLight.EffectiveColor;
 				}
 			}
 
-			static Color KelvinToRgb(float kelvin)
+			public Color EffectiveSecondaryLightColor
 			{
-				float temperature = Mathf.Clamp(kelvin, 1000f, 20000f) / 100f;
-				float red;
-				float green;
-				float blue;
-
-				if (temperature <= 66f)
+				get
 				{
-					red = 1f;
-					green = Mathf.Clamp01((99.4708025861f * Mathf.Log(temperature) - 161.1195681661f) / 255f);
+					return SecondaryLight.EffectiveColor;
 				}
-				else
-				{
-					red = Mathf.Clamp01((329.698727446f * Mathf.Pow(temperature - 60f, -0.1332047592f)) / 255f);
-					green = Mathf.Clamp01((288.1221695283f * Mathf.Pow(temperature - 60f, -0.0755148492f)) / 255f);
-				}
-
-				blue = temperature >= 66f
-					? 1f
-					: temperature <= 19f
-						? 0f
-						: Mathf.Clamp01((138.5177312231f * Mathf.Log(temperature - 10f) - 305.0447927307f) / 255f);
-
-				return new Color(red, green, blue, 1f);
 			}
+
+			public DirectionalLightSettings PrimaryLight => primaryLight ??= new DirectionalLightSettings(122.5f, 50.3f, 0.45f);
+
+			public DirectionalLightSettings SecondaryLight => secondaryLight ??= new DirectionalLightSettings(45f, 40f, 0.2f);
 		}
 	}
 }

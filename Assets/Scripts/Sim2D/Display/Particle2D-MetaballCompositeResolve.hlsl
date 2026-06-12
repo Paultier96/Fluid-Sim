@@ -142,8 +142,16 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 		directLightIrradiance1 = lightField * phase1DirectCausticStrength;
 	}
 	float3 lightDir = ResolveParticleLightDirection(i.uv, worldPos);
-	float3 lit0 = ApplyParticleLighting(colour0, normal0, lightDir, particlePhase0Reflectance, particlePhase0Roughness, particlePhase0Metallic, directLightIrradiance0);
-	float3 lit1 = ApplyParticleLighting(colour1, normal1, lightDir, particlePhase1Reflectance, particlePhase1Roughness, particlePhase1Metallic, directLightIrradiance1);
+	float3 directLightColor = metaballCausticsEnabled != 0 ? float3(1.0, 1.0, 1.0) : particleLightColor.rgb;
+	float directLightIntensity = metaballCausticsEnabled != 0 ? 1.0 : particleLightIntensity;
+	float3 lit0 = ApplyParticleLightingWithSource(colour0, normal0, lightDir, particlePhase0Reflectance, particlePhase0Roughness, particlePhase0Metallic, directLightIrradiance0, directLightColor, directLightIntensity);
+	float3 lit1 = ApplyParticleLightingWithSource(colour1, normal1, lightDir, particlePhase1Reflectance, particlePhase1Roughness, particlePhase1Metallic, directLightIrradiance1, directLightColor, directLightIntensity);
+	if (particleSecondaryLightEnabled != 0)
+	{
+		float3 secondaryLightDir = ResolveParticleSecondaryLightDirection(worldPos);
+		lit0 += ApplyParticleSecondaryLighting(colour0, normal0, secondaryLightDir, particlePhase0Reflectance, particlePhase0Roughness, particlePhase0Metallic, directLightIrradiance0);
+		lit1 += ApplyParticleSecondaryLighting(colour1, normal1, secondaryLightDir, particlePhase1Reflectance, particlePhase1Roughness, particlePhase1Metallic, directLightIrradiance1);
+	}
 	if (metaballPhaseDiffuseLightEnabled != 0)
 	{
 		float4 softLight = tex2D(SoftLightTex, i.uv);
@@ -177,7 +185,7 @@ float4 frag(v2f i) : SV_Target
 {
 	if (debugMode == 7)
 	{
-		return float4(tex2D(CausticTex, i.uv).rgb, 1.0);
+		return float4(tex2D(CausticTex, i.uv).rgb / max(particleCausticDebugExposure, 0.0001), 1.0);
 	}
 	if (debugMode == 8)
 	{
