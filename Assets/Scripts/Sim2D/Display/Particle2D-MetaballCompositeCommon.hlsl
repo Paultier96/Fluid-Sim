@@ -50,6 +50,8 @@ float motionDebugDeltaTime;
 int metaballCausticsEnabled;
 int metaballDirectionalLightFieldEnabled;
 int metaballPhaseDiffuseLightEnabled;
+int metaballSoftLightPhase0Only;
+float metaballRadianceCascadeDirectCausticStrength;
 float4 metaballPhase0DiffuseLightTint;
 float4 metaballPhase1DiffuseLightTint;
 float metaballPhase0DiffuseAlbedoTintBlend;

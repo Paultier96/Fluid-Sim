@@ -374,6 +374,7 @@ MonoBehaviour:
     compositeShader: {fileID: 4800000, guid: db6a0932797cd49b1a42ac6d2c30ac61, type: 3}
     blurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
     phaseDiffuseLightCompute: {fileID: 7200000, guid: 6bbf221f0ffb42e4a93f4b9e0a63a64d, type: 3}
+    radianceCascadeShader: {fileID: 4800000, guid: cf6b063e0da6b9d499eea03eed03b4ef, type: 3}
     renderTextureScale: 1
     blurRadius: 10
     densityThreshold: 0.18
@@ -389,9 +390,8 @@ MonoBehaviour:
     lightElevationDegrees: 10
     lightTemperatureKelvin: 6500
     lightColor: {r: 1, g: 1, b: 1, a: 1}
-    ambientLight: 0.015
     lightIntensity: 7.5
-    refractDirectLightAtAnalyticBoundary: 1
+    ambientLight: 0.015
     fresnelColor: {r: 0.75, g: 0.9, b: 1, a: 1}
     fresnelIntensity: 0.01
     fresnelPower: 3
@@ -423,8 +423,7 @@ MonoBehaviour:
       roughness: 0.25
       metallic: 0
       screenSpaceReflectionStrength: 1
-      diffuseScatterStrength: 0.1
-      diffuseDiffusionRate: 1
+      diffuseScatterStrength: 0.05
       diffuseLightTint: {r: 1, g: 0.62578607, b: 0.62578607, a: 1}
       diffuseAlbedoTintBlend: 0.25
     phase1Material:
@@ -434,9 +433,8 @@ MonoBehaviour:
       reflectance: 0.5
       roughness: 0.3
       metallic: 0
-      screenSpaceReflectionStrength: 0.2
+      screenSpaceReflectionStrength: 0
       diffuseScatterStrength: 0
-      diffuseDiffusionRate: 0.2
       diffuseLightTint: {r: 0, g: 0.44119108, b: 1, a: 1}
       diffuseAlbedoTintBlend: 0
     boundaryMaterial:
@@ -448,7 +446,6 @@ MonoBehaviour:
       metallic: 0
       screenSpaceReflectionStrength: 2
       diffuseScatterStrength: 0
-      diffuseDiffusionRate: 0.2
       diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
       diffuseAlbedoTintBlend: 0
     fresnelStrength: 1
@@ -466,15 +463,24 @@ MonoBehaviour:
     raysPerPixel: 10
     colourSampleStride: 5
     blur: 2
-    directionalLightFieldEnabled: 1
+    directionalLightingMode: 1
     directionalLightFieldBlur: 10
     phaseDiffuseLightEnabled: 1
     phaseDiffuseLightTextureScale: 1
-    phaseDiffuseLightIterations: 16
+    phaseDiffuseLightGaussianRadius0: 20
+    phaseDiffuseLightGaussianRadius1: 10
     phaseDiffuseLightBoundarySharpness: 12
+    radianceCascadeEnabled: 0
+    radianceCascadeTextureScale: 0.5
+    radianceCascadeCount: 4
+    radianceCascadeRayRange: 0.01
+    radianceCascadeRaySteps: 16
+    radianceCascadeIntensity: 150
+    radianceCascadeDirectCausticStrength: 1
+    radianceCascadeAbsorption: 1
     temporalEnabled: 1
     temporalHistoryWeight: 0.9
-    temporalMotionSource: 2
+    temporalMotionSource: 1
     motionBlurRadius: 25
     temporalMotionBlur: 25
     temporalMotionDilationRadius: 20
@@ -796,6 +802,11 @@ MonoBehaviour:
   showOverlay: 1
   sim: {fileID: 271053319}
   sampleWindow: 2
+  graphHeight: 70
+  graphMaxFps: 240
+  graphReferenceFps: 120
+  frameTimeGraphMaxMs: 16.67
+  frameTimeGraphReferenceMs: 16.67
   resetKey: 289
   screenOffset: {x: 12, y: 12}
 --- !u!4 &1214473944

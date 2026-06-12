@@ -823,12 +823,28 @@ void Trace(uint3 id : SV_DispatchThreadID)
 			float2 normal = enteringBoundary
 				? AnalyticSurfaceNormal(uv, rayDir, max(analyticBoundaryExpansion, 0.0))
 				: -AnalyticSurfaceNormal(uv, rayDir, max(analyticBoundaryExpansion, 0.0));
-			rayIsRefractedOnly = rayIsRefractedOnly && CanRefract2D(rayDir, normal, eta);
-			rayEnergy *= SurfaceTransmission(rayDir, normal, eta, causticsGlassReflectance);
-			rayDir = Refract2D(rayDir, normal, eta);
+			if (enteringBoundary)
+			{
+				rayIsRefractedOnly = rayIsRefractedOnly && CanRefract2D(rayDir, normal, eta);
+				rayEnergy *= SurfaceTransmission(rayDir, normal, eta, causticsGlassReflectance);
+				rayDir = Refract2D(rayDir, normal, eta);
 
-			rayStep = rayDir * causticsStepPixels / causticSize;
-			stepWorldDistance = length(rayStep * causticsWorldSize);
+				rayStep = rayDir * causticsStepPixels / causticSize;
+				stepWorldDistance = length(rayStep * causticsWorldSize);
+			}
+			else
+			{
+				rayEnergy *= SurfaceReflectance(rayDir, normal, eta, causticsGlassReflectance);
+				rayDir = Reflect2D(rayDir, normal);
+				rayIsRefractedOnly = false;
+				rayStep = rayDir * causticsStepPixels / causticSize;
+				stepWorldDistance = length(rayStep * causticsWorldSize);
+				insideOuterBoundary = true;
+				previousInsideOuterBoundary = true;
+				previousInsideInnerBoundary = insideInnerBoundary;
+				previousDensity = 0.0;
+				continue;
+			}
 		}
 
 		if (useEllipticalBounds != 0 && previousInsideInnerBoundary != insideInnerBoundary)

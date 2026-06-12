@@ -77,8 +77,6 @@ namespace Seb.Fluid2D.Rendering
 			[Min(0f)] public float screenSpaceReflectionStrength = 0f;
 			[Tooltip("Initial fraction of sharp raymarched light injected into the phase-aware diffuse lighting pass.")]
 			[Min(0f)] public float diffuseScatterStrength = 0f;
-			[Tooltip("Per-iteration diffusion amount for the phase-aware diffuse lighting pass.")]
-			[Range(0f, 1f)] public float diffuseDiffusionRate = 0.2f;
 			[Tooltip("Tint applied to this phase's phase-aware diffuse lighting.")]
 			[ColorUsage(false, true)] public Color diffuseLightTint = Color.white;
 			[Tooltip("Blends phase-aware diffuse lighting tint from Diffuse Light Tint toward the local phase albedo gradient. 0 uses Diffuse Light Tint; 1 uses albedo.")]
@@ -118,6 +116,8 @@ namespace Seb.Fluid2D.Rendering
 			public Shader blurShader;
 			[Tooltip("Compute shader used for the optional phase-aware diffuse caustics/SSS lighting pass.")]
 			public ComputeShader phaseDiffuseLightCompute;
+			[Tooltip("Shader used for the optional radiance cascade soft lighting pass.")]
+			public Shader radianceCascadeShader;
 
 			[Header("Shape - Surface")]
 			[Tooltip("Resolution of the metaball render textures relative to the screen. Lower values improve performance at the cost of sharpness.")]
@@ -266,10 +266,28 @@ namespace Seb.Fluid2D.Rendering
 			public bool phaseDiffuseLightEnabled = false;
 			[Tooltip("Resolution of the phase-aware diffuse lighting textures relative to the raymarched lighting texture.")]
 			[Range(0.25f, 1f)] public float phaseDiffuseLightTextureScale = 0.5f;
-			[Tooltip("Number of Jacobi diffusion iterations for phase-aware diffuse lighting.")]
-			[Range(1, 40)] public int phaseDiffuseLightIterations = 16;
+			[Tooltip("Full-resolution pixel radius for masked Gaussian phase diffuse light in phase 0. Internally scaled by render texture, ray lighting, and diffuse texture scale.")]
+			[Min(0f)] public float phaseDiffuseLightGaussianRadius0 = 24f;
+			[Tooltip("Full-resolution pixel radius for masked Gaussian phase diffuse light in phase 1. Internally scaled by render texture, ray lighting, and diffuse texture scale.")]
+			[Min(0f)] public float phaseDiffuseLightGaussianRadius1 = 24f;
 			[Tooltip("How strongly phase boundaries block phase-aware diffuse lighting. Higher values keep light inside each phase.")]
 			[Min(0f)] public float phaseDiffuseLightBoundarySharpness = 12f;
+			[Tooltip("Uses a radiance cascade pass derived from the raymarched lighting texture as the soft indirect light source. Overrides Phase Diffuse Light when enabled.")]
+			public bool radianceCascadeEnabled = false;
+			[Tooltip("Resolution of the radiance cascade texture relative to the raymarched lighting texture.")]
+			[Range(0.25f, 1f)] public float radianceCascadeTextureScale = 0.5f;
+			[Tooltip("Number of cascade levels. Higher values spread soft light farther but cost one fullscreen pass per level.")]
+			[Range(1, 6)] public int radianceCascadeCount = 4;
+			[Tooltip("Maximum ray range in normalized lighting-texture UV space at the reference zoom. Automatically scales with camera zoom to keep the world-space scattering radius stable.")]
+			[Min(0.0001f)] public float radianceCascadeRayRange = 1.25f;
+			[Tooltip("Raymarch samples per cascade ray segment.")]
+			[Range(1, 64)] public int radianceCascadeRaySteps = 16;
+			[Tooltip("Multiplier applied to the radiance cascade soft light before compositing.")]
+			[Min(0f)] public float radianceCascadeIntensity = 1f;
+			[Tooltip("Amount of sharp direct caustic lighting kept while a soft SSS pass is enabled. 0 replaces sharp caustics with soft SSS, 1 keeps the previous sharp+soft result.")]
+			[Range(0f, 1f)] public float radianceCascadeDirectCausticStrength = 1f;
+			[Tooltip("Applies the same Beer-Lambert RGB absorption used by raymarched caustics while radiance cascade rays travel through phase 0.")]
+			public bool radianceCascadeAbsorption = true;
 			[Header("Raymarched Lighting - Temporal Smoothing")]
 			[Tooltip("Blends raymarched lighting with the previous frame to reduce flicker.")]
 			public bool temporalEnabled = false;

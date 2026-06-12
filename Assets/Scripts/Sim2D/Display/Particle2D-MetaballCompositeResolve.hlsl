@@ -135,8 +135,11 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 	if (metaballCausticsEnabled != 0)
 	{
 		float3 lightField = tex2D(CausticTex, i.uv).rgb;
-		directLightIrradiance0 = lightField;
-		directLightIrradiance1 = lightField;
+		float softLightDirectCausticStrength = metaballPhaseDiffuseLightEnabled != 0 ? saturate(metaballRadianceCascadeDirectCausticStrength) : 1.0;
+		float phase0DirectCausticStrength = softLightDirectCausticStrength;
+		float phase1DirectCausticStrength = metaballSoftLightPhase0Only == 0 ? softLightDirectCausticStrength : 1.0;
+		directLightIrradiance0 = lightField * phase0DirectCausticStrength;
+		directLightIrradiance1 = lightField * phase1DirectCausticStrength;
 	}
 	float3 lightDir = ResolveParticleLightDirection(i.uv, worldPos);
 	float3 lit0 = ApplyParticleLighting(colour0, normal0, lightDir, particlePhase0Reflectance, particlePhase0Roughness, particlePhase0Metallic, directLightIrradiance0);
@@ -147,7 +150,10 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 		float3 diffuseTint0 = lerp(metaballPhase0DiffuseLightTint.rgb, diffuseAlbedo0, saturate(metaballPhase0DiffuseAlbedoTintBlend));
 		float3 diffuseTint1 = lerp(metaballPhase1DiffuseLightTint.rgb, diffuseAlbedo1, saturate(metaballPhase1DiffuseAlbedoTintBlend));
 		lit0 += softLight.rgb * (1.0 - phaseT) * diffuseTint0;
-		lit1 += softLight.rgb * phaseT * diffuseTint1;
+		if (metaballSoftLightPhase0Only == 0)
+		{
+			lit1 += softLight.rgb * phaseT * diffuseTint1;
+		}
 	}
 	lit0 = ApplyIridescence(lit0, normal0);
 	lit1 = ApplyIridescence(lit1, normal1);
@@ -191,7 +197,10 @@ float4 frag(v2f i) : SV_Target
 			float3 diffuseTint1 = lerp(metaballPhase1DiffuseLightTint.rgb, diffuseAlbedo1, saturate(metaballPhase1DiffuseAlbedoTintBlend));
 			float4 packedSoftLight = tex2D(SoftLightTex, i.uv);
 			softLight += packedSoftLight.rgb * (1.0 - phaseT) * diffuseTint0;
-			softLight += packedSoftLight.rgb * phaseT * diffuseTint1;
+			if (metaballSoftLightPhase0Only == 0)
+			{
+				softLight += packedSoftLight.rgb * phaseT * diffuseTint1;
+			}
 		}
 		return float4(softLight, 1.0);
 	}

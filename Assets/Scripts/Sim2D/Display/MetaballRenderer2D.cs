@@ -18,6 +18,7 @@ namespace Seb.Fluid2D.Rendering
 		Material causticBlurMaterial;
 		Material causticMotionBlurMaterial;
 		Material lightDirectionBlurMaterial;
+		Material radianceCascadeMaterial;
 		RenderTexture combinedAccumulationTexture;
 		RenderTexture combinedBlurTexture;
 		RenderTexture normalAccumulationTexture;
@@ -184,6 +185,12 @@ namespace Seb.Fluid2D.Rendering
 				lightDirectionBlurMaterial = null;
 			}
 
+			if (radianceCascadeMaterial != null)
+			{
+				Object.DestroyImmediate(radianceCascadeMaterial);
+				radianceCascadeMaterial = null;
+			}
+
 		}
 
 		public void ClearCausticHistory()
@@ -202,6 +209,7 @@ namespace Seb.Fluid2D.Rendering
 			EnsureMaterial(ref causticBlurMaterial, display.metaballs.blurShader);
 			EnsureMaterial(ref causticMotionBlurMaterial, display.metaballs.blurShader);
 			EnsureMaterial(ref lightDirectionBlurMaterial, display.metaballs.blurShader);
+			EnsureMaterial(ref radianceCascadeMaterial, display.metaballs.radianceCascadeShader);
 		}
 
 		static void EnsureMaterial(ref Material material, Shader shader)
@@ -300,6 +308,8 @@ namespace Seb.Fluid2D.Rendering
 			{
 				bool renderDirectionalLightField = ShouldRenderDirectionalLightField(settings);
 				bool renderPhaseDiffuseLight = ShouldRenderPhaseDiffuseLight(settings);
+				bool renderRadianceCascadeLight = ShouldRenderRadianceCascadeLight(settings);
+				bool renderSoftLight = renderPhaseDiffuseLight || renderRadianceCascadeLight;
 				int causticWidth = Mathf.Max(1, Mathf.RoundToInt(width * settings.textureScale));
 				int causticHeight = Mathf.Max(1, Mathf.RoundToInt(height * settings.textureScale));
 				int causticAccumulationCount = causticWidth * causticHeight * 4;
@@ -322,10 +332,11 @@ namespace Seb.Fluid2D.Rendering
 				{
 					ReleaseLightDirectionTextures();
 				}
-				if (renderPhaseDiffuseLight)
+				if (renderSoftLight)
 				{
-					int softLightWidth = Mathf.Max(1, Mathf.RoundToInt(causticWidth * settings.phaseDiffuseLightTextureScale));
-					int softLightHeight = Mathf.Max(1, Mathf.RoundToInt(causticHeight * settings.phaseDiffuseLightTextureScale));
+					float softLightScale = renderRadianceCascadeLight ? settings.radianceCascadeTextureScale : settings.phaseDiffuseLightTextureScale;
+					int softLightWidth = Mathf.Max(1, Mathf.RoundToInt(causticWidth * softLightScale));
+					int softLightHeight = Mathf.Max(1, Mathf.RoundToInt(causticHeight * softLightScale));
 					ComputeHelper.CreateRenderTexture(ref softLightTexture0, softLightWidth, softLightHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Diffuse Light 0");
 					ComputeHelper.CreateRenderTexture(ref softLightTexture1, softLightWidth, softLightHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Diffuse Light 1");
 				}
@@ -432,8 +443,10 @@ namespace Seb.Fluid2D.Rendering
 				lightDirectionTex = settings.temporalEnabled ? lightDirectionTemporalTexture : lightDirectionTexture;
 			}
 			compositeMaterial.SetTexture("LightDirectionTex", lightDirectionTex);
-			bool renderPhaseDiffuseLight = ShouldRenderPhaseDiffuseLight(settings);
-			compositeMaterial.SetInt("metaballPhaseDiffuseLightEnabled", renderPhaseDiffuseLight ? 1 : 0);
+			bool renderSoftLight = ShouldRenderPhaseDiffuseLight(settings) || ShouldRenderRadianceCascadeLight(settings);
+			compositeMaterial.SetInt("metaballPhaseDiffuseLightEnabled", renderSoftLight ? 1 : 0);
+			compositeMaterial.SetInt("metaballSoftLightPhase0Only", ShouldRenderRadianceCascadeLight(settings) ? 1 : 0);
+			compositeMaterial.SetFloat("metaballRadianceCascadeDirectCausticStrength", settings.radianceCascadeDirectCausticStrength);
 			compositeMaterial.SetTexture("SoftLightTex", Texture2D.blackTexture);
 			compositeMaterial.SetColor("metaballPhase0DiffuseLightTint", settings.phase0Material.diffuseLightTint);
 			compositeMaterial.SetColor("metaballPhase1DiffuseLightTint", settings.phase1Material.diffuseLightTint);
@@ -729,33 +742,31 @@ namespace Seb.Fluid2D.Rendering
 				causticTemporalFrameCount = 0;
 			}
 
-			if (ShouldRenderPhaseDiffuseLight(settings))
+			if (ShouldRenderRadianceCascadeLight(settings))
+			{
+				RenderRadianceCascadeLight(display, cam, targetCommandBuffer, settings, settings.temporalEnabled ? causticTemporalTexture : causticResolvedTexture, currentWorldCenter, currentWorldSize);
+			}
+			else if (ShouldRenderPhaseDiffuseLight(settings))
 			{
 				RenderPhaseDiffuseLight(display, targetCommandBuffer, settings, settings.temporalEnabled ? causticTemporalTexture : causticResolvedTexture, currentWorldCenter, currentWorldSize);
 			}
 		}
 
-		void RenderPhaseDiffuseLight(ParticleDisplay2D display, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings settings, Texture sharpCaustics, Vector2 currentWorldCenter, Vector2 currentWorldSize)
+		void RenderRadianceCascadeLight(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings settings, Texture sharpCaustics, Vector2 currentWorldCenter, Vector2 currentWorldSize)
 		{
-			ComputeShader compute = settings.phaseDiffuseLightCompute;
-			int initKernel = compute.FindKernel("Init");
-			int diffuseKernel = compute.FindKernel("Diffuse");
 			int width = softLightTexture0.width;
 			int height = softLightTexture0.height;
-
-			SetPhaseDiffuseCommonParams(display, targetCommandBuffer, compute, initKernel, diffuseKernel, width, height, sharpCaustics, settings, currentWorldCenter, currentWorldSize);
-			targetCommandBuffer.SetComputeTextureParam(compute, initKernel, "SoftLightWrite", softLightTexture0);
-			DispatchCaustics(targetCommandBuffer, compute, initKernel, width, height);
-
+			int cascadeCount = Mathf.Clamp(settings.radianceCascadeCount, 1, 6);
 			RenderTexture source = softLightTexture0;
 			RenderTexture target = softLightTexture1;
-			int iterations = Mathf.Max(1, settings.phaseDiffuseLightIterations);
-			for (int i = 0; i < iterations; i++)
+			targetCommandBuffer.Blit(Texture2D.blackTexture, source);
+
+			SetRadianceCascadeCommonParams(display, cam, targetCommandBuffer, settings, sharpCaustics, currentWorldCenter, currentWorldSize, width, height);
+			for (int level = cascadeCount - 1; level >= 0; level--)
 			{
-				SetPhaseDiffuseCommonParams(display, targetCommandBuffer, compute, initKernel, diffuseKernel, width, height, sharpCaustics, settings, currentWorldCenter, currentWorldSize);
-				targetCommandBuffer.SetComputeTextureParam(compute, diffuseKernel, "SoftLightRead", source);
-				targetCommandBuffer.SetComputeTextureParam(compute, diffuseKernel, "SoftLightWrite", target);
-				DispatchCaustics(targetCommandBuffer, compute, diffuseKernel, width, height);
+				targetCommandBuffer.SetGlobalInt("_CascadeLevel", level);
+				targetCommandBuffer.SetGlobalTexture("_UpperCascadeTex", source);
+				targetCommandBuffer.Blit(source, target, radianceCascadeMaterial, 0);
 
 				RenderTexture previousSource = source;
 				source = target;
@@ -765,12 +776,86 @@ namespace Seb.Fluid2D.Rendering
 			compositeMaterial.SetTexture("SoftLightTex", source);
 		}
 
-		void SetPhaseDiffuseCommonParams(ParticleDisplay2D display, CommandBuffer targetCommandBuffer, ComputeShader compute, int initKernel, int diffuseKernel, int width, int height, Texture sharpCaustics, ParticleDisplay2D.MetaballSettings settings, Vector2 currentWorldCenter, Vector2 currentWorldSize)
+		void SetRadianceCascadeCommonParams(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings settings, Texture sharpCaustics, Vector2 currentWorldCenter, Vector2 currentWorldSize, int width, int height)
+		{
+			targetCommandBuffer.SetGlobalTexture("_CausticTex", sharpCaustics);
+			targetCommandBuffer.SetGlobalTexture("CombinedTex", combinedAccumulationTexture);
+			targetCommandBuffer.SetGlobalTexture("ColourMap", display.gradientTexture);
+			targetCommandBuffer.SetGlobalTexture("ColourMap2", display.gradientTexture2);
+			targetCommandBuffer.SetGlobalVector("_CascadeResolution", new Vector4(width, height, 0f, 0f));
+			targetCommandBuffer.SetGlobalVector("_Aspect", new Vector4(1f, width / Mathf.Max(height, 1f), 0f, 0f));
+			targetCommandBuffer.SetGlobalFloat("_RayRange", Mathf.Max(settings.radianceCascadeRayRange * display.GetZoomScale(cam), 0.001f));
+			targetCommandBuffer.SetGlobalInt("_CascadeCount", Mathf.Clamp(settings.radianceCascadeCount, 1, 6));
+			targetCommandBuffer.SetGlobalInt("_RaySteps", Mathf.Max(settings.radianceCascadeRaySteps, 1));
+			targetCommandBuffer.SetGlobalFloat("_RadianceIntensity", settings.radianceCascadeIntensity);
+			targetCommandBuffer.SetGlobalInt("radianceCascadeAbsorption", settings.radianceCascadeAbsorption ? 1 : 0);
+			targetCommandBuffer.SetGlobalFloat("densityThreshold", settings.densityThreshold);
+			targetCommandBuffer.SetGlobalFloat("edgeSoftness", settings.edgeSoftness);
+			targetCommandBuffer.SetGlobalFloat("phase0RenderBias", settings.phase0RenderBias);
+			targetCommandBuffer.SetGlobalFloat("scatterStrengthA", settings.phase0Material.diffuseScatterStrength);
+			targetCommandBuffer.SetGlobalFloat("scatterStrengthB", settings.phase1Material.diffuseScatterStrength);
+			targetCommandBuffer.SetGlobalFloat("lightIntensity", settings.lightIntensity);
+			targetCommandBuffer.SetGlobalFloat("causticsPhase0Absorption", settings.phase0Material.absorption);
+			targetCommandBuffer.SetGlobalFloat("causticsPhase1Absorption", settings.phase1Material.absorption);
+			targetCommandBuffer.SetGlobalVector("causticsPhase0AbsorptionTint", settings.phase0Material.diffuseLightTint);
+			targetCommandBuffer.SetGlobalVector("causticsPhase1AbsorptionTint", settings.phase1Material.diffuseLightTint);
+			targetCommandBuffer.SetGlobalFloat("causticsPhase0AbsorptionTintBlend", settings.phase0Material.absorptionDiffuseTintBlend);
+			targetCommandBuffer.SetGlobalFloat("causticsPhase1AbsorptionTintBlend", settings.phase1Material.absorptionDiffuseTintBlend);
+			targetCommandBuffer.SetGlobalFloat("causticsAbsorptionAlbedoBrightnessInfluence", settings.absorptionAlbedoBrightnessInfluence);
+			targetCommandBuffer.SetGlobalFloat("causticsAbsorptionAlbedoSaturationInfluence", settings.absorptionAlbedoSaturationInfluence);
+			targetCommandBuffer.SetGlobalInt("useEllipticalBounds", display.sim.useEllipticalBounds ? 1 : 0);
+			targetCommandBuffer.SetGlobalVector("ellipseBoundsCenter", new Vector4(display.sim.ellipseBoundsCenter.x, display.sim.ellipseBoundsCenter.y, 0f, 0f));
+			targetCommandBuffer.SetGlobalVector("ellipseBoundsSize", new Vector4(display.sim.ellipseBoundsSize.x, display.sim.ellipseBoundsSize.y, 0f, 0f));
+			targetCommandBuffer.SetGlobalFloat("obstacleY", display.sim.obstacleY);
+			targetCommandBuffer.SetGlobalFloat("analyticBoundaryExpansion", GetAnalyticBoundaryExpansion(display));
+			targetCommandBuffer.SetGlobalVector("metaballWorldCenter", new Vector4(currentWorldCenter.x, currentWorldCenter.y, 0f, 0f));
+			targetCommandBuffer.SetGlobalVector("metaballWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
+		}
+
+		void RenderPhaseDiffuseLight(ParticleDisplay2D display, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings settings, Texture sharpCaustics, Vector2 currentWorldCenter, Vector2 currentWorldSize)
+		{
+			ComputeShader compute = settings.phaseDiffuseLightCompute;
+			int initKernel = compute.FindKernel("Init");
+			int gaussianHorizontalKernel = compute.FindKernel("MaskedGaussianHorizontal");
+			int gaussianVerticalKernel = compute.FindKernel("MaskedGaussianVertical");
+			int width = softLightTexture0.width;
+			int height = softLightTexture0.height;
+
+			SetPhaseDiffuseCommonParams(display, targetCommandBuffer, compute, initKernel, gaussianHorizontalKernel, gaussianVerticalKernel, width, height, sharpCaustics, settings, currentWorldCenter, currentWorldSize);
+			targetCommandBuffer.SetComputeTextureParam(compute, initKernel, "SoftLightWrite", softLightTexture0);
+			DispatchCaustics(targetCommandBuffer, compute, initKernel, width, height);
+
+			RenderTexture source = softLightTexture0;
+			RenderTexture target = softLightTexture1;
+			SetPhaseDiffuseCommonParams(display, targetCommandBuffer, compute, initKernel, gaussianHorizontalKernel, gaussianVerticalKernel, width, height, sharpCaustics, settings, currentWorldCenter, currentWorldSize);
+			targetCommandBuffer.SetComputeTextureParam(compute, gaussianHorizontalKernel, "SoftLightRead", source);
+			targetCommandBuffer.SetComputeTextureParam(compute, gaussianHorizontalKernel, "SoftLightWrite", target);
+			DispatchCaustics(targetCommandBuffer, compute, gaussianHorizontalKernel, width, height);
+
+			RenderTexture previousSource = source;
+			source = target;
+			target = previousSource;
+
+			SetPhaseDiffuseCommonParams(display, targetCommandBuffer, compute, initKernel, gaussianHorizontalKernel, gaussianVerticalKernel, width, height, sharpCaustics, settings, currentWorldCenter, currentWorldSize);
+			targetCommandBuffer.SetComputeTextureParam(compute, gaussianVerticalKernel, "SoftLightRead", source);
+			targetCommandBuffer.SetComputeTextureParam(compute, gaussianVerticalKernel, "SoftLightWrite", target);
+			DispatchCaustics(targetCommandBuffer, compute, gaussianVerticalKernel, width, height);
+
+			previousSource = source;
+			source = target;
+			target = previousSource;
+
+			compositeMaterial.SetTexture("SoftLightTex", source);
+		}
+
+		void SetPhaseDiffuseCommonParams(ParticleDisplay2D display, CommandBuffer targetCommandBuffer, ComputeShader compute, int initKernel, int gaussianHorizontalKernel, int gaussianVerticalKernel, int width, int height, Texture sharpCaustics, ParticleDisplay2D.MetaballSettings settings, Vector2 currentWorldCenter, Vector2 currentWorldSize)
 		{
 			targetCommandBuffer.SetComputeTextureParam(compute, initKernel, "SharpCausticsTex", sharpCaustics);
 			targetCommandBuffer.SetComputeTextureParam(compute, initKernel, "CombinedTex", combinedAccumulationTexture);
-			targetCommandBuffer.SetComputeTextureParam(compute, diffuseKernel, "SharpCausticsTex", sharpCaustics);
-			targetCommandBuffer.SetComputeTextureParam(compute, diffuseKernel, "CombinedTex", combinedAccumulationTexture);
+			targetCommandBuffer.SetComputeTextureParam(compute, gaussianHorizontalKernel, "SharpCausticsTex", sharpCaustics);
+			targetCommandBuffer.SetComputeTextureParam(compute, gaussianHorizontalKernel, "CombinedTex", combinedAccumulationTexture);
+			targetCommandBuffer.SetComputeTextureParam(compute, gaussianVerticalKernel, "SharpCausticsTex", sharpCaustics);
+			targetCommandBuffer.SetComputeTextureParam(compute, gaussianVerticalKernel, "CombinedTex", combinedAccumulationTexture);
 			targetCommandBuffer.SetComputeIntParam(compute, "softLightWidth", width);
 			targetCommandBuffer.SetComputeIntParam(compute, "softLightHeight", height);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticWidth", sharpCaustics.width);
@@ -785,8 +870,9 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeFloatParam(compute, "scatterStrengthA", settings.phase0Material.diffuseScatterStrength);
 			targetCommandBuffer.SetComputeFloatParam(compute, "scatterStrengthB", settings.phase1Material.diffuseScatterStrength);
 			targetCommandBuffer.SetComputeFloatParam(compute, "lightIntensity", settings.lightIntensity);
-			targetCommandBuffer.SetComputeFloatParam(compute, "diffusionRateA", settings.phase0Material.diffuseDiffusionRate);
-			targetCommandBuffer.SetComputeFloatParam(compute, "diffusionRateB", settings.phase1Material.diffuseDiffusionRate);
+			float gaussianRadiusScale = GetRayTextureBlurScale(settings) * Mathf.Max(settings.phaseDiffuseLightTextureScale, 0.0001f);
+			targetCommandBuffer.SetComputeFloatParam(compute, "gaussianRadius0", settings.phaseDiffuseLightGaussianRadius0 * gaussianRadiusScale);
+			targetCommandBuffer.SetComputeFloatParam(compute, "gaussianRadius1", settings.phaseDiffuseLightGaussianRadius1 * gaussianRadiusScale);
 			targetCommandBuffer.SetComputeIntParam(compute, "useEllipticalBounds", display.sim.useEllipticalBounds ? 1 : 0);
 			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsCenter", new Vector4(display.sim.ellipseBoundsCenter.x, display.sim.ellipseBoundsCenter.y, 0f, 0f));
 			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsSize", new Vector4(display.sim.ellipseBoundsSize.x, display.sim.ellipseBoundsSize.y, 0f, 0f));
@@ -843,7 +929,7 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			Vector2 incomingRayDirection = -directionToLight;
-			Vector2 refractedRayDirection = Refract2D(incomingRayDirection, outwardNormal, 1f / Mathf.Max(settings.boundaryMaterial.indexOfRefraction, 1.0001f));
+			Vector2 refractedRayDirection = Refract2D(incomingRayDirection, outwardNormal, 1f / Mathf.Max(settings.phase1Material.indexOfRefraction, 1.0001f));
 			Vector2 refractedLightXY = -refractedRayDirection * planarLength;
 			return new Vector3(refractedLightXY.x, refractedLightXY.y, lightDirection.z).normalized;
 		}
@@ -1051,6 +1137,14 @@ namespace Seb.Fluid2D.Rendering
 				       settings.phase0Material.diffuseScatterStrength > 0f
 				       || settings.phase1Material.diffuseScatterStrength > 0f
 			       );
+		}
+
+		bool ShouldRenderRadianceCascadeLight(ParticleDisplay2D.MetaballSettings settings)
+		{
+			return ShouldRenderCaustics(settings)
+			       && settings.radianceCascadeEnabled
+			       && settings.radianceCascadeShader != null
+			       && settings.phase0Material.diffuseScatterStrength > 0f;
 		}
 
 		bool ShouldRenderDirectionalLightField(ParticleDisplay2D.MetaballSettings settings)
