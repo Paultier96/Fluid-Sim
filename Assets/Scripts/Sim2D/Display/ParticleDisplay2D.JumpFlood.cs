@@ -16,6 +16,8 @@ namespace Seb.Fluid2D.Rendering
 		{
 			public ComputeShader computeShader;
 			public Shader displayShader;
+			[Tooltip("Shader that converts the Jump Flood result into the albedo/normal material maps consumed by ParticleFluidLighting2D.")]
+			public Shader materialShader;
 		}
 	}
 }

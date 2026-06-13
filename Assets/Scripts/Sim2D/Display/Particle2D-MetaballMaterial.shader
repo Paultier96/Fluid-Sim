@@ -1,3 +1,16 @@
+Shader "Hidden/Particle2DMetaballMaterial" {
+	Properties {
+		_MainTex ("Texture", 2D) = "white" {}
+	}
+	SubShader {
+		Tags { "RenderType" = "Transparent" "Queue" = "Transparent" }
+		Cull Off
+		ZWrite Off
+		ZTest Always
+
+		CGINCLUDE
+		#include "UnityCG.cginc"
+
 struct appdata {
 	float4 vertex : POSITION;
 	float2 uv : TEXCOORD0;
@@ -10,6 +23,7 @@ struct v2f {
 
 sampler2D CombinedTex;
 sampler2D NormalTex;
+sampler2D MaterialAlbedoTex;
 sampler2D VelocityTex0;
 sampler2D VelocityTex1;
 sampler2D ColourMap;
@@ -17,12 +31,6 @@ sampler2D ColourMap2;
 sampler2D DebugHeatMap;
 sampler2D DebugSignedHeatMap;
 sampler2D _MainTex;
-sampler2D CausticTex;
-sampler2D CausticMotionTex;
-sampler2D LightDirectionTex;
-sampler2D SoftLightTex;
-sampler2D CausticHistoryTex;
-float4 CombinedTex_TexelSize;
 float4 _MainTex_TexelSize;
 float causticMotionDilationRadius;
 float densityThreshold;
@@ -41,56 +49,11 @@ float metaballGhostBoundaryNormalStrength;
 float metaballRefractionStrength;
 float metaballRefractionEdgeFade;
 int screenSpaceRefractionCanCrossPhases;
-float metaballIridescenceIntensity;
-float metaballIridescenceScale;
 int debugMode;
 int debugShowClipping;
 float debugGradientMax;
 float motionDebugDeltaTime;
-int metaballCausticsEnabled;
-int metaballDirectionalLightFieldEnabled;
-int metaballPhaseDiffuseLightEnabled;
-int metaballSoftLightPhase0Only;
-float metaballRadianceCascadeDirectCausticStrength;
-float4 metaballPhase0DiffuseLightTint;
-float4 metaballPhase1DiffuseLightTint;
-float metaballPhase0DiffuseAlbedoTintBlend;
-float metaballPhase1DiffuseAlbedoTintBlend;
-float causticTemporalHistoryWeight;
-int causticTemporalMotionSource;
-float2 causticCurrentWorldCenter;
-float2 causticCurrentWorldSize;
-float2 causticHistoryWorldCenter;
-float2 causticHistoryWorldSize;
-float3 particleBaseLightDirection;
-float3 particleLightDirection;
-int particleSecondaryLightEnabled;
-float3 particleSecondaryBaseLightDirection;
-float3 particleSecondaryLightDirection;
-float4 particleLightColor;
-float4 particleSecondaryLightColor;
-float particleAmbientLight;
-float particleLightIntensity;
-float particleSecondaryLightIntensity;
-float particleCausticDebugExposure;
 float particleNormalStrength;
-float particlePhase0Reflectance;
-float particlePhase1Reflectance;
-float particlePhase0Roughness;
-float particlePhase1Roughness;
-float particlePhase0Metallic;
-float particlePhase1Metallic;
-float4 particleFresnelColor;
-float particleFresnelIntensity;
-float particleFresnelPower;
-float screenSpaceReflectionStrength0;
-float screenSpaceReflectionStrength1;
-float screenSpaceReflectionDistance;
-float screenSpaceReflectionEdgePower;
-float particleTransmissionIntensity;
-float particleTransmissionPower;
-float particleEdgeDarkening;
-float particleEdgeDarkeningPower;
 v2f vert(appdata v)
 {
 	v2f o;
@@ -342,29 +305,147 @@ float3 SamplePhaseGradientColour(float data, bool usePhase1, float noise)
 		? tex2D(ColourMap2, float2(saturate(data), 0.5)).rgb
 		: tex2D(ColourMap,  float2(saturate(data), 0.5)).rgb;
 }
-
-float3 SampleMetaballAlbedo(float2 uv, float noise)
+float ShiftedPhaseT(float density0, float density1)
 {
-	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
-	{
-		return 0.0;
-	}
+	float phaseRatio = density1 / max(density0 + density1, 0.0001);
+	float phaseBoundary = saturate(0.5 + phase0RenderBias * 0.5);
+	float phaseDelta = phaseRatio - phaseBoundary;
+	float phaseAA = max(0.5 * fwidth(phaseRatio) * max(phaseBlendWidth, 0.0001), 0.00001);
+	return smoothstep(-phaseAA, phaseAA, phaseDelta);
+}
 
-	float4 combined = tex2D(CombinedTex, uv);
+bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float3 normal0, out float3 normal1, out float3 albedo)
+{
+	float4 combined = tex2D(CombinedTex, i.uv);
 	float density0 = Phase0Density(combined);
 	float density1 = combined.a;
 	float density = max(density0, density1);
-	if (density < densityThreshold)
+	float particleAlpha = smoothstep(max(densityThreshold - edgeSoftness, 0), densityThreshold + edgeSoftness, density);
+	if (useEllipticalBounds != 0)
+	{
+		float boundsDistance = OuterAnalyticBoundaryDistance(WorldPosFromUv(i.uv));
+		float boundsAA = max(fwidth(boundsDistance), 0.0001);
+		float boundsAlpha = smoothstep(boundsAA, -boundsAA, boundsDistance);
+		alpha = min(particleAlpha, boundsAlpha);
+	}
+	else
+	{
+		alpha = particleAlpha;
+	}
+
+	if (alpha <= 0.0001)
+	{
+		phaseT = 0.0;
+		normal0 = float3(0.0, 0.0, 1.0);
+		normal1 = float3(0.0, 0.0, 1.0);
+		albedo = 0.0;
+		return false;
+	}
+
+	phaseT = ShiftedPhaseT(density0, density1);
+	float data0 = combined.r / max(density0, 0.0001);
+	float data1 = combined.b / max(density1, 0.0001);
+	float noise = InterleavedGradientNoise(i.vertex.xy);
+	float4 normalPacked = tex2D(NormalTex, i.uv);
+	float2 worldPos = WorldPosFromUv(i.uv);
+	normal0 = GetPhaseNormal(normalPacked, density0, density1, false);
+	normal1 = GetPhaseNormal(normalPacked, density0, density1, true);
+	normal0 = ApplyAnalyticBoundaryNormal(normal0, worldPos);
+	normal1 = ApplyAnalyticBoundaryNormal(normal1, worldPos);
+	float3 blendedNormal = normalize(lerp(normal0, normal1, phaseT));
+	float refractionMask = smoothstep(0.0, max(metaballRefractionEdgeFade, 0.0001), density - densityThreshold);
+	float2 refractedUv = saturate(i.uv - blendedNormal.xy * metaballRefractionStrength * refractionMask);
+	albedo = SampleGradientColour(refractedUv, data0, data1, phaseT, noise);
+	return true;
+}
+
+float4 fragMaterialAlbedo(v2f i) : SV_Target
+{
+	float alpha;
+	float phaseT;
+	float3 normal0;
+	float3 normal1;
+	float3 albedo;
+	if (!ResolveMetaballMaterial(i, alpha, phaseT, normal0, normal1, albedo))
 	{
 		return 0.0;
 	}
 
-	float phaseRatio = density1 / max(density0 + density1, 0.0001);
-	float phaseBoundary = saturate(0.5 + phase0RenderBias * 0.5);
-	float phaseT = step(phaseBoundary, phaseRatio);
-	float data0 = combined.r / max(density0, 0.0001);
-	float data1 = combined.b / max(density1, 0.0001);
-	float3 colour0 = SamplePhaseGradientColour(data0, false, noise);
-	float3 colour1 = SamplePhaseGradientColour(data1, true, noise);
-	return lerp(colour0, colour1, phaseT);
+	return float4(albedo, alpha);
+}
+
+float4 fragMaterialNormal(v2f i) : SV_Target
+{
+	float alpha;
+	float phaseT;
+	float3 normal0;
+	float3 normal1;
+	float3 albedo;
+	if (!ResolveMetaballMaterial(i, alpha, phaseT, normal0, normal1, albedo))
+	{
+		return 0.0;
+	}
+
+	return float4(saturate(normal0 * 0.5 + 0.5), phaseT);
+}
+
+float4 fragMaterialNormal1(v2f i) : SV_Target
+{
+	float alpha;
+	float phaseT;
+	float3 normal0;
+	float3 normal1;
+	float3 albedo;
+	if (!ResolveMetaballMaterial(i, alpha, phaseT, normal0, normal1, albedo))
+	{
+		return 0.0;
+	}
+
+	return float4(saturate(normal1 * 0.5 + 0.5), alpha);
+}
+
+float4 fragUnlitAlbedo(v2f i) : SV_Target
+{
+	float4 materialAlbedo = tex2D(MaterialAlbedoTex, i.uv);
+	if (materialAlbedo.a <= 0.0001)
+	{
+		discard;
+	}
+
+	return materialAlbedo;
+}
+		ENDCG
+
+		Pass {
+			Blend One Zero
+			CGPROGRAM
+			#pragma vertex vert
+			#pragma fragment fragMaterialAlbedo
+			ENDCG
+		}
+
+		Pass {
+			Blend One Zero
+			CGPROGRAM
+			#pragma vertex vert
+			#pragma fragment fragMaterialNormal
+			ENDCG
+		}
+
+		Pass {
+			Blend One Zero
+			CGPROGRAM
+			#pragma vertex vert
+			#pragma fragment fragMaterialNormal1
+			ENDCG
+		}
+
+		Pass {
+			Blend SrcAlpha OneMinusSrcAlpha
+			CGPROGRAM
+			#pragma vertex vert
+			#pragma fragment fragUnlitAlbedo
+			ENDCG
+		}
+	}
 }

@@ -144,7 +144,7 @@ namespace Seb.Fluid2D.Rendering
 					jumpFloodRenderer?.RemoveCommandBuffer();
 				}
 			}
-			else if (renderMode == RenderMode.Metaballs && metaballs.compositeShader != null && metaballs.blurShader != null)
+			else if (renderMode == RenderMode.Metaballs && metaballs.blurShader != null)
 			{
 				jumpFloodRenderer?.RemoveCommandBuffer();
 				if (RenderPipelineManager.currentPipeline == null)

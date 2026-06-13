@@ -34,7 +34,6 @@ namespace Seb.Fluid2D.Simulation
             bool canRenderMetaballs = display.renderMode == ParticleDisplay2D.RenderMode.Metaballs &&
                                       display.mesh != null &&
                                       display.argsBuffer != null &&
-                                      display.metaballs.compositeShader != null &&
                                       display.metaballs.blurShader != null;
             bool canRenderJumpFlood = display.renderMode == ParticleDisplay2D.RenderMode.JumpFlood &&
                                       display.jumpFlood.computeShader != null &&
