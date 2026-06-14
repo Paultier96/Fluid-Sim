@@ -45,6 +45,8 @@ namespace Seb.Fluid2D.Rendering
 		[Serializable]
 		public sealed class DirectionalLightSettings
 		{
+			[Tooltip("Enables this light for rasterized lighting and raymarched caustic allocation.")]
+			public bool enabled = true;
 			[Tooltip("Horizontal screen/world angle of the light direction in degrees.")]
 			public float azimuthDegrees = 122.5f;
 			[Tooltip("Vertical angle of the light direction in degrees. 0 lies in the 2D plane, 90 points toward the camera.")]
@@ -55,16 +57,24 @@ namespace Seb.Fluid2D.Rendering
 			[ColorUsage(false, true)] public Color color = Color.white;
 			[Tooltip("Intensity of the directional light.")]
 			[Min(0f)] public float intensity = 0.45f;
+			[Tooltip("Multiplier for brightness-weighted ray allocation. 1 follows this light's brightness, higher values allocate more caustic rays without changing light intensity.")]
+			[Min(0f)] public float sampleBias = 1f;
 
 			public DirectionalLightSettings()
 			{
 			}
 
 			public DirectionalLightSettings(float azimuthDegrees, float elevationDegrees, float intensity)
+				: this(azimuthDegrees, elevationDegrees, intensity, true)
+			{
+			}
+
+			public DirectionalLightSettings(float azimuthDegrees, float elevationDegrees, float intensity, bool enabled)
 			{
 				this.azimuthDegrees = azimuthDegrees;
 				this.elevationDegrees = elevationDegrees;
 				this.intensity = intensity;
+				this.enabled = enabled;
 			}
 
 			public Vector3 Direction
@@ -150,19 +160,16 @@ namespace Seb.Fluid2D.Rendering
 		[Tooltip("Shader used for the optional radiance cascade soft lighting pass.")]
 		public Shader radianceCascadeShader;
 
-		[Header("Directional Light")]
+		[Header("Directional Lights")]
 		public DirectionalLightSettings primaryLight = new DirectionalLightSettings(122.5f, 50.3f, 0.45f);
-		[Header("Secondary Directional Light")]
 		[Tooltip("Adds a second directional light. Rasterized lighting evaluates both lights; raymarched lighting splits the existing ray budget between them.")]
-		public bool secondaryLightEnabled = false;
-		[Tooltip("Fraction of raymarched lighting rays assigned to the secondary light. The total ray budget stays unchanged.")]
-		[Range(0f, 1f)] public float secondaryLightRayShare = 0.35f;
-		public DirectionalLightSettings secondaryLight = new DirectionalLightSettings(45f, 40f, 0.2f);
-		[Space]
+		public DirectionalLightSettings secondaryLight = new DirectionalLightSettings(45f, 40f, 0.2f, false);
+		[Tooltip("Adds a third directional light. Rasterized lighting evaluates all enabled lights; raymarched lighting splits the existing ray budget between them.")]
+		public DirectionalLightSettings tertiaryLight = new DirectionalLightSettings(-60f, 35f, 0.1f, false);
 		[Tooltip("Unlit colour multiplier. Increase if shadowed particles are too dark.")]
 		[Range(0f, 1f)] public float ambientLight = 0.65f;
 
-		[Header("Lighting - Fresnel")]
+		[Header("Fresnel")]
 		[Tooltip("Colour added at grazing view angles to fake transparent liquid edges.")]
 		[ColorUsage(false, true)] public Color fresnelColor = new Color(0.75f, 0.9f, 1f, 1f);
 		[Tooltip("Strength of the Fresnel edge glow.")]
@@ -170,7 +177,7 @@ namespace Seb.Fluid2D.Rendering
 		[Tooltip("Fresnel exponent. Higher values concentrate the glow closer to grazing angles.")]
 		[Min(0.1f)] public float fresnelPower = 3f;
 
-		[Header("Lighting - Screen-Space Refraction And Reflections")]
+		[Header("Screen-Space Refraction And Reflections")]
 		[Tooltip("Screen-space UV offset strength for refracting the blurred colour data outward from the normal. This is separate from raymarched refraction. Alpha and phase remain unwarped.")]
 		[Min(0)] public float refractionStrength = 0.01f;
 		[Tooltip("Density distance over which screen-space refraction fades in from the visible edge. Higher values push refraction farther inward.")]
@@ -183,7 +190,7 @@ namespace Seb.Fluid2D.Rendering
 		[Tooltip("Edge mask exponent for screen-space reflections. Higher values keep reflections tighter to side-facing normals.")]
 		[Min(0.1f)] public float screenSpaceReflectionEdgePower = 1.5f;
 
-		[Header("Lighting - Transmission")]
+		[Header("Transmission")]
 		[Tooltip("Strength of the fake transmission/backlight term.")]
 		[Min(0f)] public float transmissionIntensity = 0.2f;
 		[Tooltip("Transmission exponent. Higher values make transmission more directional.")]
@@ -304,13 +311,19 @@ namespace Seb.Fluid2D.Rendering
 
 		public Vector3 SecondaryLightDirection => SecondaryLight.Direction;
 
+		public Vector3 TertiaryLightDirection => TertiaryLight.Direction;
+
 		public Color EffectiveLightColor => PrimaryLight.EffectiveColor;
 
 		public Color EffectiveSecondaryLightColor => SecondaryLight.EffectiveColor;
 
+		public Color EffectiveTertiaryLightColor => TertiaryLight.EffectiveColor;
+
 		public DirectionalLightSettings PrimaryLight => primaryLight ??= new DirectionalLightSettings(122.5f, 50.3f, 0.45f);
 
-		public DirectionalLightSettings SecondaryLight => secondaryLight ??= new DirectionalLightSettings(45f, 40f, 0.2f);
+		public DirectionalLightSettings SecondaryLight => secondaryLight ??= new DirectionalLightSettings(45f, 40f, 0.2f, false);
+
+		public DirectionalLightSettings TertiaryLight => tertiaryLight ??= new DirectionalLightSettings(-60f, 35f, 0.1f, false);
 
 		internal void EnsureMaterial(Shader shader)
 		{
@@ -328,7 +341,8 @@ namespace Seb.Fluid2D.Rendering
 			Texture lightDirectionTexture,
 			float analyticBoundaryExpansion,
 			Vector3 primaryDirectLightingDirection,
-			Vector3 secondaryDirectLightingDirection)
+			Vector3 secondaryDirectLightingDirection,
+			Vector3 tertiaryDirectLightingDirection)
 		{
 			Renderer.ApplySettings(
 				display,
@@ -342,7 +356,8 @@ namespace Seb.Fluid2D.Rendering
 				lightDirectionTexture,
 				analyticBoundaryExpansion,
 				primaryDirectLightingDirection,
-				secondaryDirectLightingDirection
+				secondaryDirectLightingDirection,
+				tertiaryDirectLightingDirection
 			);
 		}
 

@@ -49,11 +49,16 @@ float3 particleLightDirection;
 int particleSecondaryLightEnabled;
 float3 particleSecondaryBaseLightDirection;
 float3 particleSecondaryLightDirection;
+int particleTertiaryLightEnabled;
+float3 particleTertiaryBaseLightDirection;
+float3 particleTertiaryLightDirection;
 float4 particleLightColor;
 float4 particleSecondaryLightColor;
+float4 particleTertiaryLightColor;
 float particleAmbientLight;
 float particleLightIntensity;
 float particleSecondaryLightIntensity;
+float particleTertiaryLightIntensity;
 float particlePhase0Reflectance;
 float particlePhase1Reflectance;
 float particlePhase0Roughness;
@@ -152,6 +157,16 @@ float3 ResolveParticleSecondaryLightDirection(float2 worldPos)
 	float3 baseLightDir = particleSecondaryBaseLightDirection / baseLightDirLength;
 	float lightDirLength = max(length(particleSecondaryLightDirection), 0.0001);
 	float3 globalLightDir = particleSecondaryLightDirection / lightDirLength;
+	float boundaryExclusion = AnalyticBoundaryLightExclusion(worldPos);
+	return normalize(lerp(globalLightDir, baseLightDir, boundaryExclusion));
+}
+
+float3 ResolveParticleTertiaryLightDirection(float2 worldPos)
+{
+	float baseLightDirLength = max(length(particleTertiaryBaseLightDirection), 0.0001);
+	float3 baseLightDir = particleTertiaryBaseLightDirection / baseLightDirLength;
+	float lightDirLength = max(length(particleTertiaryLightDirection), 0.0001);
+	float3 globalLightDir = particleTertiaryLightDirection / lightDirLength;
 	float boundaryExclusion = AnalyticBoundaryLightExclusion(worldPos);
 	return normalize(lerp(globalLightDir, baseLightDir, boundaryExclusion));
 }
@@ -260,6 +275,13 @@ float3 ApplyParticleSecondaryLighting(float3 colour, float3 normal, float3 light
 	colour *= 1.0 - edgeT;
 	return ParticleDirectLightTerm(colour, normal, lightDir, reflectance, roughness, metallic, directLightIrradiance, particleSecondaryLightColor.rgb, particleSecondaryLightIntensity);
 }
+
+float3 ApplyParticleTertiaryLighting(float3 colour, float3 normal, float3 lightDir, float reflectance, float roughness, float metallic, float3 directLightIrradiance)
+{
+	float edgeT = pow(saturate(1.0 - normal.z), max(particleEdgeDarkeningPower, 0.1)) * particleEdgeDarkening;
+	colour *= 1.0 - edgeT;
+	return ParticleDirectLightTerm(colour, normal, lightDir, reflectance, roughness, metallic, directLightIrradiance, particleTertiaryLightColor.rgb, particleTertiaryLightIntensity);
+}
 float4 fragSplitLighting(v2f i) : SV_Target
 {
 	float4 materialAlbedo = tex2D(MaterialAlbedoTex, i.uv);
@@ -297,6 +319,12 @@ float4 fragSplitLighting(v2f i) : SV_Target
 		float3 secondaryLightDir = ResolveParticleSecondaryLightDirection(worldPos);
 		lit0 += ApplyParticleSecondaryLighting(materialAlbedo.rgb, normal0, secondaryLightDir, particlePhase0Reflectance, particlePhase0Roughness, particlePhase0Metallic, directLightIrradiance0);
 		lit1 += ApplyParticleSecondaryLighting(materialAlbedo.rgb, normal1, secondaryLightDir, particlePhase1Reflectance, particlePhase1Roughness, particlePhase1Metallic, directLightIrradiance1);
+	}
+	if (particleTertiaryLightEnabled != 0)
+	{
+		float3 tertiaryLightDir = ResolveParticleTertiaryLightDirection(worldPos);
+		lit0 += ApplyParticleTertiaryLighting(materialAlbedo.rgb, normal0, tertiaryLightDir, particlePhase0Reflectance, particlePhase0Roughness, particlePhase0Metallic, directLightIrradiance0);
+		lit1 += ApplyParticleTertiaryLighting(materialAlbedo.rgb, normal1, tertiaryLightDir, particlePhase1Reflectance, particlePhase1Roughness, particlePhase1Metallic, directLightIrradiance1);
 	}
 
 	if (particleFluidPhaseDiffuseLightEnabled != 0)

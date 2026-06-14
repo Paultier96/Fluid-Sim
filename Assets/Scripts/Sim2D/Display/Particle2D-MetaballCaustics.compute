@@ -24,12 +24,16 @@ int causticHeight;
 int causticsRayCount;
 int causticsPrimaryRayCount;
 int causticsSecondaryRayCount;
+int causticsTertiaryRayCount;
 int causticsPrimarySubRaysPerPixel;
 int causticsSecondarySubRaysPerPixel;
+int causticsTertiarySubRaysPerPixel;
 float causticsRayStartOffset;
 float causticsRaySpacing;
 float causticsSecondaryRayStartOffset;
 float causticsSecondaryRaySpacing;
+float causticsTertiaryRayStartOffset;
+float causticsTertiaryRaySpacing;
 int causticsPhase = 0;
 int causticsRaySteps;
 int causticsRayStride;
@@ -71,6 +75,9 @@ float3 causticsLightMultiplier;
 int causticsSecondaryLightEnabled;
 float3 causticsSecondaryLightDirection;
 float3 causticsSecondaryLightMultiplier;
+int causticsTertiaryLightEnabled;
+float3 causticsTertiaryLightDirection;
+float3 causticsTertiaryLightMultiplier;
 int useEllipticalBounds;
 float2 ellipseBoundsCenter;
 float2 ellipseBoundsSize;
@@ -634,24 +641,49 @@ bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir, out float3 lightM
 	int subRay = rayId.x - baseRay * raysPerPixel;
 	int primaryRayCount = max(causticsPrimaryRayCount, 0);
 	int secondaryRayCount = max(causticsSecondaryRayCount, 0);
+	int tertiaryRayCount = max(causticsTertiaryRayCount, 0);
 	int primarySubRaysPerPixel = clamp(causticsPrimarySubRaysPerPixel, 0, raysPerPixel);
 	int secondarySubRaysPerPixel = clamp(causticsSecondarySubRaysPerPixel, 0, raysPerPixel - primarySubRaysPerPixel);
-	bool splitBySubRay = causticsSecondaryLightEnabled != 0 && secondarySubRaysPerPixel > 0;
-	bool secondaryRay = splitBySubRay
-		? subRay >= primarySubRaysPerPixel
-		: causticsSecondaryLightEnabled != 0 && baseRay >= primaryRayCount && baseRay < primaryRayCount + secondaryRayCount;
-	int localBaseRay = secondaryRay && !splitBySubRay ? baseRay - primaryRayCount : baseRay;
-	int localRayCount = secondaryRay
+	int tertiarySubRaysPerPixel = clamp(causticsTertiarySubRaysPerPixel, 0, raysPerPixel - primarySubRaysPerPixel - secondarySubRaysPerPixel);
+	bool splitBySubRay = (causticsSecondaryLightEnabled != 0 && secondarySubRaysPerPixel > 0) || (causticsTertiaryLightEnabled != 0 && tertiarySubRaysPerPixel > 0);
+	bool tertiaryRay = splitBySubRay
+		? subRay >= primarySubRaysPerPixel + secondarySubRaysPerPixel
+		: causticsTertiaryLightEnabled != 0 && baseRay >= primaryRayCount + secondaryRayCount && baseRay < primaryRayCount + secondaryRayCount + tertiaryRayCount;
+	bool secondaryRay = !tertiaryRay && (splitBySubRay
+		? subRay >= primarySubRaysPerPixel && subRay < primarySubRaysPerPixel + secondarySubRaysPerPixel
+		: causticsSecondaryLightEnabled != 0 && baseRay >= primaryRayCount && baseRay < primaryRayCount + secondaryRayCount);
+	int localBaseRay = splitBySubRay
+		? baseRay
+		: tertiaryRay
+			? baseRay - primaryRayCount - secondaryRayCount
+			: secondaryRay
+				? baseRay - primaryRayCount
+				: baseRay;
+	int localRayCount = tertiaryRay
+		? (splitBySubRay ? causticsRayCount : tertiaryRayCount)
+		: secondaryRay
 		? (splitBySubRay ? causticsRayCount : secondaryRayCount)
 		: primaryRayCount;
-	int localSubRay = secondaryRay && splitBySubRay ? subRay - primarySubRaysPerPixel : subRay;
-	int localSubRayCount = secondaryRay && splitBySubRay ? secondarySubRaysPerPixel : (splitBySubRay ? primarySubRaysPerPixel : raysPerPixel);
+	int localSubRay = !splitBySubRay
+		? subRay
+		: tertiaryRay
+			? subRay - primarySubRaysPerPixel - secondarySubRaysPerPixel
+			: secondaryRay
+				? subRay - primarySubRaysPerPixel
+				: subRay;
+	int localSubRayCount = !splitBySubRay
+		? raysPerPixel
+		: tertiaryRay
+			? tertiarySubRaysPerPixel
+			: secondaryRay
+				? secondarySubRaysPerPixel
+				: primarySubRaysPerPixel;
 	lightSubRay = localSubRay;
 	lightSubRayCount = max(localSubRayCount, 1);
-	float3 lightDirection = secondaryRay ? causticsSecondaryLightDirection : causticsLightDirection;
-	float rayStartOffset = secondaryRay ? causticsSecondaryRayStartOffset : causticsRayStartOffset;
-	float raySpacing = secondaryRay ? causticsSecondaryRaySpacing : causticsRaySpacing;
-	lightMultiplier = secondaryRay ? max(causticsSecondaryLightMultiplier, 0.0) : max(causticsLightMultiplier, 0.0);
+	float3 lightDirection = tertiaryRay ? causticsTertiaryLightDirection : secondaryRay ? causticsSecondaryLightDirection : causticsLightDirection;
+	float rayStartOffset = tertiaryRay ? causticsTertiaryRayStartOffset : secondaryRay ? causticsSecondaryRayStartOffset : causticsRayStartOffset;
+	float raySpacing = tertiaryRay ? causticsTertiaryRaySpacing : secondaryRay ? causticsSecondaryRaySpacing : causticsRaySpacing;
+	lightMultiplier = tertiaryRay ? max(causticsTertiaryLightMultiplier, 0.0) : secondaryRay ? max(causticsSecondaryLightMultiplier, 0.0) : max(causticsLightMultiplier, 0.0);
 	lightSampleWeight = splitBySubRay
 		? (float)raysPerPixel / (float)lightSubRayCount
 		: (float)max(causticsRayCount, 1) / (float)max(localRayCount, 1);

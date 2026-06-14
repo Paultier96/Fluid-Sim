@@ -341,7 +341,8 @@ namespace Seb.Fluid2D.Rendering
 				Texture2D.blackTexture,
 				0f,
 				lighting.LightDirection,
-				lighting.SecondaryLightDirection
+				lighting.SecondaryLightDirection,
+				lighting.TertiaryLightDirection
 			);
 			lighting.SetSoftLightTexture(Texture2D.blackTexture);
 			lighting.Render(targetCommandBuffer, finalTarget);

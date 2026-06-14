@@ -164,8 +164,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: bf901970f9cf132479a879d7a4acde3d, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
+  m_Name: 
+  m_EditorClassIdentifier: 
   timeScale: 5
   unlockedTimeScale: 0
   minSubstepHz: 360
@@ -328,8 +328,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 895837b52d5fc53409ded3589d4da696, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
+  m_Name: 
+  m_EditorClassIdentifier: 
   spawnMode: 1
   spawnDensity: 240
   ghostDensity: 300
@@ -356,126 +356,6 @@ MonoBehaviour:
   upperPhaseParticleCount: 59018
   filledBoundsArea: 333.4431
   filledBoundsDensity: 284.1684
---- !u!114 &271053323
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 271053315}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 1e5c8d20762d4a91af2193f078dbf2fd, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
-  lightingShader: {fileID: 4800000, guid: 91a045632aa048d79b79c913d29bdb3c, type: 3}
-  temporalShader: {fileID: 4800000, guid: 73c5a11f4158468ab8fbd99b9bd1e938, type: 3}
-  phaseDiffuseLightCompute: {fileID: 7200000, guid: 6bbf221f0ffb42e4a93f4b9e0a63a64d, type: 3}
-  radianceCascadeShader: {fileID: 4800000, guid: cf6b063e0da6b9d499eea03eed03b4ef, type: 3}
-  primaryLight:
-    azimuthDegrees: 130
-    elevationDegrees: 50
-    temperatureKelvin: 4000
-    color: {r: 1, g: 1, b: 1, a: 1}
-    intensity: 7.5
-  secondaryLightEnabled: 1
-  secondaryLightRayShare: 0.3
-  secondaryLight:
-    azimuthDegrees: -120
-    elevationDegrees: 20
-    temperatureKelvin: 20000
-    color: {r: 1, g: 1, b: 1, a: 1}
-    intensity: 0.1
-  ambientLight: 0
-  fresnelColor: {r: 0.75, g: 0.9, b: 1, a: 1}
-  fresnelIntensity: 0.01
-  fresnelPower: 3
-  refractionStrength: 0.03
-  refractionEdgeFade: 0.0001
-  screenSpaceRefractionCanCrossPhases: 0
-  screenSpaceReflectionDistance: 180
-  screenSpaceReflectionEdgePower: 2
-  transmissionIntensity: 20
-  transmissionPower: 4.5
-  edgeDarkening: 1
-  edgeDarkeningPower: 0.5
-  iridescenceIntensity: 74.65
-  iridescenceScale: 2.5
-  computeShader: {fileID: 7200000, guid: 8f4e77c1b8284da4ca6c929de309e7a1, type: 3}
-  causticsEnabled: 1
-  textureScale: 0.5
-  phase0Material:
-    indexOfRefraction: 1.442
-    absorption: 1
-    absorptionDiffuseTintBlend: 0.05
-    reflectance: 0.1
-    roughness: 0.25
-    metallic: 0
-    screenSpaceReflectionStrength: 1
-    diffuseScatterStrength: 0.05
-    diffuseLightTint: {r: 1, g: 0.62578607, b: 0.62578607, a: 1}
-    diffuseAlbedoTintBlend: 0.25
-  phase1Material:
-    indexOfRefraction: 1.333
-    absorption: 0.05
-    absorptionDiffuseTintBlend: 0
-    reflectance: 0.5
-    roughness: 0.3
-    metallic: 0
-    screenSpaceReflectionStrength: 0
-    diffuseScatterStrength: 0
-    diffuseLightTint: {r: 0, g: 0.44119108, b: 1, a: 1}
-    diffuseAlbedoTintBlend: 0
-  boundaryMaterial:
-    indexOfRefraction: 1.516
-    absorption: 0
-    absorptionDiffuseTintBlend: 0
-    reflectance: 0
-    roughness: 0.35
-    metallic: 0
-    screenSpaceReflectionStrength: 2
-    diffuseScatterStrength: 0
-    diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
-    diffuseAlbedoTintBlend: 0
-  fresnelStrength: 1
-  stochasticReflection: 1
-  dispersionStrength: 0.33
-  dispersionRotation: 0.1
-  absorptionAlbedoBrightnessInfluence: 0.7
-  absorptionAlbedoSaturationInfluence: 0.7
-  lightAngularRadiusDegrees: 0
-  useAnalyticBoundary: 1
-  raySteps: 192
-  stepPixels: 1
-  rayBrightness: 1.38
-  rayStride: 1
-  raysPerPixel: 10
-  colourSampleStride: 5
-  blur: 2
-  directionalLightingMode: 1
-  directionalLightFieldBlur: 10
-  phaseDiffuseLightEnabled: 1
-  phaseDiffuseLightTextureScale: 1
-  phaseDiffuseLightGaussianRadius0: 20
-  phaseDiffuseLightGaussianRadius1: 10
-  phaseDiffuseLightBoundarySharpness: 12
-  radianceCascadeEnabled: 0
-  radianceCascadeTextureScale: 0.5
-  radianceCascadeCount: 4
-  radianceCascadeRayRange: 0.01
-  radianceCascadeRaySteps: 16
-  radianceCascadeIntensity: 150
-  radianceCascadeDirectCausticStrength: 1
-  radianceCascadeAbsorption: 1
-  temporalEnabled: 1
-  temporalHistoryWeight: 0.9
-  temporalMotionSource: 2
-  motionBlurRadius: 25
-  temporalMotionBlur: 25
-  temporalMotionDilationRadius: 20
-  temporalMotionDilationIterations: 3
-  temporalJitterPixels: 0.75
-  surfaceNormalJitterPixels: 2
 --- !u!114 &271053322
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -486,8 +366,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b090cee05a6cd0e4291a0e02381231c1, type: 3}
-  m_Name:
-  m_EditorClassIdentifier:
+  m_Name: 
+  m_EditorClassIdentifier: 
   jumpFlood:
     computeShader: {fileID: 7200000, guid: 7349de8b8fa110249b104a7dac6f38c0, type: 3}
     displayShader: {fileID: 4800000, guid: a3cfade596b52974f8bac4577967ca73, type: 3}
@@ -588,6 +468,136 @@ MonoBehaviour:
   vectorUseLogScale: 1
   vectorLogScaleStrength: 100
   vectorWidth: 0.01
+--- !u!114 &271053323
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 271053315}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1e5c8d20762d4a91af2193f078dbf2fd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  lightingShader: {fileID: 4800000, guid: 91a045632aa048d79b79c913d29bdb3c, type: 3}
+  temporalShader: {fileID: 4800000, guid: 73c5a11f4158468ab8fbd99b9bd1e938, type: 3}
+  computeShader: {fileID: 7200000, guid: 8f4e77c1b8284da4ca6c929de309e7a1, type: 3}
+  phaseDiffuseLightCompute: {fileID: 7200000, guid: 6bbf221f0ffb42e4a93f4b9e0a63a64d, type: 3}
+  radianceCascadeShader: {fileID: 4800000, guid: cf6b063e0da6b9d499eea03eed03b4ef, type: 3}
+  primaryLight:
+    enabled: 1
+    azimuthDegrees: 130
+    elevationDegrees: 50
+    temperatureKelvin: 4000
+    color: {r: 1, g: 1, b: 1, a: 1}
+    intensity: 7.5
+    sampleBias: 1
+  secondaryLight:
+    enabled: 1
+    azimuthDegrees: -120
+    elevationDegrees: 20
+    temperatureKelvin: 20000
+    color: {r: 1, g: 1, b: 1, a: 1}
+    intensity: 0.1
+    sampleBias: 5
+  tertiaryLight:
+    enabled: 1
+    azimuthDegrees: 15
+    elevationDegrees: 35
+    temperatureKelvin: 6500
+    color: {r: 1, g: 1, b: 1, a: 1}
+    intensity: 0.01
+    sampleBias: 0
+  ambientLight: 0
+  fresnelColor: {r: 0.75, g: 0.9, b: 1, a: 1}
+  fresnelIntensity: 0.01
+  fresnelPower: 3
+  refractionStrength: 0.03
+  refractionEdgeFade: 0.0001
+  screenSpaceRefractionCanCrossPhases: 0
+  screenSpaceReflectionDistance: 180
+  screenSpaceReflectionEdgePower: 2
+  transmissionIntensity: 20
+  transmissionPower: 4.5
+  edgeDarkening: 1
+  edgeDarkeningPower: 0.5
+  iridescenceIntensity: 74.65
+  iridescenceScale: 2.5
+  causticsEnabled: 1
+  textureScale: 0.5
+  phase0Material:
+    indexOfRefraction: 1.442
+    absorption: 1
+    absorptionDiffuseTintBlend: 0.05
+    reflectance: 0.1
+    roughness: 0.25
+    metallic: 0
+    screenSpaceReflectionStrength: 1
+    diffuseScatterStrength: 0.05
+    diffuseLightTint: {r: 1, g: 0.62578607, b: 0.62578607, a: 1}
+    diffuseAlbedoTintBlend: 0.25
+  phase1Material:
+    indexOfRefraction: 1.333
+    absorption: 0.05
+    absorptionDiffuseTintBlend: 0
+    reflectance: 0.5
+    roughness: 0.3
+    metallic: 0
+    screenSpaceReflectionStrength: 0
+    diffuseScatterStrength: 0
+    diffuseLightTint: {r: 0, g: 0.44119108, b: 1, a: 1}
+    diffuseAlbedoTintBlend: 0
+  boundaryMaterial:
+    indexOfRefraction: 1.516
+    absorption: 0
+    absorptionDiffuseTintBlend: 0
+    reflectance: 0
+    roughness: 0.35
+    metallic: 0
+    screenSpaceReflectionStrength: 2
+    diffuseScatterStrength: 0
+    diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
+    diffuseAlbedoTintBlend: 0
+  fresnelStrength: 1
+  stochasticReflection: 1
+  dispersionStrength: 0.33
+  dispersionRotation: 0.1
+  absorptionAlbedoBrightnessInfluence: 0.7
+  absorptionAlbedoSaturationInfluence: 0.7
+  lightAngularRadiusDegrees: 0
+  useAnalyticBoundary: 1
+  raySteps: 192
+  stepPixels: 1
+  rayBrightness: 1.38
+  rayStride: 1
+  raysPerPixel: 10
+  colourSampleStride: 5
+  blur: 2
+  directionalLightingMode: 1
+  directionalLightFieldBlur: 10
+  phaseDiffuseLightEnabled: 1
+  phaseDiffuseLightTextureScale: 1
+  phaseDiffuseLightGaussianRadius0: 20
+  phaseDiffuseLightGaussianRadius1: 10
+  phaseDiffuseLightBoundarySharpness: 12
+  radianceCascadeEnabled: 0
+  radianceCascadeTextureScale: 0.5
+  radianceCascadeCount: 4
+  radianceCascadeRayRange: 0.01
+  radianceCascadeRaySteps: 16
+  radianceCascadeIntensity: 150
+  radianceCascadeDirectCausticStrength: 1
+  radianceCascadeAbsorption: 1
+  temporalEnabled: 1
+  temporalHistoryWeight: 0.9
+  temporalMotionSource: 2
+  motionBlurRadius: 25
+  temporalMotionBlur: 25
+  temporalMotionDilationRadius: 20
+  temporalMotionDilationIterations: 3
+  temporalJitterPixels: 0.75
+  surfaceNormalJitterPixels: 2
 --- !u!1 &963194225
 GameObject:
   m_ObjectHideFlags: 0
@@ -692,7 +702,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ba4f7c9d5899b9244bfea6ba99e07aba, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Camera2D
   controlsEnabled: 1
   zoomSpeed: 0.12
@@ -709,7 +719,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a79441f348de89743a2939f4d699eac1, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalCameraData
   m_RenderShadows: 1
   m_RequiresDepthTextureOption: 2
@@ -770,7 +780,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 172515602e62fb746b5d573b38a5fe58, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Unity.RenderPipelines.Core.Runtime::UnityEngine.Rendering.Volume
   m_IsGlobal: 1
   priority: 0
@@ -819,7 +829,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 55a7c1d608a384b46b59eeeeb4118b75, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Simulation.PerformanceOverlay
   showOverlay: 1
   sim: {fileID: 271053319}
@@ -873,7 +883,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: cc55bd493d57bbf4fb5cf3f4d97d4d51, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Simulation.HeatSource2D
   shape: 1
   temperature: 100

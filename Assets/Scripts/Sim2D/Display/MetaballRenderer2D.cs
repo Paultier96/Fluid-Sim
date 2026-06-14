@@ -552,7 +552,8 @@ namespace Seb.Fluid2D.Rendering
 				lightDirectionTextureForLighting,
 				GetAnalyticBoundaryExpansion(display),
 				GetDirectLightingDirection(display, lighting, lighting.LightDirection),
-				GetDirectLightingDirection(display, lighting, lighting.SecondaryLightDirection)
+				GetDirectLightingDirection(display, lighting, lighting.SecondaryLightDirection),
+				GetDirectLightingDirection(display, lighting, lighting.TertiaryLightDirection)
 			);
 		}
 
@@ -653,7 +654,10 @@ namespace Seb.Fluid2D.Rendering
 			int height = causticResolvedTexture.height;
 			Vector3 lightDirection = settings.LightDirection;
 			Vector3 secondaryLightDirection = settings.SecondaryLightDirection;
-			bool secondaryLightEnabled = settings.secondaryLightEnabled && settings.SecondaryLight.intensity > 0f;
+			Vector3 tertiaryLightDirection = settings.TertiaryLightDirection;
+			bool primaryLightEnabled = settings.PrimaryLight.enabled && settings.PrimaryLight.intensity > 0f;
+			bool secondaryLightEnabled = settings.SecondaryLight.enabled && settings.SecondaryLight.intensity > 0f;
+			bool tertiaryLightEnabled = settings.TertiaryLight.enabled && settings.TertiaryLight.intensity > 0f;
 			float analyticBoundaryExpansion = GetAnalyticBoundaryExpansion(display);
 
 			float worldHeight = Mathf.Max(cam.orthographicSize * 2f, 0.0001f);
@@ -662,24 +666,36 @@ namespace Seb.Fluid2D.Rendering
 			Vector2 currentWorldSize = new Vector2(worldWidth, worldHeight);
 			GetCausticRayRange(display, settings, width, height, lightDirection, currentWorldCenter, currentWorldSize, analyticBoundaryExpansion, out float primaryRayStartOffset, out int primaryRangeRayCount);
 			GetCausticRayRange(display, settings, width, height, secondaryLightDirection, currentWorldCenter, currentWorldSize, analyticBoundaryExpansion, out float secondaryRayStartOffset, out int secondaryRangeRayCount);
+			GetCausticRayRange(display, settings, width, height, tertiaryLightDirection, currentWorldCenter, currentWorldSize, analyticBoundaryExpansion, out float tertiaryRayStartOffset, out int tertiaryRangeRayCount);
 			int raysPerPixel = Mathf.Max(1, settings.raysPerPixel);
 			int maxRayCount = Mathf.Max(1, MaxCausticTraceThreads / raysPerPixel);
 			int totalRayBudget = Mathf.Max(1, Mathf.Min(primaryRangeRayCount, maxRayCount));
-			int secondarySubRaysPerPixel = secondaryLightEnabled && raysPerPixel > 1
-				? Mathf.RoundToInt(raysPerPixel * Mathf.Clamp01(settings.secondaryLightRayShare))
+			GetLightRayShares(settings, primaryLightEnabled, secondaryLightEnabled, tertiaryLightEnabled, out float secondaryShare, out float tertiaryShare);
+			int secondarySubRaysPerPixel = secondaryShare > 0f && raysPerPixel > 1
+				? Mathf.RoundToInt(raysPerPixel * secondaryShare)
 				: 0;
 			secondarySubRaysPerPixel = Mathf.Clamp(secondarySubRaysPerPixel, 0, raysPerPixel);
-			int primarySubRaysPerPixel = Mathf.Max(0, raysPerPixel - secondarySubRaysPerPixel);
-			bool splitBySubRay = secondarySubRaysPerPixel > 0;
-			int secondaryRayBudget = secondaryLightEnabled && !splitBySubRay ? Mathf.RoundToInt(totalRayBudget * Mathf.Clamp01(settings.secondaryLightRayShare)) : 0;
+			int tertiarySubRaysPerPixel = tertiaryShare > 0f && raysPerPixel > 1
+				? Mathf.RoundToInt(raysPerPixel * tertiaryShare)
+				: 0;
+			tertiarySubRaysPerPixel = Mathf.Clamp(tertiarySubRaysPerPixel, 0, raysPerPixel - secondarySubRaysPerPixel);
+			int primarySubRaysPerPixel = Mathf.Max(0, raysPerPixel - secondarySubRaysPerPixel - tertiarySubRaysPerPixel);
+			bool splitBySubRay = secondarySubRaysPerPixel > 0 || tertiarySubRaysPerPixel > 0;
+			int secondaryRayBudget = secondaryShare > 0f && !splitBySubRay ? Mathf.RoundToInt(totalRayBudget * secondaryShare) : 0;
 			secondaryRayBudget = Mathf.Clamp(secondaryRayBudget, 0, totalRayBudget);
-			int primaryRayBudget = splitBySubRay ? totalRayBudget : Mathf.Max(0, totalRayBudget - secondaryRayBudget);
+			int tertiaryRayBudget = tertiaryShare > 0f && !splitBySubRay ? Mathf.RoundToInt(totalRayBudget * tertiaryShare) : 0;
+			tertiaryRayBudget = Mathf.Clamp(tertiaryRayBudget, 0, totalRayBudget - secondaryRayBudget);
+			int primaryRayBudget = splitBySubRay ? totalRayBudget : Mathf.Max(0, totalRayBudget - secondaryRayBudget - tertiaryRayBudget);
 			float primaryRaySpacing = primaryRangeRayCount > 1 && primaryRayBudget > 1
 				? (primaryRangeRayCount - 1f) / (primaryRayBudget - 1f)
 				: 1f;
 			int secondarySpacingRayCount = splitBySubRay ? totalRayBudget : secondaryRayBudget;
 			float secondaryRaySpacing = secondaryRangeRayCount > 1 && secondarySpacingRayCount > 1
 				? (secondaryRangeRayCount - 1f) / (secondarySpacingRayCount - 1f)
+				: 1f;
+			int tertiarySpacingRayCount = splitBySubRay ? totalRayBudget : tertiaryRayBudget;
+			float tertiaryRaySpacing = tertiaryRangeRayCount > 1 && tertiarySpacingRayCount > 1
+				? (tertiaryRangeRayCount - 1f) / (tertiarySpacingRayCount - 1f)
 				: 1f;
 
 			targetCommandBuffer.SetComputeIntParam(compute, "combinedWidth", combinedAccumulationTexture.width);
@@ -689,12 +705,16 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsRayCount", totalRayBudget);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsPrimaryRayCount", primaryRayBudget);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsSecondaryRayCount", secondaryRayBudget);
+			targetCommandBuffer.SetComputeIntParam(compute, "causticsTertiaryRayCount", tertiaryRayBudget);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsPrimarySubRaysPerPixel", primarySubRaysPerPixel);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsSecondarySubRaysPerPixel", secondarySubRaysPerPixel);
+			targetCommandBuffer.SetComputeIntParam(compute, "causticsTertiarySubRaysPerPixel", tertiarySubRaysPerPixel);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsRayStartOffset", primaryRayStartOffset);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsRaySpacing", primaryRaySpacing);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsSecondaryRayStartOffset", secondaryRayStartOffset);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsSecondaryRaySpacing", secondaryRaySpacing);
+			targetCommandBuffer.SetComputeFloatParam(compute, "causticsTertiaryRayStartOffset", tertiaryRayStartOffset);
+			targetCommandBuffer.SetComputeFloatParam(compute, "causticsTertiaryRaySpacing", tertiaryRaySpacing);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsRaySteps", settings.raySteps);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsRayStride", settings.rayStride);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsRaysPerPixel", raysPerPixel);
@@ -731,10 +751,13 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsDeltaTime", display.sim.CurrentSimulationDeltaTime);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsFrameIndex", causticFrameIndex++);
 			targetCommandBuffer.SetComputeVectorParam(compute, "causticsLightDirection", new Vector4(lightDirection.x, lightDirection.y, lightDirection.z, 0f));
-			targetCommandBuffer.SetComputeVectorParam(compute, "causticsLightMultiplier", GetCausticMultiplier(settings.EffectiveLightColor, settings.PrimaryLight.intensity));
-			targetCommandBuffer.SetComputeIntParam(compute, "causticsSecondaryLightEnabled", splitBySubRay || secondaryRayBudget > 0 ? 1 : 0);
+			targetCommandBuffer.SetComputeVectorParam(compute, "causticsLightMultiplier", primaryLightEnabled ? GetCausticMultiplier(settings.EffectiveLightColor, settings.PrimaryLight.intensity) : Vector4.zero);
+			targetCommandBuffer.SetComputeIntParam(compute, "causticsSecondaryLightEnabled", secondarySubRaysPerPixel > 0 || secondaryRayBudget > 0 ? 1 : 0);
 			targetCommandBuffer.SetComputeVectorParam(compute, "causticsSecondaryLightDirection", new Vector4(secondaryLightDirection.x, secondaryLightDirection.y, secondaryLightDirection.z, 0f));
 			targetCommandBuffer.SetComputeVectorParam(compute, "causticsSecondaryLightMultiplier", GetCausticMultiplier(settings.EffectiveSecondaryLightColor, settings.SecondaryLight.intensity));
+			targetCommandBuffer.SetComputeIntParam(compute, "causticsTertiaryLightEnabled", tertiarySubRaysPerPixel > 0 || tertiaryRayBudget > 0 ? 1 : 0);
+			targetCommandBuffer.SetComputeVectorParam(compute, "causticsTertiaryLightDirection", new Vector4(tertiaryLightDirection.x, tertiaryLightDirection.y, tertiaryLightDirection.z, 0f));
+			targetCommandBuffer.SetComputeVectorParam(compute, "causticsTertiaryLightMultiplier", GetCausticMultiplier(settings.EffectiveTertiaryLightColor, settings.TertiaryLight.intensity));
 			targetCommandBuffer.SetComputeIntParam(compute, "useEllipticalBounds", display.sim.useEllipticalBounds && settings.useAnalyticBoundary ? 1 : 0);
 			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsCenter", new Vector4(display.sim.ellipseBoundsCenter.x, display.sim.ellipseBoundsCenter.y, 0f, 0f));
 			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsSize", new Vector4(display.sim.ellipseBoundsSize.x, display.sim.ellipseBoundsSize.y, 0f, 0f));
@@ -1064,10 +1087,14 @@ namespace Seb.Fluid2D.Rendering
 				return 0.0001f;
 			}
 
-			float exposure = Luminance(settings.EffectiveLightColor) * Mathf.Max(settings.PrimaryLight.intensity, 0f);
-			if (settings.secondaryLightEnabled)
+			float exposure = settings.PrimaryLight.enabled ? Luminance(settings.EffectiveLightColor) * Mathf.Max(settings.PrimaryLight.intensity, 0f) : 0f;
+			if (settings.SecondaryLight.enabled)
 			{
 				exposure += Luminance(settings.EffectiveSecondaryLightColor) * Mathf.Max(settings.SecondaryLight.intensity, 0f);
+			}
+			if (settings.TertiaryLight.enabled)
+			{
+				exposure += Luminance(settings.EffectiveTertiaryLightColor) * Mathf.Max(settings.TertiaryLight.intensity, 0f);
 			}
 
 			return Mathf.Max(exposure, 0.0001f);
@@ -1076,6 +1103,33 @@ namespace Seb.Fluid2D.Rendering
 		static float Luminance(Color colour)
 		{
 			return colour.r * 0.2126f + colour.g * 0.7152f + colour.b * 0.0722f;
+		}
+
+		static void GetLightRayShares(ParticleFluidLighting2D settings, bool primaryLightEnabled, bool secondaryLightEnabled, bool tertiaryLightEnabled, out float secondaryShare, out float tertiaryShare)
+		{
+			float primaryWeight = primaryLightEnabled ? LightSampleWeight(settings.PrimaryLight, settings.EffectiveLightColor) : 0f;
+			float secondaryWeight = secondaryLightEnabled ? LightSampleWeight(settings.SecondaryLight, settings.EffectiveSecondaryLightColor) : 0f;
+			float tertiaryWeight = tertiaryLightEnabled ? LightSampleWeight(settings.TertiaryLight, settings.EffectiveTertiaryLightColor) : 0f;
+			float totalWeight = primaryWeight + secondaryWeight + tertiaryWeight;
+			if (totalWeight > 0.0001f)
+			{
+				secondaryShare = secondaryWeight / totalWeight;
+				tertiaryShare = tertiaryWeight / totalWeight;
+				return;
+			}
+
+			secondaryShare = 0f;
+			tertiaryShare = 0f;
+		}
+
+		static float LightSampleWeight(ParticleFluidLighting2D.DirectionalLightSettings light, Color effectiveColour)
+		{
+			if (light == null)
+			{
+				return 0f;
+			}
+
+			return Mathf.Max(0f, Luminance(effectiveColour) * light.intensity * light.sampleBias);
 		}
 
 		Vector3 GetDirectLightingDirection(ParticleDisplay2D display, ParticleFluidLighting2D settings, Vector3 lightDirection)

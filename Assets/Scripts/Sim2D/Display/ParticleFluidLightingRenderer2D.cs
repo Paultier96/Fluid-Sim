@@ -65,7 +65,8 @@ namespace Seb.Fluid2D.Rendering
 			Texture lightDirectionTexture,
 			float analyticBoundaryExpansion,
 			Vector3 primaryDirectLightingDirection,
-			Vector3 secondaryDirectLightingDirection)
+			Vector3 secondaryDirectLightingDirection,
+			Vector3 tertiaryDirectLightingDirection)
 		{
 			if (lightingMaterial == null)
 			{
@@ -100,12 +101,17 @@ namespace Seb.Fluid2D.Rendering
 			lightingMaterial.SetVector("particleLightDirection", primaryDirectLightingDirection);
 			lightingMaterial.SetVector("particleSecondaryBaseLightDirection", settings.SecondaryLightDirection);
 			lightingMaterial.SetVector("particleSecondaryLightDirection", secondaryDirectLightingDirection);
-			lightingMaterial.SetInt("particleSecondaryLightEnabled", settings.secondaryLightEnabled && settings.SecondaryLight.intensity > 0f ? 1 : 0);
+			lightingMaterial.SetInt("particleSecondaryLightEnabled", settings.SecondaryLight.enabled && settings.SecondaryLight.intensity > 0f ? 1 : 0);
+			lightingMaterial.SetVector("particleTertiaryBaseLightDirection", settings.TertiaryLightDirection);
+			lightingMaterial.SetVector("particleTertiaryLightDirection", tertiaryDirectLightingDirection);
+			lightingMaterial.SetInt("particleTertiaryLightEnabled", settings.TertiaryLight.enabled && settings.TertiaryLight.intensity > 0f ? 1 : 0);
 			lightingMaterial.SetColor("particleLightColor", settings.EffectiveLightColor);
 			lightingMaterial.SetColor("particleSecondaryLightColor", settings.EffectiveSecondaryLightColor);
+			lightingMaterial.SetColor("particleTertiaryLightColor", settings.EffectiveTertiaryLightColor);
 			lightingMaterial.SetFloat("particleAmbientLight", settings.ambientLight);
-			lightingMaterial.SetFloat("particleLightIntensity", settings.PrimaryLight.intensity);
+			lightingMaterial.SetFloat("particleLightIntensity", settings.PrimaryLight.enabled ? settings.PrimaryLight.intensity : 0f);
 			lightingMaterial.SetFloat("particleSecondaryLightIntensity", settings.SecondaryLight.intensity);
+			lightingMaterial.SetFloat("particleTertiaryLightIntensity", settings.TertiaryLight.intensity);
 			lightingMaterial.SetFloat("particlePhase0Reflectance", settings.phase0Material.reflectance);
 			lightingMaterial.SetFloat("particlePhase1Reflectance", settings.phase1Material.reflectance);
 			lightingMaterial.SetFloat("particlePhase0Roughness", settings.phase0Material.roughness);
