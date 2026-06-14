@@ -45,20 +45,39 @@ namespace Seb.Fluid2D.Rendering
 		[Serializable]
 		public sealed class DirectionalLightSettings
 		{
+			public enum LightType
+			{
+				Directional,
+				Point
+			}
+
 			[Tooltip("Enables this light for rasterized lighting and raymarched caustic allocation.")]
 			public bool enabled = true;
+			[Tooltip("Directional lights have a constant direction. Point lights emit a 2D angular fan from a world-space position.")]
+			public LightType type = LightType.Directional;
 			[Tooltip("Horizontal screen/world angle of the light direction in degrees.")]
 			public float azimuthDegrees = 122.5f;
 			[Tooltip("Vertical angle of the light direction in degrees. 0 lies in the 2D plane, 90 points toward the camera.")]
-			[Range(0, 89f)] public float elevationDegrees = 50.3f;
-			[Tooltip("Colour temperature of the directional light in Kelvin. 6500 is neutral daylight; lower values are warmer, higher values are cooler.")]
+			[Range(-89, 89f)] public float elevationDegrees = 50.3f;
+			[Tooltip("Colour temperature of the light in Kelvin. 6500 is neutral daylight; lower values are warmer, higher values are cooler.")]
 			[Range(1000f, 20000f)] public float temperatureKelvin = 6500f;
-			[Tooltip("Colour of the directional light.")]
+			[Tooltip("Colour of the light.")]
 			[ColorUsage(false, true)] public Color color = Color.white;
-			[Tooltip("Intensity of the directional light.")]
+			[Tooltip("Intensity of the light.")]
 			[Min(0f)] public float intensity = 0.45f;
 			[Tooltip("Multiplier for brightness-weighted ray allocation. 1 follows this light's brightness, higher values allocate more caustic rays without changing light intensity.")]
 			[Min(0f)] public float sampleBias = 1f;
+			[Header("Point Light")]
+			[Tooltip("World-space XY position used when Type is Point.")]
+			public Vector2 pointPosition;
+			[Tooltip("Overrides Point Position with the current mouse position in world space while Type is Point.")]
+			public bool pointFollowsMouse = false;
+			[Tooltip("World-space height above the 2D simulation plane used when Type is Point.")]
+			[Min(0.0001f)] public float pointHeight = 8f;
+			[Tooltip("World-space radius over which point-light brightness fades to zero.")]
+			[Min(0.0001f)] public float pointRange = 20f;
+			[Tooltip("Point-light attenuation exponent. 1 is linear, higher values make the light fall off faster near the edge of its range.")]
+			[Min(0.1f)] public float pointFalloff = 2f;
 
 			public DirectionalLightSettings()
 			{
@@ -160,11 +179,11 @@ namespace Seb.Fluid2D.Rendering
 		[Tooltip("Shader used for the optional radiance cascade soft lighting pass.")]
 		public Shader radianceCascadeShader;
 
-		[Header("Directional Lights")]
+		[Header("Lights")]
 		public DirectionalLightSettings primaryLight = new DirectionalLightSettings(122.5f, 50.3f, 0.45f);
-		[Tooltip("Adds a second directional light. Rasterized lighting evaluates both lights; raymarched lighting splits the existing ray budget between them.")]
+		[Tooltip("Adds a second light. Rasterized lighting evaluates all enabled lights; raymarched lighting splits the existing ray budget between enabled directional lights.")]
 		public DirectionalLightSettings secondaryLight = new DirectionalLightSettings(45f, 40f, 0.2f, false);
-		[Tooltip("Adds a third directional light. Rasterized lighting evaluates all enabled lights; raymarched lighting splits the existing ray budget between them.")]
+		[Tooltip("Adds a third light. Rasterized lighting evaluates all enabled lights; raymarched lighting splits the existing ray budget between enabled directional lights.")]
 		public DirectionalLightSettings tertiaryLight = new DirectionalLightSettings(-60f, 35f, 0.1f, false);
 		[Tooltip("Unlit colour multiplier. Increase if shadowed particles are too dark.")]
 		[Range(0f, 1f)] public float ambientLight = 0.65f;
@@ -189,6 +208,8 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0f)] public float screenSpaceReflectionDistance = 24f;
 		[Tooltip("Edge mask exponent for screen-space reflections. Higher values keep reflections tighter to side-facing normals.")]
 		[Min(0.1f)] public float screenSpaceReflectionEdgePower = 1.5f;
+		[Tooltip("Base virtual-depth scale in material-map pixels for sampling caustic light colour outside the blob for rasterized specular highlights. The actual offset grows with normal.z / length(normal.xy) and phase radius bias. 0 uses the local caustic colour.")]
+		[Min(0f)] public float specularCausticSampleOffset = 6f;
 
 		[Header("Transmission")]
 		[Tooltip("Strength of the fake transmission/backlight term.")]
@@ -374,6 +395,72 @@ namespace Seb.Fluid2D.Rendering
 		internal void Render(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget)
 		{
 			Renderer.Render(commandBuffer, finalTarget);
+		}
+
+		void Update()
+		{
+			if (!AnyPointLightFollowsMouse())
+			{
+				return;
+			}
+
+			if (!TryGetMouseWorldPosition(out Vector2 mouseWorldPosition))
+			{
+				return;
+			}
+
+			ApplyMousePosition(PrimaryLight, mouseWorldPosition);
+			ApplyMousePosition(SecondaryLight, mouseWorldPosition);
+			ApplyMousePosition(TertiaryLight, mouseWorldPosition);
+		}
+
+		static void ApplyMousePosition(DirectionalLightSettings light, Vector2 mouseWorldPosition)
+		{
+			if (light != null && light.type == DirectionalLightSettings.LightType.Point && light.pointFollowsMouse)
+			{
+				light.pointPosition = mouseWorldPosition;
+			}
+		}
+
+		bool AnyPointLightFollowsMouse()
+		{
+			return PointLightFollowsMouse(PrimaryLight)
+			       || PointLightFollowsMouse(SecondaryLight)
+			       || PointLightFollowsMouse(TertiaryLight);
+		}
+
+		static bool PointLightFollowsMouse(DirectionalLightSettings light)
+		{
+			return light != null && light.type == DirectionalLightSettings.LightType.Point && light.pointFollowsMouse;
+		}
+
+		static bool TryGetMouseWorldPosition(out Vector2 mouseWorldPosition)
+		{
+			mouseWorldPosition = Vector2.zero;
+			Camera cam = Camera.main;
+			if (cam == null)
+			{
+				return false;
+			}
+
+			Vector3 mousePosition = Input.mousePosition;
+			if (!float.IsFinite(mousePosition.x) || !float.IsFinite(mousePosition.y) || !float.IsFinite(mousePosition.z))
+			{
+				return false;
+			}
+
+			if (!cam.pixelRect.Contains(mousePosition))
+			{
+				return false;
+			}
+
+			Plane simulationPlane = new Plane(Vector3.forward, Vector3.zero);
+			Ray ray = cam.ScreenPointToRay(mousePosition);
+			Vector3 worldPosition = simulationPlane.Raycast(ray, out float distance)
+				? ray.GetPoint(distance)
+				: cam.ScreenToWorldPoint(mousePosition);
+			mouseWorldPosition = worldPosition;
+			return true;
 		}
 
 		void OnDisable()

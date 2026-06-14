@@ -99,12 +99,21 @@ namespace Seb.Fluid2D.Rendering
 			lightingMaterial.SetFloat("particleFluidIridescenceScale", settings.iridescenceScale);
 			lightingMaterial.SetVector("particleBaseLightDirection", settings.LightDirection);
 			lightingMaterial.SetVector("particleLightDirection", primaryDirectLightingDirection);
+			lightingMaterial.SetInt("particleLightType", (int)settings.PrimaryLight.type);
+			lightingMaterial.SetVector("particleLightPoint", GetPointLightVector(settings.PrimaryLight));
+			lightingMaterial.SetFloat("particleLightPointFalloff", settings.PrimaryLight.pointFalloff);
 			lightingMaterial.SetVector("particleSecondaryBaseLightDirection", settings.SecondaryLightDirection);
 			lightingMaterial.SetVector("particleSecondaryLightDirection", secondaryDirectLightingDirection);
 			lightingMaterial.SetInt("particleSecondaryLightEnabled", settings.SecondaryLight.enabled && settings.SecondaryLight.intensity > 0f ? 1 : 0);
+			lightingMaterial.SetInt("particleSecondaryLightType", (int)settings.SecondaryLight.type);
+			lightingMaterial.SetVector("particleSecondaryLightPoint", GetPointLightVector(settings.SecondaryLight));
+			lightingMaterial.SetFloat("particleSecondaryLightPointFalloff", settings.SecondaryLight.pointFalloff);
 			lightingMaterial.SetVector("particleTertiaryBaseLightDirection", settings.TertiaryLightDirection);
 			lightingMaterial.SetVector("particleTertiaryLightDirection", tertiaryDirectLightingDirection);
 			lightingMaterial.SetInt("particleTertiaryLightEnabled", settings.TertiaryLight.enabled && settings.TertiaryLight.intensity > 0f ? 1 : 0);
+			lightingMaterial.SetInt("particleTertiaryLightType", (int)settings.TertiaryLight.type);
+			lightingMaterial.SetVector("particleTertiaryLightPoint", GetPointLightVector(settings.TertiaryLight));
+			lightingMaterial.SetFloat("particleTertiaryLightPointFalloff", settings.TertiaryLight.pointFalloff);
 			lightingMaterial.SetColor("particleLightColor", settings.EffectiveLightColor);
 			lightingMaterial.SetColor("particleSecondaryLightColor", settings.EffectiveSecondaryLightColor);
 			lightingMaterial.SetColor("particleTertiaryLightColor", settings.EffectiveTertiaryLightColor);
@@ -125,10 +134,30 @@ namespace Seb.Fluid2D.Rendering
 			lightingMaterial.SetFloat("screenSpaceReflectionStrength1", settings.phase1Material.screenSpaceReflectionStrength);
 			lightingMaterial.SetFloat("screenSpaceReflectionDistance", settings.screenSpaceReflectionDistance * display.GetZoomScale(cam));
 			lightingMaterial.SetFloat("screenSpaceReflectionEdgePower", settings.screenSpaceReflectionEdgePower);
+			lightingMaterial.SetFloat("particleSpecularCausticSampleOffset", settings.specularCausticSampleOffset * display.GetZoomScale(cam));
+			lightingMaterial.SetVector("particleSpecularCausticPhaseScale", GetSpecularCausticPhaseScale(display.metaballs.phase0RenderBias));
 			lightingMaterial.SetFloat("particleTransmissionIntensity", settings.transmissionIntensity);
 			lightingMaterial.SetFloat("particleTransmissionPower", settings.transmissionPower);
 			lightingMaterial.SetFloat("particleEdgeDarkening", settings.edgeDarkening);
 			lightingMaterial.SetFloat("particleEdgeDarkeningPower", settings.edgeDarkeningPower);
+		}
+
+		static Vector4 GetSpecularCausticPhaseScale(float phase0RenderBias)
+		{
+			float phaseBoundary = Mathf.Clamp01(0.5f + Mathf.Clamp(phase0RenderBias, -1f, 1f) * 0.5f);
+			float phase0Scale = Mathf.Sqrt(Mathf.Max(phaseBoundary * 2f, 0.0001f));
+			float phase1Scale = Mathf.Sqrt(Mathf.Max((1f - phaseBoundary) * 2f, 0.0001f));
+			return new Vector4(phase0Scale, phase1Scale, 0f, 0f);
+		}
+
+		static Vector4 GetPointLightVector(ParticleFluidLighting2D.DirectionalLightSettings light)
+		{
+			if (light == null)
+			{
+				return new Vector4(0f, 0f, 0.0001f, 0.0001f);
+			}
+
+			return new Vector4(light.pointPosition.x, light.pointPosition.y, Mathf.Max(light.pointHeight, 0.0001f), Mathf.Max(light.pointRange, 0.0001f));
 		}
 
 		public void SetSoftLightTexture(Texture texture)
