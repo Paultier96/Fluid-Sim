@@ -34,13 +34,15 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			commandBuffer.BeginSample("Particle Fluid/Build Material Maps");
+			material.SetInt("metaballCompositeRegionEnabled", 0);
+			material.SetInt("metaballClipRegionEnabled", 0);
 			commandBuffer.Blit(null, albedoTexture, material, albedoPass);
 			commandBuffer.Blit(null, normal0Texture, material, normal0Pass);
 			commandBuffer.Blit(null, normal1Texture, material, normal1Pass);
 			commandBuffer.EndSample("Particle Fluid/Build Material Maps");
 		}
 
-		public void RenderUnlit(CommandBuffer commandBuffer, Material material, RenderTargetIdentifier finalTarget, int unlitPass)
+		public void RenderUnlit(CommandBuffer commandBuffer, Material material, RenderTargetIdentifier finalTarget, int unlitPass, ParticleFluidRenderRegion2D renderRegion)
 		{
 			if (!IsAllocated || commandBuffer == null || material == null)
 			{
@@ -48,19 +50,23 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			material.SetTexture("MaterialAlbedoTex", albedoTexture);
+			material.SetInt("metaballCompositeRegionEnabled", renderRegion.IsCropped ? 1 : 0);
+			material.SetVector("metaballCompositeUvRect", renderRegion.SourceUvRect);
+			material.SetInt("metaballClipRegionEnabled", 0);
+			material.SetVector("metaballClipRect", renderRegion.SourceUvRect);
 			commandBuffer.BeginSample("Particle Fluid/Unlit Fallback");
 			commandBuffer.Blit(null, finalTarget, material, unlitPass);
 			commandBuffer.EndSample("Particle Fluid/Unlit Fallback");
 		}
 
-		public void BindTo(ParticleFluidLighting2D lighting)
+		public void BindTo(ParticleFluidLighting2D lighting, ParticleFluidRenderRegion2D renderRegion)
 		{
 			if (lighting == null)
 			{
 				return;
 			}
 
-			lighting.SetMaterialTextures(albedoTexture, normal0Texture, normal1Texture);
+			lighting.SetMaterialTextures(albedoTexture, normal0Texture, normal1Texture, renderRegion);
 		}
 
 		public void Release()

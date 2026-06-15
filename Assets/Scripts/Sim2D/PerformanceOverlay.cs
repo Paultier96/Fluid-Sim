@@ -14,6 +14,7 @@ namespace Seb.Fluid2D.Simulation
         [Min(1f)] public float graphReferenceFps = 60f;
         [Min(1f)] public float frameTimeGraphMaxMs = 50f;
         [Min(0.1f)] public float frameTimeGraphReferenceMs = 16.67f;
+        [Min(1f)] public float graphRefreshRate = 60f;
         public KeyCode resetKey = KeyCode.F8;
         public Vector2 screenOffset = new Vector2(12, 12);
 
@@ -24,6 +25,12 @@ namespace Seb.Fluid2D.Simulation
         int sampleCount;
         float frameTimeSum;
         float simulationTimeSum;
+        Texture2D fpsGraphTexture;
+        Texture2D frameTimeGraphTexture;
+        Color32[] fpsGraphPixels;
+        Color32[] frameTimeGraphPixels;
+        float nextFpsGraphUpdateTime;
+        float nextFrameTimeGraphUpdateTime;
 
         void Awake()
         {
@@ -130,6 +137,14 @@ namespace Seb.Fluid2D.Simulation
             sampleCount = 0;
             frameTimeSum = 0;
             simulationTimeSum = 0;
+            nextFpsGraphUpdateTime = 0;
+            nextFrameTimeGraphUpdateTime = 0;
+        }
+
+        void OnDestroy()
+        {
+            DestroyGraphTexture(ref fpsGraphTexture, ref fpsGraphPixels);
+            DestroyGraphTexture(ref frameTimeGraphTexture, ref frameTimeGraphPixels);
         }
 
         void OnGUI()
@@ -170,13 +185,10 @@ namespace Seb.Fluid2D.Simulation
             int height = Mathf.RoundToInt(labelCount * lineHeight + graphDrawHeight * 2f + verticalPadding);
             float x = Mathf.Max(screenOffset.x, Screen.width - width - screenOffset.x);
             GUILayout.BeginArea(new Rect(x, screenOffset.y, width, height), GUI.skin.box);
-            GUILayout.Label("Performance");
-            GUILayout.Label($"API: {SystemInfo.graphicsDeviceType}  Pipeline: {GetPipelineName()}");
-            GUILayout.Label($"Current: {currentFps:F1} fps  {currentFrameTimeMs:F2} ms");
             GUILayout.Label($"Average: {avgFps:F1} fps  {avgFrameTimeMs:F2} ms");
             if (sim != null)
             {
-                GUILayout.Label($"Playback: {sim.CurrentPlaybackSpeed:F2}x current  {avgPlaybackSpeed:F2}x avg{(sim.unlockedTimeScale ? "  unlocked" : "")}");
+                GUILayout.Label($"Playback:  {avgPlaybackSpeed:F2}x avg{(sim.unlockedTimeScale ? "  unlocked" : "")}");
                 GUILayout.Label($"Sim frame/step: {sim.CurrentSimulationDeltaTime * 1000f:F2} / {sim.CurrentSimulationSubstepDeltaTime * 1000f:F2} ms");
                 GUILayout.Label($"Substeps: {sim.CurrentSimulationSubstepCount}  Display: {sim.CurrentDisplayRefreshRate:F1} Hz");
             }
@@ -184,33 +196,90 @@ namespace Seb.Fluid2D.Simulation
             GUILayout.Label($"Min/Max frame: {minFrameTimeMs:F2} / {maxFrameTimeMs:F2} ms");
             GUILayout.Label($"FPS graph: 0-{Mathf.Max(1f, graphMaxFps):F0} fps");
             Rect graphRect = GUILayoutUtility.GetRect(width - 20, graphDrawHeight);
-            DrawFpsGraph(graphRect, Mathf.Max(1f, graphMaxFps));
+            DrawFpsGraphTexture(graphRect, Mathf.Max(1f, graphMaxFps));
             GUILayout.Label($"Frame graph: 0-{Mathf.Max(1f, frameTimeGraphMaxMs):F0} ms");
             Rect frameTimeGraphRect = GUILayoutUtility.GetRect(width - 20, graphDrawHeight);
-            DrawFrameTimeGraph(frameTimeGraphRect, Mathf.Max(1f, frameTimeGraphMaxMs));
+            DrawFrameTimeGraphTexture(frameTimeGraphRect, Mathf.Max(1f, frameTimeGraphMaxMs));
             GUILayout.Label($"Reset: {resetKey}");
             GUILayout.EndArea();
         }
 
-        void DrawFpsGraph(Rect rect, float maxFps)
+        void DrawFpsGraphTexture(Rect rect, float maxFps)
+        {
+            DrawGraphTexture(
+                rect,
+                maxFps,
+                graphReferenceFps,
+                true,
+                new Color32(64, 230, 89, 255),
+                ref fpsGraphTexture,
+                ref fpsGraphPixels,
+                ref nextFpsGraphUpdateTime);
+        }
+
+        void DrawFrameTimeGraphTexture(Rect rect, float maxFrameTimeMs)
+        {
+            DrawGraphTexture(
+                rect,
+                maxFrameTimeMs,
+                frameTimeGraphReferenceMs,
+                false,
+                new Color32(255, 166, 51, 255),
+                ref frameTimeGraphTexture,
+                ref frameTimeGraphPixels,
+                ref nextFrameTimeGraphUpdateTime);
+        }
+
+        void DrawGraphTexture(
+            Rect rect,
+            float maxValue,
+            float referenceValue,
+            bool drawFps,
+            Color32 traceColor,
+            ref Texture2D texture,
+            ref Color32[] pixels,
+            ref float nextUpdateTime)
         {
             if (Event.current.type != EventType.Repaint)
             {
                 return;
             }
 
-            Color previousColor = GUI.color;
-            GUI.color = new Color(0f, 0f, 0f, 0.35f);
-            GUI.DrawTexture(rect, Texture2D.whiteTexture);
+            int width = Mathf.Max(1, Mathf.RoundToInt(rect.width));
+            int height = Mathf.Max(1, Mathf.RoundToInt(rect.height));
+            bool textureChanged = EnsureGraphTexture(width, height, ref texture, ref pixels);
 
-            DrawHorizontalGraphLine(rect, maxFps, graphReferenceFps, new Color(1f, 1f, 1f, 0.22f));
-            DrawHorizontalGraphLine(rect, maxFps, maxFps * 0.5f, new Color(1f, 1f, 1f, 0.12f));
+            float now = Time.unscaledTime;
+            if (textureChanged || now >= nextUpdateTime)
+            {
+                RebuildGraphTexture(texture, pixels, width, height, maxValue, referenceValue, drawFps, traceColor);
+                nextUpdateTime = now + 1f / Mathf.Max(1f, graphRefreshRate);
+            }
 
-            if (sampleCount > 1 && maxFps > 0)
+            GUI.DrawTexture(rect, texture);
+        }
+
+        void RebuildGraphTexture(Texture2D texture, Color32[] pixels, int width, int height, float maxValue, float referenceValue, bool drawFps, Color32 traceColor)
+        {
+            Color32 backgroundColor = new Color32(0, 0, 0, 90);
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                pixels[i] = backgroundColor;
+            }
+
+            Color32 guideColor = new Color32(255, 255, 255, 55);
+            Color32 halfGuideColor = new Color32(255, 255, 255, 31);
+            Color32 borderColor = new Color32(255, 255, 255, 127);
+            DrawGraphHorizontalLine(pixels, width, height, maxValue, referenceValue, guideColor);
+            DrawGraphHorizontalLine(pixels, width, height, maxValue, maxValue * 0.5f, halfGuideColor);
+            DrawGraphBorder(pixels, width, height, borderColor);
+
+            if (sampleCount > 1 && maxValue > 0)
             {
                 float now = Time.unscaledTime;
                 float window = Mathf.Max(0.25f, sampleWindow);
-                Vector2 previousPoint = Vector2.zero;
+                int previousX = 0;
+                int previousY = 0;
                 bool hasPreviousPoint = false;
 
                 for (int i = 0; i < sampleCount; i++)
@@ -218,107 +287,122 @@ namespace Seb.Fluid2D.Simulation
                     int sampleIndex = (sampleStart + i) % frameTimes.Length;
                     float age = now - sampleTimes[sampleIndex];
                     float normalizedX = Mathf.Clamp01(1f - age / window);
-                    float fps = frameTimes[sampleIndex] > 0 ? 1f / frameTimes[sampleIndex] : 0f;
-                    float normalizedY = Mathf.Clamp01(fps / maxFps);
-                    Vector2 point = new Vector2(rect.xMin + normalizedX * rect.width, rect.yMax - normalizedY * rect.height);
+                    float value = drawFps
+                        ? (frameTimes[sampleIndex] > 0 ? 1f / frameTimes[sampleIndex] : 0f)
+                        : frameTimes[sampleIndex] * 1000f;
+                    float normalizedY = Mathf.Clamp01(value / maxValue);
+                    int x = Mathf.Clamp(Mathf.RoundToInt(normalizedX * (width - 1)), 0, width - 1);
+                    int y = Mathf.Clamp(Mathf.RoundToInt(normalizedY * (height - 1)), 0, height - 1);
 
                     if (hasPreviousPoint)
                     {
-                        DrawLine(previousPoint, point, new Color(0.25f, 0.9f, 0.35f, 1f), 2f);
+                        DrawGraphLine(pixels, width, height, previousX, previousY, x, y, traceColor);
                     }
 
-                    previousPoint = point;
+                    previousX = x;
+                    previousY = y;
                     hasPreviousPoint = true;
                 }
             }
 
-            GUI.color = new Color(1f, 1f, 1f, 0.5f);
-            GUI.DrawTexture(new Rect(rect.xMin, rect.yMin, rect.width, 1f), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(rect.xMin, rect.yMax - 1f, rect.width, 1f), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(rect.xMin, rect.yMin, 1f, rect.height), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(rect.xMax - 1f, rect.yMin, 1f, rect.height), Texture2D.whiteTexture);
-            GUI.color = previousColor;
+            texture.SetPixels32(pixels);
+            texture.Apply(false);
         }
 
-        void DrawFrameTimeGraph(Rect rect, float maxFrameTimeMs)
+        static bool EnsureGraphTexture(int width, int height, ref Texture2D texture, ref Color32[] pixels)
         {
-            if (Event.current.type != EventType.Repaint)
+            if (texture != null && texture.width == width && texture.height == height && pixels != null && pixels.Length == width * height)
             {
-                return;
+                return false;
             }
 
-            Color previousColor = GUI.color;
-            GUI.color = new Color(0f, 0f, 0f, 0.35f);
-            GUI.DrawTexture(rect, Texture2D.whiteTexture);
-
-            DrawHorizontalGraphLine(rect, maxFrameTimeMs, frameTimeGraphReferenceMs, new Color(1f, 1f, 1f, 0.22f));
-            DrawHorizontalGraphLine(rect, maxFrameTimeMs, maxFrameTimeMs * 0.5f, new Color(1f, 1f, 1f, 0.12f));
-
-            if (sampleCount > 1 && maxFrameTimeMs > 0)
+            DestroyGraphTexture(ref texture, ref pixels);
+            texture = new Texture2D(width, height, TextureFormat.RGBA32, false, true)
             {
-                float now = Time.unscaledTime;
-                float window = Mathf.Max(0.25f, sampleWindow);
-                Vector2 previousPoint = Vector2.zero;
-                bool hasPreviousPoint = false;
-
-                for (int i = 0; i < sampleCount; i++)
-                {
-                    int sampleIndex = (sampleStart + i) % frameTimes.Length;
-                    float age = now - sampleTimes[sampleIndex];
-                    float normalizedX = Mathf.Clamp01(1f - age / window);
-                    float frameTimeMs = frameTimes[sampleIndex] * 1000f;
-                    float normalizedY = Mathf.Clamp01(frameTimeMs / maxFrameTimeMs);
-                    Vector2 point = new Vector2(rect.xMin + normalizedX * rect.width, rect.yMax - normalizedY * rect.height);
-
-                    if (hasPreviousPoint)
-                    {
-                        DrawLine(previousPoint, point, new Color(1f, 0.65f, 0.2f, 1f), 2f);
-                    }
-
-                    previousPoint = point;
-                    hasPreviousPoint = true;
-                }
-            }
-
-            DrawGraphBorder(rect);
-            GUI.color = previousColor;
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp,
+                hideFlags = HideFlags.DontSave
+            };
+            pixels = new Color32[width * height];
+            return true;
         }
 
-        void DrawHorizontalGraphLine(Rect rect, float maxValue, float value, Color color)
+        static void DestroyGraphTexture(ref Texture2D texture, ref Color32[] pixels)
+        {
+            if (texture != null)
+            {
+                UnityEngine.Object.Destroy(texture);
+            }
+
+            texture = null;
+            pixels = null;
+        }
+
+        static void DrawGraphHorizontalLine(Color32[] pixels, int width, int height, float maxValue, float value, Color32 color)
         {
             if (maxValue <= 0 || value <= 0 || value > maxValue)
             {
                 return;
             }
 
-            Color previousColor = GUI.color;
-            GUI.color = color;
-            float y = rect.yMax - Mathf.Clamp01(value / maxValue) * rect.height;
-            GUI.DrawTexture(new Rect(rect.xMin, y, rect.width, 1f), Texture2D.whiteTexture);
-            GUI.color = previousColor;
+            int y = Mathf.Clamp(Mathf.RoundToInt(Mathf.Clamp01(value / maxValue) * (height - 1)), 0, height - 1);
+            int rowStart = y * width;
+            for (int x = 0; x < width; x++)
+            {
+                pixels[rowStart + x] = color;
+            }
         }
 
-        void DrawGraphBorder(Rect rect)
+        static void DrawGraphBorder(Color32[] pixels, int width, int height, Color32 color)
         {
-            GUI.color = new Color(1f, 1f, 1f, 0.5f);
-            GUI.DrawTexture(new Rect(rect.xMin, rect.yMin, rect.width, 1f), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(rect.xMin, rect.yMax - 1f, rect.width, 1f), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(rect.xMin, rect.yMin, 1f, rect.height), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(rect.xMax - 1f, rect.yMin, 1f, rect.height), Texture2D.whiteTexture);
+            int lastX = width - 1;
+            int lastY = height - 1;
+            for (int x = 0; x < width; x++)
+            {
+                pixels[x] = color;
+                pixels[lastY * width + x] = color;
+            }
+
+            for (int y = 0; y < height; y++)
+            {
+                pixels[y * width] = color;
+                pixels[y * width + lastX] = color;
+            }
         }
 
-        static void DrawLine(Vector2 start, Vector2 end, Color color, float thickness)
+        static void DrawGraphLine(Color32[] pixels, int width, int height, int x0, int y0, int x1, int y1, Color32 color)
         {
-            Matrix4x4 previousMatrix = GUI.matrix;
-            Color previousColor = GUI.color;
-            Vector2 direction = end - start;
-            float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
+            int dx = Mathf.Abs(x1 - x0);
+            int sx = x0 < x1 ? 1 : -1;
+            int dy = -Mathf.Abs(y1 - y0);
+            int sy = y0 < y1 ? 1 : -1;
+            int error = dx + dy;
 
-            GUI.color = color;
-            GUIUtility.RotateAroundPivot(angle, start);
-            GUI.DrawTexture(new Rect(start.x, start.y - thickness * 0.5f, direction.magnitude, thickness), Texture2D.whiteTexture);
-            GUI.matrix = previousMatrix;
-            GUI.color = previousColor;
+            while (true)
+            {
+                if (x0 >= 0 && x0 < width && y0 >= 0 && y0 < height)
+                {
+                    pixels[y0 * width + x0] = color;
+                }
+
+                if (x0 == x1 && y0 == y1)
+                {
+                    break;
+                }
+
+                int doubleError = error * 2;
+                if (doubleError >= dy)
+                {
+                    error += dy;
+                    x0 += sx;
+                }
+
+                if (doubleError <= dx)
+                {
+                    error += dx;
+                    y0 += sy;
+                }
+            }
         }
 
         static string GetPipelineName()

@@ -19,6 +19,8 @@ int _ParticleCount;
 float2 _SimMin;
 float2 _SimMax;
 matrix _VP;
+float2 _RenderWorldCenter;
+float2 _RenderWorldSize;
 
 // Temperature mapping
 float _TempMin;
@@ -191,9 +193,7 @@ void Seed(uint3 id : SV_DispatchThreadID)
     if (i >= _ParticleCount) return;
 
     float2 p = Positions2D[i];
-    float4 clip = mul(_VP, float4(p, 0, 1));
-    float2 ndc = clip.xy / clip.w;        // -1 to 1
-    float2 uv = ndc * 0.5 + 0.5;          // 0 to 1
+    float2 uv = (p - _RenderWorldCenter) / max(_RenderWorldSize, float2(0.0001, 0.0001)) + 0.5;
 
     // clamp uv
     if (uv.x < 0 || uv.x > 1 || uv.y < 0 || uv.y > 1) return;

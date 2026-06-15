@@ -19,6 +19,8 @@ namespace Seb.Fluid2D.Rendering
 		Texture materialAlbedoTexture = Texture2D.blackTexture;
 		Texture materialNormal0Texture = Texture2D.blackTexture;
 		Texture materialNormal1Texture = Texture2D.blackTexture;
+		ParticleFluidRenderRegion2D materialRenderRegion;
+		ParticleFluidRenderRegion2D causticRenderRegion;
 		float currentZoomScale = 1f;
 
 		public Material Material => lightingMaterial;
@@ -45,11 +47,12 @@ namespace Seb.Fluid2D.Rendering
 			material = new Material(shader);
 		}
 
-		public void SetMaterialTextures(Texture albedo, Texture normal0, Texture normal1)
+		public void SetMaterialTextures(Texture albedo, Texture normal0, Texture normal1, ParticleFluidRenderRegion2D renderRegion)
 		{
 			materialAlbedoTexture = albedo != null ? albedo : Texture2D.blackTexture;
 			materialNormal0Texture = normal0 != null ? normal0 : Texture2D.blackTexture;
 			materialNormal1Texture = normal1 != null ? normal1 : Texture2D.blackTexture;
+			materialRenderRegion = renderRegion;
 			BindMaterialTextures();
 		}
 
@@ -63,6 +66,11 @@ namespace Seb.Fluid2D.Rendering
 			lightingMaterial.SetTexture("MaterialAlbedoTex", materialAlbedoTexture != null ? materialAlbedoTexture : Texture2D.blackTexture);
 			lightingMaterial.SetTexture("MaterialNormalTex", materialNormal0Texture != null ? materialNormal0Texture : Texture2D.blackTexture);
 			lightingMaterial.SetTexture("MaterialNormalTex1", materialNormal1Texture != null ? materialNormal1Texture : Texture2D.blackTexture);
+			lightingMaterial.SetInt("particleFluidCompositeRegionEnabled", materialRenderRegion.IsCropped ? 1 : 0);
+			lightingMaterial.SetVector("particleFluidCompositeUvRect", materialRenderRegion.SourceUvRect);
+			lightingMaterial.SetVector("particleFluidCameraUvRect", materialRenderRegion.SourceUvRect);
+			lightingMaterial.SetInt("particleFluidClipRegionEnabled", 0);
+			lightingMaterial.SetVector("particleFluidClipRect", materialRenderRegion.SourceUvRect);
 			int width = Mathf.Max(materialAlbedoTexture != null ? materialAlbedoTexture.width : 1, 1);
 			int height = Mathf.Max(materialAlbedoTexture != null ? materialAlbedoTexture.height : 1, 1);
 			lightingMaterial.SetVector("MaterialAlbedoTex_TexelSize", new Vector4(1f / width, 1f / height, width, height));
@@ -79,6 +87,8 @@ namespace Seb.Fluid2D.Rendering
 			Texture causticTexture,
 			Texture lightDirectionTexture,
 			float analyticBoundaryExpansion,
+			ParticleFluidRenderRegion2D renderRegion,
+			ParticleFluidRenderRegion2D causticRegion,
 			Vector3 primaryDirectLightingDirection,
 			Vector3 secondaryDirectLightingDirection,
 			Vector3 tertiaryDirectLightingDirection)
@@ -88,14 +98,13 @@ namespace Seb.Fluid2D.Rendering
 				return;
 			}
 
-			float worldHeight = Mathf.Max(cam.orthographicSize * 2f, 0.0001f);
-			float worldWidth = Mathf.Max(worldHeight * cam.aspect, 0.0001f);
-			Vector2 worldCenter = new Vector2(cam.transform.position.x, cam.transform.position.y);
+			materialRenderRegion = renderRegion;
+			causticRenderRegion = causticRegion;
 			currentZoomScale = display.GetZoomScale(cam);
 
 			BindMaterialTextures();
-			lightingMaterial.SetVector("particleFluidWorldCenter", new Vector4(worldCenter.x, worldCenter.y, 0f, 0f));
-			lightingMaterial.SetVector("particleFluidWorldSize", new Vector4(worldWidth, worldHeight, 0f, 0f));
+			lightingMaterial.SetVector("particleFluidWorldCenter", new Vector4(materialRenderRegion.WorldCenter.x, materialRenderRegion.WorldCenter.y, 0f, 0f));
+			lightingMaterial.SetVector("particleFluidWorldSize", new Vector4(materialRenderRegion.WorldSize.x, materialRenderRegion.WorldSize.y, 0f, 0f));
 			lightingMaterial.SetInt("useEllipticalBounds", display.sim.useEllipticalBounds ? 1 : 0);
 			lightingMaterial.SetVector("ellipseBoundsCenter", new Vector4(display.sim.ellipseBoundsCenter.x, display.sim.ellipseBoundsCenter.y, 0f, 0f));
 			lightingMaterial.SetVector("ellipseBoundsSize", new Vector4(display.sim.ellipseBoundsSize.x, display.sim.ellipseBoundsSize.y, 0f, 0f));
@@ -103,6 +112,8 @@ namespace Seb.Fluid2D.Rendering
 			lightingMaterial.SetFloat("analyticBoundaryExpansion", analyticBoundaryExpansion);
 			lightingMaterial.SetInt("particleFluidCausticsEnabled", renderCaustics ? 1 : 0);
 			lightingMaterial.SetTexture("CausticTex", causticTexture != null ? causticTexture : Texture2D.blackTexture);
+			lightingMaterial.SetInt("particleFluidCausticRegionEnabled", causticRenderRegion.IsCropped ? 1 : 0);
+			lightingMaterial.SetVector("particleFluidCausticUvRect", causticRenderRegion.SourceUvRect);
 			lightingMaterial.SetInt("particleFluidDirectionalLightFieldEnabled", renderDirectionalLightField ? 1 : 0);
 			lightingMaterial.SetTexture("LightDirectionTex", lightDirectionTexture != null ? lightDirectionTexture : Texture2D.blackTexture);
 			lightingMaterial.SetInt("particleFluidPhaseDiffuseLightEnabled", renderSoftLight ? 1 : 0);
@@ -197,7 +208,9 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.BeginSample("Particle Fluid/Final Lighting");
 			if (!ShouldRenderColorBleed(settings))
 			{
+				ConfigureLightingCompositeToCamera();
 				commandBuffer.Blit(null, finalTarget, lightingMaterial, LightingPass);
+				ConfigureLightingIntermediate();
 			}
 			else
 			{
@@ -219,8 +232,8 @@ namespace Seb.Fluid2D.Rendering
 		{
 			int materialWidth = Mathf.Max(materialAlbedoTexture != null ? materialAlbedoTexture.width : 1, 1);
 			int materialHeight = Mathf.Max(materialAlbedoTexture != null ? materialAlbedoTexture.height : 1, 1);
-			int sourceWidth = Mathf.Max(cam != null ? cam.pixelWidth : materialWidth, 1);
-			int sourceHeight = Mathf.Max(cam != null ? cam.pixelHeight : materialHeight, 1);
+			int sourceWidth = materialRenderRegion.IsCropped ? materialWidth : Mathf.Max(cam != null ? cam.pixelWidth : materialWidth, 1);
+			int sourceHeight = materialRenderRegion.IsCropped ? materialHeight : Mathf.Max(cam != null ? cam.pixelHeight : materialHeight, 1);
 			float bleedScale = Mathf.Clamp(settings.diffuseColorBleedTextureScale, 0.125f, 1f);
 			int bleedWidth = Mathf.Max(1, Mathf.RoundToInt(sourceWidth * bleedScale));
 			int bleedHeight = Mathf.Max(1, Mathf.RoundToInt(sourceHeight * bleedScale));
@@ -231,12 +244,14 @@ namespace Seb.Fluid2D.Rendering
 
 			commandBuffer.SetRenderTarget(FinalLightingTempId);
 			commandBuffer.ClearRenderTarget(false, true, Color.clear);
+			ConfigureLightingIntermediate();
 			commandBuffer.Blit(null, FinalLightingTempId, lightingMaterial, LightingPass);
-			BindColorBleedMaterial(settings, bleedScale);
+			BindColorBleedMaterial(settings, bleedScale, false);
 			commandBuffer.SetGlobalTexture("_ParticleFluidSourceTex", FinalLightingTempId);
 			commandBuffer.Blit(FinalLightingTempId, ColorBleedTemp0Id, colorBleedMaterial, ColorBleedDownsamplePass);
 			commandBuffer.Blit(ColorBleedTemp0Id, ColorBleedTemp1Id, colorBleedMaterial, ColorBleedHorizontalPass);
 			commandBuffer.Blit(ColorBleedTemp1Id, ColorBleedTemp0Id, colorBleedMaterial, ColorBleedVerticalPass);
+			BindColorBleedMaterial(settings, bleedScale, true);
 			commandBuffer.SetGlobalTexture("_ParticleFluidSourceTex", FinalLightingTempId);
 			commandBuffer.SetGlobalTexture("_ParticleFluidBleedTex", ColorBleedTemp0Id);
 			commandBuffer.Blit(FinalLightingTempId, finalTarget, colorBleedMaterial, ColorBleedCompositePass);
@@ -246,11 +261,29 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.ReleaseTemporaryRT(FinalLightingTempId);
 		}
 
-		void BindColorBleedMaterial(ParticleFluidLighting2D settings, float bleedScale)
+		void ConfigureLightingCompositeToCamera()
+		{
+			lightingMaterial.SetInt("particleFluidCompositeRegionEnabled", materialRenderRegion.IsCropped ? 1 : 0);
+			lightingMaterial.SetInt("particleFluidClipRegionEnabled", 0);
+			lightingMaterial.SetVector("particleFluidClipRect", materialRenderRegion.SourceUvRect);
+		}
+
+		void ConfigureLightingIntermediate()
+		{
+			lightingMaterial.SetInt("particleFluidCompositeRegionEnabled", 0);
+			lightingMaterial.SetInt("particleFluidClipRegionEnabled", 0);
+			lightingMaterial.SetVector("particleFluidClipRect", materialRenderRegion.SourceUvRect);
+		}
+
+		void BindColorBleedMaterial(ParticleFluidLighting2D settings, float bleedScale, bool compositeToCamera)
 		{
 			colorBleedMaterial.SetTexture("MaterialAlbedoTex", materialAlbedoTexture != null ? materialAlbedoTexture : Texture2D.blackTexture);
 			colorBleedMaterial.SetTexture("MaterialNormalTex", materialNormal0Texture != null ? materialNormal0Texture : Texture2D.blackTexture);
 			colorBleedMaterial.SetTexture("MaterialNormalTex1", materialNormal1Texture != null ? materialNormal1Texture : Texture2D.blackTexture);
+			colorBleedMaterial.SetInt("particleFluidCompositeRegionEnabled", compositeToCamera && materialRenderRegion.IsCropped ? 1 : 0);
+			colorBleedMaterial.SetInt("particleFluidClipRegionEnabled", 0);
+			colorBleedMaterial.SetVector("particleFluidCompositeUvRect", materialRenderRegion.SourceUvRect);
+			colorBleedMaterial.SetVector("particleFluidClipRect", materialRenderRegion.SourceUvRect);
 			colorBleedMaterial.SetFloat("_BleedStrength", Mathf.Max(settings.diffuseColorBleedStrength, 0f));
 			colorBleedMaterial.SetFloat("_BleedRadius", Mathf.Max(settings.diffuseColorBleedRadius * currentZoomScale * bleedScale, 0f));
 			colorBleedMaterial.SetFloat("_BleedSelfSubtract", Mathf.Clamp01(settings.diffuseColorBleedSelfSubtract));

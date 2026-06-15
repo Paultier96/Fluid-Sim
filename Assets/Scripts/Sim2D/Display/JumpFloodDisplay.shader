@@ -21,11 +21,15 @@ Shader "Custom/JumpFloodDisplay"
             Texture2D _PayloadTex;
             SamplerState sampler_PayloadTex;
             float4x4 _InverseViewProjection;
+            float2 jumpFloodWorldCenter;
+            float2 jumpFloodWorldSize;
             float2 ellipseBoundsCenter;
             float2 ellipseBoundsSize;
             float2 boundsSize;
             float obstacleY;
             int useEllipticalBounds;
+            int jumpFloodCompositeRegionEnabled;
+            float4 jumpFloodCompositeUvRect;
 
             struct appdata
             {
@@ -49,9 +53,20 @@ Shader "Custom/JumpFloodDisplay"
 
             float2 WorldFromUV(float2 uv)
             {
-                float4 clip = float4(uv * 2.0 - 1.0, 0.0, 1.0);
-                float4 world = mul(_InverseViewProjection, clip);
-                return world.xy / max(world.w, 0.0001);
+                return jumpFloodWorldCenter + (uv - 0.5) * max(jumpFloodWorldSize, float2(0.0001, 0.0001));
+            }
+
+            bool TryGetMaterialUv(float2 screenUv, out float2 materialUv)
+            {
+                if (jumpFloodCompositeRegionEnabled == 0)
+                {
+                    materialUv = screenUv;
+                    return true;
+                }
+
+                float2 localUv = (screenUv - jumpFloodCompositeUvRect.xy) / max(jumpFloodCompositeUvRect.zw, float2(0.000001, 0.000001));
+                materialUv = localUv;
+                return all(localUv >= 0.0) && all(localUv <= 1.0);
             }
 
             float EllipseCutSignedDistance(float2 worldPos)
@@ -84,12 +99,17 @@ Shader "Custom/JumpFloodDisplay"
 
             float4 frag(v2f i) : SV_Target
             {
-                float2 seedUV = i.uv;
+                float2 seedUV;
+                if (!TryGetMaterialUv(i.uv, seedUV))
+                {
+                    return float4(0,0,0,1);
+                }
+
                 float4 payload = _PayloadTex.Sample(sampler_PayloadTex, seedUV);
                 if (payload.a < 0.0)
                     return float4(0,0,0,1);
 
-                float mask = BoundsMask(WorldFromUV(i.uv));
+                float mask = BoundsMask(WorldFromUV(seedUV));
                 return float4(payload.rgb * mask, 1);
             }
             ENDCG

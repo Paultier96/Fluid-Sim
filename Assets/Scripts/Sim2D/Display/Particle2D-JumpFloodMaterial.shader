@@ -28,11 +28,15 @@ sampler2D _NormalPayloadTex;
 sampler2D MaterialAlbedoTex;
 float4 _ResultTex_TexelSize;
 float4x4 _InverseViewProjection;
+float2 jumpFloodWorldCenter;
+float2 jumpFloodWorldSize;
 float2 ellipseBoundsCenter;
 float2 ellipseBoundsSize;
 float2 boundsSize;
 float obstacleY;
 int useEllipticalBounds;
+int metaballCompositeRegionEnabled;
+float4 metaballCompositeUvRect;
 
 v2f vert(appdata v)
 {
@@ -44,9 +48,20 @@ v2f vert(appdata v)
 
 float2 WorldFromUV(float2 uv)
 {
-	float4 clip = float4(uv * 2.0 - 1.0, 0.0, 1.0);
-	float4 world = mul(_InverseViewProjection, clip);
-	return world.xy / max(world.w, 0.0001);
+	return jumpFloodWorldCenter + (uv - 0.5) * max(jumpFloodWorldSize, float2(0.0001, 0.0001));
+}
+
+bool TryGetCompositeMaterialUv(float2 screenUv, out float2 materialUv)
+{
+	if (metaballCompositeRegionEnabled == 0)
+	{
+		materialUv = screenUv;
+		return true;
+	}
+
+	float2 localUv = (screenUv - metaballCompositeUvRect.xy) / max(metaballCompositeUvRect.zw, float2(0.000001, 0.000001));
+	materialUv = localUv;
+	return all(localUv >= 0.0) && all(localUv <= 1.0);
 }
 
 float EllipseCutSignedDistance(float2 worldPos)
@@ -131,7 +146,13 @@ float4 fragMaterialNormal1(v2f i) : SV_Target
 
 float4 fragUnlitAlbedo(v2f i) : SV_Target
 {
-	float4 materialAlbedo = tex2D(MaterialAlbedoTex, i.uv);
+	float2 materialUv;
+	if (!TryGetCompositeMaterialUv(i.uv, materialUv))
+	{
+		discard;
+	}
+
+	float4 materialAlbedo = tex2D(MaterialAlbedoTex, materialUv);
 	if (materialAlbedo.a <= 0.0001)
 	{
 		discard;

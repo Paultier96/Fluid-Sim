@@ -132,6 +132,7 @@ GameObject:
   - component: {fileID: 271053320}
   - component: {fileID: 271053322}
   - component: {fileID: 271053323}
+  - component: {fileID: 271053324}
   m_Layer: 0
   m_Name: Simulation
   m_TagString: Untagged
@@ -468,6 +469,20 @@ MonoBehaviour:
   vectorUseLogScale: 1
   vectorLogScaleStrength: 100
   vectorWidth: 0.01
+--- !u!114 &271053324
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 271053315}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1f918b6a22b941efb72564d467068bd7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  display: {fileID: 271053322}
+  lighting: {fileID: 271053323}
 --- !u!114 &271053323
 MonoBehaviour:
   m_ObjectHideFlags: 0

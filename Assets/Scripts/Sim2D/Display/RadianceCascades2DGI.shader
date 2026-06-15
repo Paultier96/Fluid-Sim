@@ -70,6 +70,7 @@ Shader "Hidden/Particle2DMetaballRadianceCascades"
 			float analyticBoundaryExpansion;
 			float2 metaballWorldCenter;
 			float2 metaballWorldSize;
+			float4 metaballSourceUvRect;
 
 			v2f vert(appdata v)
 			{
@@ -90,6 +91,11 @@ Shader "Hidden/Particle2DMetaballRadianceCascades"
 			float2 WorldPosFromUv(float2 uv)
 			{
 				return metaballWorldCenter + (uv - 0.5) * max(metaballWorldSize, float2(0.0001, 0.0001));
+			}
+
+			float2 SourceUvFromLocalUv(float2 uv)
+			{
+				return metaballSourceUvRect.xy + uv * metaballSourceUvRect.zw;
 			}
 
 			float2 BoundaryDistances(float2 worldPos)
@@ -204,7 +210,7 @@ Shader "Hidden/Particle2DMetaballRadianceCascades"
 
 			float Phase0Mask(float2 uv)
 			{
-				return Phase0MaskFromCombined(uv, tex2D(CombinedTex, uv));
+				return Phase0MaskFromCombined(uv, tex2D(CombinedTex, SourceUvFromLocalUv(uv)));
 			}
 
 			float3 SampleCausticSource(float2 uv, float phase0Mask)
@@ -247,7 +253,7 @@ Shader "Hidden/Particle2DMetaballRadianceCascades"
 						break;
 					}
 
-					float4 combined = tex2D(CombinedTex, currentPosition);
+					float4 combined = tex2D(CombinedTex, SourceUvFromLocalUv(currentPosition));
 					float phase0Mask = Phase0MaskFromCombined(currentPosition, combined);
 					if (phase0Mask <= 0.0001)
 					{

@@ -36,6 +36,8 @@ sampler2D LightDirectionTex;
 sampler2D SoftLightTex;
 sampler2D CausticHistoryTex;
 float4 _MainTex_TexelSize;
+int particleCausticRegionEnabled;
+float4 particleCausticUvRect;
 float causticMotionDilationRadius;
 float densityThreshold;
 float edgeSoftness;
@@ -453,9 +455,13 @@ float3 ApplyMotionClipMarker(float rawMotionMagnitude, float3 colour)
 
 float4 frag(v2f i) : SV_Target
 {
+	float2 causticUv = particleCausticRegionEnabled != 0
+		? (i.uv - particleCausticUvRect.xy) / max(particleCausticUvRect.zw, float2(0.000001, 0.000001))
+		: i.uv;
+	bool insideCausticRegion = particleCausticRegionEnabled == 0 || all(causticUv >= 0.0) && all(causticUv <= 1.0);
 	if (debugMode == 7)
 	{
-		return float4(tex2D(CausticTex, i.uv).rgb / max(particleCausticDebugExposure, 0.0001), 1.0);
+		return insideCausticRegion ? float4(tex2D(CausticTex, causticUv).rgb / max(particleCausticDebugExposure, 0.0001), 1.0) : float4(0.0, 0.0, 0.0, 1.0);
 	}
 	if (debugMode == 8)
 	{
@@ -473,7 +479,7 @@ float4 frag(v2f i) : SV_Target
 			float3 diffuseAlbedo1 = SamplePhaseGradientColour(data1, true, noise);
 			float3 diffuseTint0 = lerp(metaballPhase0DiffuseLightTint.rgb, diffuseAlbedo0, saturate(metaballPhase0DiffuseAlbedoTintBlend));
 			float3 diffuseTint1 = lerp(metaballPhase1DiffuseLightTint.rgb, diffuseAlbedo1, saturate(metaballPhase1DiffuseAlbedoTintBlend));
-			float4 packedSoftLight = tex2D(SoftLightTex, i.uv);
+			float4 packedSoftLight = insideCausticRegion ? tex2D(SoftLightTex, causticUv) : 0.0;
 			softLight += packedSoftLight.rgb * (1.0 - phaseT) * diffuseTint0;
 			if (metaballSoftLightPhase0Only == 0)
 			{
@@ -489,14 +495,14 @@ float4 frag(v2f i) : SV_Target
 			return float4(0.0, 0.0, 0.0, 1.0);
 		}
 
-		float4 directionDebug = tex2D(LightDirectionTex, i.uv);
+		float4 directionDebug = insideCausticRegion ? tex2D(LightDirectionTex, causticUv) : 0.0;
 		float validDirection = saturate(directionDebug.z);
 		float3 encodedDirection = float3(directionDebug.xy * 0.5 + 0.5, validDirection);
 		return float4(encodedDirection * validDirection, 1.0);
 	}
 	if (debugMode == 10)
 	{
-		float4 motionDebug = tex2D(CausticMotionTex, i.uv);
+		float4 motionDebug = insideCausticRegion ? tex2D(CausticMotionTex, causticUv) : 0.0;
 		float2 debugMotion = motionDebug.xy * metaballWorldSize;
 		float motionConfidence = saturate(motionDebug.z);
 		float motionScale = max(debugGradientMax, 0.0001);

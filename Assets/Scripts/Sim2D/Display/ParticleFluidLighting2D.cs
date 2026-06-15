@@ -169,6 +169,15 @@ namespace Seb.Fluid2D.Rendering
 			DirectionalLightField
 		}
 
+		public enum LightingDebugVisualization
+		{
+			None,
+			Caustics,
+			SoftLight,
+			DirectionalLightField,
+			CausticMotion
+		}
+
 		[Header("Shaders")]
 		[Tooltip("Shader used by the separated fullscreen lighting pass. If left empty, Hidden/Particle2DParticleFluidLighting is used as a fallback.")]
 		public Shader lightingShader;
@@ -182,6 +191,10 @@ namespace Seb.Fluid2D.Rendering
 		public ComputeShader phaseDiffuseLightCompute;
 		[Tooltip("Shader used for the optional radiance cascade soft lighting pass.")]
 		public Shader radianceCascadeShader;
+
+		[Header("Debug")]
+		[Tooltip("Debug visualization for raymarched/soft lighting buffers.")]
+		public LightingDebugVisualization debugMode = LightingDebugVisualization.None;
 
 		[Header("Lights")]
 		public DirectionalLightSettings primaryLight = new DirectionalLightSettings(122.5f, 50.3f, 0.45f);
@@ -382,6 +395,8 @@ namespace Seb.Fluid2D.Rendering
 			Texture causticTexture,
 			Texture lightDirectionTexture,
 			float analyticBoundaryExpansion,
+			ParticleFluidRenderRegion2D renderRegion,
+			ParticleFluidRenderRegion2D causticRenderRegion,
 			Vector3 primaryDirectLightingDirection,
 			Vector3 secondaryDirectLightingDirection,
 			Vector3 tertiaryDirectLightingDirection)
@@ -397,15 +412,17 @@ namespace Seb.Fluid2D.Rendering
 				causticTexture,
 				lightDirectionTexture,
 				analyticBoundaryExpansion,
+				renderRegion,
+				causticRenderRegion,
 				primaryDirectLightingDirection,
 				secondaryDirectLightingDirection,
 				tertiaryDirectLightingDirection
 			);
 		}
 
-		internal void SetMaterialTextures(Texture albedo, Texture normal0, Texture normal1)
+		internal void SetMaterialTextures(Texture albedo, Texture normal0, Texture normal1, ParticleFluidRenderRegion2D renderRegion)
 		{
-			Renderer.SetMaterialTextures(albedo, normal0, normal1);
+			Renderer.SetMaterialTextures(albedo, normal0, normal1, renderRegion);
 		}
 
 		internal void SetSoftLightTexture(Texture texture)

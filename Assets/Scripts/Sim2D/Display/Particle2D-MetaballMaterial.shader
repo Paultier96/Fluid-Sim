@@ -44,6 +44,7 @@ float2 ellipseBoundsSize;
 float obstacleY;
 float2 metaballWorldCenter;
 float2 metaballWorldSize;
+float4 metaballSourceUvRect;
 float analyticBoundaryExpansion;
 float metaballGhostBoundaryNormalStrength;
 float metaballRefractionStrength;
@@ -51,6 +52,10 @@ float metaballRefractionEdgeFade;
 int screenSpaceRefractionCanCrossPhases;
 int debugMode;
 int debugShowClipping;
+int metaballCompositeRegionEnabled;
+float4 metaballCompositeUvRect;
+int metaballClipRegionEnabled;
+float4 metaballClipRect;
 float debugGradientMax;
 float motionDebugDeltaTime;
 float particleNormalStrength;
@@ -59,6 +64,12 @@ v2f vert(appdata v)
 	v2f o;
 	o.vertex = UnityObjectToClipPos(v.vertex);
 	o.uv = v.uv;
+	if (metaballClipRegionEnabled != 0)
+	{
+		float2 clipMin = metaballClipRect.xy * 2.0 - 1.0;
+		float2 clipMax = (metaballClipRect.xy + metaballClipRect.zw) * 2.0 - 1.0;
+		o.vertex.xy = lerp(clipMin, clipMax, v.uv) * o.vertex.w;
+	}
 	return o;
 }
 
@@ -128,6 +139,24 @@ float3 ReorientedNormal(float3 baseNormal, float3 detailNormal)
 float2 WorldPosFromUv(float2 uv)
 {
 	return metaballWorldCenter + (uv - 0.5) * max(metaballWorldSize, float2(0.0001, 0.0001));
+}
+
+float2 SourceUvFromMaterialUv(float2 uv)
+{
+	return metaballSourceUvRect.xy + uv * metaballSourceUvRect.zw;
+}
+
+bool TryGetCompositeMaterialUv(float2 screenUv, out float2 materialUv)
+{
+	if (metaballCompositeRegionEnabled == 0)
+	{
+		materialUv = screenUv;
+		return true;
+	}
+
+	float2 localUv = (screenUv - metaballCompositeUvRect.xy) / max(metaballCompositeUvRect.zw, float2(0.000001, 0.000001));
+	materialUv = localUv;
+	return all(localUv >= 0.0) && all(localUv <= 1.0);
 }
 
 float2 BoundaryDistances(float2 worldPos)
@@ -316,14 +345,16 @@ float ShiftedPhaseT(float density0, float density1)
 
 bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float3 normal0, out float3 normal1, out float3 albedo)
 {
-	float4 combined = tex2D(CombinedTex, i.uv);
+	float2 materialUv = i.uv;
+	float2 sourceUv = SourceUvFromMaterialUv(materialUv);
+	float4 combined = tex2D(CombinedTex, sourceUv);
 	float density0 = Phase0Density(combined);
 	float density1 = combined.a;
 	float density = max(density0, density1);
 	float particleAlpha = smoothstep(max(densityThreshold - edgeSoftness, 0), densityThreshold + edgeSoftness, density);
 	if (useEllipticalBounds != 0)
 	{
-		float boundsDistance = OuterAnalyticBoundaryDistance(WorldPosFromUv(i.uv));
+		float boundsDistance = OuterAnalyticBoundaryDistance(WorldPosFromUv(materialUv));
 		float boundsAA = max(fwidth(boundsDistance), 0.0001);
 		float boundsAlpha = smoothstep(boundsAA, -boundsAA, boundsDistance);
 		alpha = min(particleAlpha, boundsAlpha);
@@ -346,16 +377,16 @@ bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float
 	float data0 = combined.r / max(density0, 0.0001);
 	float data1 = combined.b / max(density1, 0.0001);
 	float noise = InterleavedGradientNoise(i.vertex.xy);
-	float4 normalPacked = tex2D(NormalTex, i.uv);
-	float2 worldPos = WorldPosFromUv(i.uv);
+	float4 normalPacked = tex2D(NormalTex, sourceUv);
+	float2 worldPos = WorldPosFromUv(materialUv);
 	normal0 = GetPhaseNormal(normalPacked, density0, density1, false);
 	normal1 = GetPhaseNormal(normalPacked, density0, density1, true);
 	normal0 = ApplyAnalyticBoundaryNormal(normal0, worldPos);
 	normal1 = ApplyAnalyticBoundaryNormal(normal1, worldPos);
 	float3 blendedNormal = normalize(lerp(normal0, normal1, phaseT));
 	float refractionMask = smoothstep(0.0, max(metaballRefractionEdgeFade, 0.0001), density - densityThreshold);
-	float2 refractedUv = saturate(i.uv - blendedNormal.xy * metaballRefractionStrength * refractionMask);
-	albedo = SampleGradientColour(refractedUv, data0, data1, phaseT, noise);
+	float2 refractedSourceUv = saturate(sourceUv - blendedNormal.xy * metaballRefractionStrength * refractionMask);
+	albedo = SampleGradientColour(refractedSourceUv, data0, data1, phaseT, noise);
 	return true;
 }
 
@@ -406,7 +437,13 @@ float4 fragMaterialNormal1(v2f i) : SV_Target
 
 float4 fragUnlitAlbedo(v2f i) : SV_Target
 {
-	float4 materialAlbedo = tex2D(MaterialAlbedoTex, i.uv);
+	float2 materialUv;
+	if (!TryGetCompositeMaterialUv(i.uv, materialUv))
+	{
+		discard;
+	}
+
+	float4 materialAlbedo = tex2D(MaterialAlbedoTex, materialUv);
 	if (materialAlbedo.a <= 0.0001)
 	{
 		discard;

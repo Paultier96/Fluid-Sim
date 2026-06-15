@@ -34,6 +34,8 @@ Shader "Instanced/Particle2DMetaball" {
 			float debugDensityMax;
 			float metaballSharpness;
 			float metaballIntensity;
+			float2 metaballRenderWorldCenter;
+			float2 metaballRenderWorldSize;
 			int debugMode;
 
 			struct v2f {
@@ -67,7 +69,6 @@ Shader "Instanced/Particle2DMetaball" {
 			{
 				float3 centreWorld = float3(Positions2D[instanceID], 0);
 				float3 worldVertPos = centreWorld + mul(unity_ObjectToWorld, v.vertex * scale);
-				float3 objectVertPos = mul(unity_WorldToObject, float4(worldVertPos.xyz, 1));
 
 				float temp = Temperatures[instanceID];
 				float tempT = (temp - tempMin) / max(tempMax - tempMin, 0.001);
@@ -75,7 +76,9 @@ Shader "Instanced/Particle2DMetaball" {
 				float density = DensityData[instanceID].x;
 
 				v2f o;
-				o.pos = UnityObjectToClipPos(objectVertPos);
+				float2 clipXY = (worldVertPos.xy - metaballRenderWorldCenter) / max(metaballRenderWorldSize, float2(0.0001, 0.0001)) * 2.0;
+				clipXY.y = -clipXY.y;
+				o.pos = float4(clipXY, 0.0, 1.0);
 				o.uv = v.texcoord;
 				o.tempT = tempT;
 				o.csfDebug = csfData;
@@ -167,6 +170,8 @@ Shader "Instanced/Particle2DMetaball" {
 			float scale;
 			float metaballSharpness;
 			float metaballIntensity;
+			float2 metaballRenderWorldCenter;
+			float2 metaballRenderWorldSize;
 
 			struct v2f {
 				float4 pos : SV_POSITION;
@@ -181,10 +186,11 @@ Shader "Instanced/Particle2DMetaball" {
 				float2 centre = Positions2D[instanceID];
 				float3 centreWorld = float3(centre, 0);
 				float3 worldVertPos = centreWorld + mul(unity_ObjectToWorld, v.vertex * scale);
-				float3 objectVertPos = mul(unity_WorldToObject, float4(worldVertPos.xyz, 1));
 
 				v2f o;
-				o.pos = UnityObjectToClipPos(objectVertPos);
+				float2 clipXY = (worldVertPos.xy - metaballRenderWorldCenter) / max(metaballRenderWorldSize, float2(0.0001, 0.0001)) * 2.0;
+				clipXY.y = -clipXY.y;
+				o.pos = float4(clipXY, 0.0, 1.0);
 				o.uv = v.texcoord;
 				float2 debugData = DebugData[instanceID];
 				o.normalXY = debugData / 7;
@@ -225,6 +231,8 @@ Shader "Instanced/Particle2DMetaball" {
 			float scale;
 			float metaballSharpness;
 			float metaballIntensity;
+			float2 metaballRenderWorldCenter;
+			float2 metaballRenderWorldSize;
 
 			struct v2f {
 				float4 pos : SV_POSITION;
@@ -238,10 +246,11 @@ Shader "Instanced/Particle2DMetaball" {
 			{
 				float3 centreWorld = float3(Positions2D[instanceID], 0);
 				float3 worldVertPos = centreWorld + mul(unity_ObjectToWorld, v.vertex * scale);
-				float3 objectVertPos = mul(unity_WorldToObject, float4(worldVertPos.xyz, 1));
 
 				v2f o;
-				o.pos = UnityObjectToClipPos(objectVertPos);
+				float2 clipXY = (worldVertPos.xy - metaballRenderWorldCenter) / max(metaballRenderWorldSize, float2(0.0001, 0.0001)) * 2.0;
+				clipXY.y = -clipXY.y;
+				o.pos = float4(clipXY, 0.0, 1.0);
 				o.uv = v.texcoord;
 				o.velocity = Velocities[instanceID];
 				o.curvature = Curvatures[instanceID];
@@ -279,6 +288,8 @@ Shader "Instanced/Particle2DMetaball" {
 			float scale;
 			float metaballSharpness;
 			float metaballIntensity;
+			float2 metaballRenderWorldCenter;
+			float2 metaballRenderWorldSize;
 
 			struct v2f {
 				float4 pos : SV_POSITION;
@@ -292,10 +303,11 @@ Shader "Instanced/Particle2DMetaball" {
 			{
 				float3 centreWorld = float3(Positions2D[instanceID], 0);
 				float3 worldVertPos = centreWorld + mul(unity_ObjectToWorld, v.vertex * scale);
-				float3 objectVertPos = mul(unity_WorldToObject, float4(worldVertPos.xyz, 1));
 
 				v2f o;
-				o.pos = UnityObjectToClipPos(objectVertPos);
+				float2 clipXY = (worldVertPos.xy - metaballRenderWorldCenter) / max(metaballRenderWorldSize, float2(0.0001, 0.0001)) * 2.0;
+				clipXY.y = -clipXY.y;
+				o.pos = float4(clipXY, 0.0, 1.0);
 				o.uv = v.texcoord;
 				o.velocity = Velocities[instanceID];
 				o.curvature = Curvatures[instanceID];

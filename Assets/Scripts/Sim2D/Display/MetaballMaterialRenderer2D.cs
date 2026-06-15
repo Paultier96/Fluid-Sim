@@ -34,9 +34,9 @@ namespace Seb.Fluid2D.Rendering
 			material = new Material(shader);
 		}
 
-		public void EnsureRenderTextures(int width, int height)
+		public void EnsureRenderTextures(ParticleFluidRenderRegion2D renderRegion)
 		{
-			materialMaps.EnsureRenderTextures(width, height, "Particle2D");
+			materialMaps.EnsureRenderTextures(renderRegion.PixelWidth, renderRegion.PixelHeight, "Particle2D");
 		}
 
 		public void ApplySettings(
@@ -44,6 +44,7 @@ namespace Seb.Fluid2D.Rendering
 			Camera cam,
 			RenderTexture combinedTexture,
 			RenderTexture normalTexture,
+			ParticleFluidRenderRegion2D renderRegion,
 			float analyticBoundaryExpansion,
 			float effectiveNormalStrength,
 			ParticleFluidLighting2D lighting)
@@ -54,10 +55,6 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			ParticleDisplay2D.MetaballSettings settings = display.metaballs;
-			float worldHeight = Mathf.Max(cam.orthographicSize * 2f, 0.0001f);
-			float worldWidth = Mathf.Max(worldHeight * cam.aspect, 0.0001f);
-			Vector2 worldCenter = new Vector2(cam.transform.position.x, cam.transform.position.y);
-
 			material.SetTexture("CombinedTex", combinedTexture);
 			material.SetTexture("NormalTex", normalTexture);
 			material.SetTexture("ColourMap", display.gradientTexture);
@@ -71,8 +68,9 @@ namespace Seb.Fluid2D.Rendering
 			material.SetVector("ellipseBoundsCenter", new Vector4(display.sim.ellipseBoundsCenter.x, display.sim.ellipseBoundsCenter.y, 0f, 0f));
 			material.SetVector("ellipseBoundsSize", new Vector4(display.sim.ellipseBoundsSize.x, display.sim.ellipseBoundsSize.y, 0f, 0f));
 			material.SetFloat("obstacleY", display.sim.obstacleY);
-			material.SetVector("metaballWorldCenter", new Vector4(worldCenter.x, worldCenter.y, 0f, 0f));
-			material.SetVector("metaballWorldSize", new Vector4(worldWidth, worldHeight, 0f, 0f));
+			material.SetVector("metaballWorldCenter", new Vector4(renderRegion.WorldCenter.x, renderRegion.WorldCenter.y, 0f, 0f));
+			material.SetVector("metaballWorldSize", new Vector4(renderRegion.WorldSize.x, renderRegion.WorldSize.y, 0f, 0f));
+			material.SetVector("metaballSourceUvRect", new Vector4(0f, 0f, 1f, 1f));
 			material.SetFloat("analyticBoundaryExpansion", analyticBoundaryExpansion);
 			material.SetFloat("metaballGhostBoundaryNormalStrength", settings.ghostBoundaryNormalStrength);
 			material.SetFloat("metaballRefractionStrength", (lighting != null ? lighting.refractionStrength : 0f) * display.GetZoomScale(cam));
@@ -91,14 +89,14 @@ namespace Seb.Fluid2D.Rendering
 			materialMaps.Render(commandBuffer, material, AlbedoPass, Normal0Pass, Normal1Pass);
 		}
 
-		public void RenderUnlit(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget)
+		public void RenderUnlit(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, ParticleFluidRenderRegion2D renderRegion)
 		{
 			if (!IsReady || commandBuffer == null)
 			{
 				return;
 			}
 
-			materialMaps.RenderUnlit(commandBuffer, material, finalTarget, UnlitPass);
+			materialMaps.RenderUnlit(commandBuffer, material, finalTarget, UnlitPass, renderRegion);
 		}
 
 		public void ReleaseMaterialTextures()

@@ -31,10 +31,16 @@ float obstacleY;
 float analyticBoundaryExpansion;
 float2 softLightWorldCenter;
 float2 softLightWorldSize;
+float4 softLightSourceUvRect;
 
 float2 UvFromPixel(uint2 pixel)
 {
 	return (float2(pixel) + 0.5) / max(float2(softLightWidth, softLightHeight), float2(1.0, 1.0));
+}
+
+float2 SourceUvFromSoftLightUv(float2 uv)
+{
+	return softLightSourceUvRect.xy + uv * softLightSourceUvRect.zw;
 }
 
 uint2 PixelFromUv(float2 uv, int width, int height)
@@ -52,7 +58,7 @@ float4 SampleSharpCaustics(uint2 pixel)
 float4 SampleCombinedAt(uint2 pixel)
 {
 	float2 uv = UvFromPixel(pixel);
-	return CombinedTex.SampleLevel(linear_clamp_sampler, uv, 0);
+	return CombinedTex.SampleLevel(linear_clamp_sampler, SourceUvFromSoftLightUv(uv), 0);
 }
 
 float2 PhaseDensities(uint2 pixel)

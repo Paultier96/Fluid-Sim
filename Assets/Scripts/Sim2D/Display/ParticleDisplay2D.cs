@@ -27,10 +27,6 @@ namespace Seb.Fluid2D.Rendering
 			Density = 4,
 			Temperature = 5,
 			BlobIds = 6,
-			Caustics = 7,
-			SoftLight = 8,
-			DirectionalLightField = 9,
-			CausticMotion = 10,
 			ParticleMotion = 11,
 		}
 
@@ -132,7 +128,6 @@ namespace Seb.Fluid2D.Rendering
 
 		void LateUpdate()
 		{
-			UpdateDebugModeFromKeyboard();
 			RefreshSimulationDebugBuffersIfNeeded();
 			EnsureMaterials();
 			UpdateSettings();
@@ -177,58 +172,6 @@ namespace Seb.Fluid2D.Rendering
 			lastDebugMode = debugMode;
 			lastVectorFieldSource = vectorFieldSource;
 			sim.RefreshDebugBuffers();
-		}
-
-		void UpdateDebugModeFromKeyboard()
-		{
-			if (Input.GetKeyDown(KeyCode.Alpha0) || Input.GetKeyDown(KeyCode.Keypad0))
-			{
-				debugMode = DebugVisualization.None;
-			}
-			else if (Input.GetKeyDown(KeyCode.Alpha1) || Input.GetKeyDown(KeyCode.Keypad1))
-			{
-				debugMode = DebugVisualization.Gradient;
-			}
-			else if (Input.GetKeyDown(KeyCode.Alpha2) || Input.GetKeyDown(KeyCode.Keypad2))
-			{
-				debugMode = DebugVisualization.Curvature;
-			}
-			else if (Input.GetKeyDown(KeyCode.Alpha3) || Input.GetKeyDown(KeyCode.Keypad3))
-			{
-				debugMode = DebugVisualization.Viscosity;
-			}
-			else if (Input.GetKeyDown(KeyCode.Alpha4) || Input.GetKeyDown(KeyCode.Keypad4))
-			{
-				debugMode = DebugVisualization.Density;
-			}
-			else if (Input.GetKeyDown(KeyCode.Alpha5) || Input.GetKeyDown(KeyCode.Keypad5))
-			{
-				debugMode = DebugVisualization.Temperature;
-			}
-			else if (Input.GetKeyDown(KeyCode.Alpha6) || Input.GetKeyDown(KeyCode.Keypad6))
-			{
-				debugMode = DebugVisualization.BlobIds;
-			}
-			else if (Input.GetKeyDown(KeyCode.Alpha7) || Input.GetKeyDown(KeyCode.Keypad7))
-			{
-				debugMode = DebugVisualization.Caustics;
-			}
-			else if (Input.GetKeyDown(KeyCode.Alpha8) || Input.GetKeyDown(KeyCode.Keypad8))
-			{
-				debugMode = DebugVisualization.SoftLight;
-			}
-			else if (Input.GetKeyDown(KeyCode.Alpha9) || Input.GetKeyDown(KeyCode.Keypad9))
-			{
-				debugMode = DebugVisualization.DirectionalLightField;
-			}
-			else if (Input.GetKeyDown(KeyCode.Q))
-			{
-				debugMode = DebugVisualization.CausticMotion;
-			}
-			else if (Input.GetKeyDown(KeyCode.W))
-			{
-				debugMode = DebugVisualization.ParticleMotion;
-			}
 		}
 
 		void UpdateSettings()
@@ -362,11 +305,7 @@ namespace Seb.Fluid2D.Rendering
 		}
 		bool IsCompositeOnlyDebugMode(DebugVisualization mode)
 		{
-			return mode == DebugVisualization.Caustics
-			       || mode == DebugVisualization.DirectionalLightField
-			       || mode == DebugVisualization.CausticMotion
-			       || mode == DebugVisualization.ParticleMotion
-			       || mode == DebugVisualization.SoftLight;
+			return mode == DebugVisualization.ParticleMotion;
 		}
 
 		DebugVisualization ParticleShaderDebugMode => IsCompositeOnlyDebugMode(debugMode) ? DebugVisualization.None : debugMode;
@@ -624,17 +563,6 @@ namespace Seb.Fluid2D.Rendering
 		{
 			needsUpdate = true;
 			metaballRenderer?.ClearCausticHistory();
-		}
-
-		void OnGUI()
-		{
-			GUIStyle style = new GUIStyle(GUI.skin.box)
-			{
-				alignment = TextAnchor.MiddleLeft,
-				fontSize = 20,
-			};
-
-			GUI.Box(new Rect(30, 30, 240, 30), $"Debug: {debugMode}", style);
 		}
 
 		void OnDisable()

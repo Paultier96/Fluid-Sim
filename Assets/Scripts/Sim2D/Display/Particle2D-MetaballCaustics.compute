@@ -106,6 +106,12 @@ float obstacleY;
 float analyticBoundaryExpansion;
 float2 causticsWorldCenter;
 float2 causticsWorldSize;
+float4 causticsSourceUvRect;
+
+float2 SourceUvFromCausticUv(float2 uv)
+{
+	return causticsSourceUvRect.xy + uv * causticsSourceUvRect.zw;
+}
 
 float4 LoadCombinedPixel(int2 pixel)
 {
@@ -115,13 +121,15 @@ float4 LoadCombinedPixel(int2 pixel)
 
 float4 SampleCombined(float2 uv)
 {
-	int2 pixel = (int2)round(saturate(uv) * float2(combinedWidth - 1, combinedHeight - 1));
+	float2 sourceUv = SourceUvFromCausticUv(saturate(uv));
+	int2 pixel = (int2)round(sourceUv * float2(combinedWidth - 1, combinedHeight - 1));
 	return LoadCombinedPixel(pixel);
 }
 
 int2 VelocityPixel(float2 uv)
 {
-	int2 pixel = (int2)round(saturate(uv) * float2(combinedWidth - 1, combinedHeight - 1));
+	float2 sourceUv = SourceUvFromCausticUv(saturate(uv));
+	int2 pixel = (int2)round(sourceUv * float2(combinedWidth - 1, combinedHeight - 1));
 	return clamp(pixel, int2(0, 0), int2(combinedWidth - 1, combinedHeight - 1));
 }
 
@@ -420,7 +428,7 @@ float2 OffsetBoundaryNormal(float2 worldPos, float expansion)
 float2 AnalyticSurfaceNormal(float2 uv, float2 rayDir, float expansion)
 {
 	float2 worldNormal = OffsetBoundaryNormal(UvToWorld(uv), expansion);
-	float2 normal = normalize(worldNormal / max(causticsWorldSize, 0.0001));
+	float2 normal = normalize(worldNormal);
 	return dot(rayDir, normal) > 0.0 ? -normal : normal;
 }
 
