@@ -27,6 +27,8 @@ namespace Seb.Fluid2D.Rendering
 			[Min(0f)] public float screenSpaceReflectionStrength = 0f;
 			[Tooltip("Initial fraction of sharp ray marched light injected into the phase-aware diffuse lighting pass.")]
 			[Min(0f)] public float diffuseScatterStrength = 0f;
+			[Tooltip("Full-resolution pixel radius for masked Gaussian phase diffuse light. Internally scaled by render texture, ray lighting, and diffuse texture scale.")]
+			[Min(0f)] public float diffuseGaussianRadius = 24f;
 			[Tooltip("Tint applied to this phase's phase-aware diffuse lighting.")]
 			[ColorUsage(false, true)] public Color diffuseLightTint = Color.white;
 			[Tooltip("Blends phase-aware diffuse lighting tint from Diffuse Light Tint toward the local phase albedo gradient. 0 uses Diffuse Light Tint; 1 uses albedo.")]
@@ -170,6 +172,8 @@ namespace Seb.Fluid2D.Rendering
 		[Header("Shaders")]
 		[Tooltip("Shader used by the separated fullscreen lighting pass. If left empty, Hidden/Particle2DParticleFluidLighting is used as a fallback.")]
 		public Shader lightingShader;
+		[Tooltip("Shader used by the optional screen-space final-colour diffuse bleed pass. If left empty, Hidden/Particle2DParticleFluidColorBleed is used as a fallback.")]
+		public Shader colorBleedShader;
 		[Tooltip("Shader used for caustic temporal reprojection and caustic motion dilation. If left empty, Hidden/Particle2DMetaballTemporal is used as a fallback.")]
 		public Shader temporalShader;
 		[Tooltip("Compute shader used to raymarch the fluid surface and accumulate screen-space lighting.")]
@@ -216,10 +220,28 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0f)] public float transmissionIntensity = 0.2f;
 		[Tooltip("Transmission exponent. Higher values make transmission more directional.")]
 		[Min(0.1f)] public float transmissionPower = 2f;
-		[Tooltip("Darkens thin/edge regions to fake inner shadow and liquid thickness.")]
-		[Range(0f, 1f)] public float edgeDarkening = 0.2f;
-		[Tooltip("Edge darkening exponent. Higher values keep the darkening tighter to the edge.")]
-		[Min(0.1f)] public float edgeDarkeningPower = 2f;
+
+		[Header("Ambient Occlusion")]
+		[Tooltip("Darkens thin/edge regions to approximate ambient occlusion from liquid thickness. The normal range is phase-bias aware: larger phases darken closer to the rim, smaller phases darken across a wider normal range.")]
+		[FormerlySerializedAs("edgeDarkening")]
+		[Range(0f, 1f)] public float ambientOcclusion = 0.2f;
+		[Tooltip("Ambient occlusion exponent. Higher values keep the darkening tighter to the edge.")]
+		[FormerlySerializedAs("edgeDarkeningPower")]
+		[Min(0.1f)] public float ambientOcclusionPower = 2f;
+
+		[Header("Diffuse Color Bleed")]
+		[Tooltip("Adds a low-resolution screen-space diffuse bleed pass based on the final lit fluid colour.")]
+		public bool diffuseColorBleedEnabled = false;
+		[Tooltip("Strength of the final-colour diffuse bleed added back into the lit image.")]
+		[Min(0f)] public float diffuseColorBleedStrength = 0.15f;
+		[Tooltip("Resolution of the diffuse bleed texture relative to the material maps. Lower values are cheaper and blurrier.")]
+		[Range(0.125f, 1f)] public float diffuseColorBleedTextureScale = 0.35f;
+		[Tooltip("Full-resolution pixel radius for the diffuse bleed blur. Internally scaled by the bleed texture scale.")]
+		[Min(0f)] public float diffuseColorBleedRadius = 48f;
+		[Tooltip("Subtracts a fraction of the local final colour from the blurred colour before adding bleed. Higher values reduce uniform glow.")]
+		[Range(0f, 1f)] public float diffuseColorBleedSelfSubtract = 0.5f;
+		[Tooltip("How much side-facing normals contribute as bleed emitters and receivers. 0 uses the whole fluid evenly, 1 concentrates the effect near visible edges.")]
+		[Range(0f, 1f)] public float diffuseColorBleedNormalWeight = 0.5f;
 
 		[Header("Iridescence")]
 		[Tooltip("Strength of fake thin-film iridescence in rasterized fluid rendering.")]
@@ -279,10 +301,6 @@ namespace Seb.Fluid2D.Rendering
 		public bool phaseDiffuseLightEnabled = false;
 		[Tooltip("Resolution of the phase-aware diffuse lighting textures relative to the raymarched lighting texture.")]
 		[Range(0.25f, 1f)] public float phaseDiffuseLightTextureScale = 0.5f;
-		[Tooltip("Full-resolution pixel radius for masked Gaussian phase diffuse light in phase 0. Internally scaled by render texture, ray lighting, and diffuse texture scale.")]
-		[Min(0f)] public float phaseDiffuseLightGaussianRadius0 = 24f;
-		[Tooltip("Full-resolution pixel radius for masked Gaussian phase diffuse light in phase 1. Internally scaled by render texture, ray lighting, and diffuse texture scale.")]
-		[Min(0f)] public float phaseDiffuseLightGaussianRadius1 = 24f;
 		[Tooltip("How strongly phase boundaries block phase-aware diffuse lighting. Higher values keep light inside each phase.")]
 		[Min(0f)] public float phaseDiffuseLightBoundarySharpness = 12f;
 		[Tooltip("Uses a radiance cascade pass derived from the raymarched lighting texture as the soft indirect light source. Overrides Phase Diffuse Light when enabled.")]
@@ -348,7 +366,10 @@ namespace Seb.Fluid2D.Rendering
 
 		internal void EnsureMaterial(Shader shader)
 		{
-			Renderer.EnsureMaterial(shader);
+			Shader bleedShader = colorBleedShader != null
+				? colorBleedShader
+				: Shader.Find("Hidden/Particle2DParticleFluidColorBleed");
+			Renderer.EnsureMaterials(shader, bleedShader);
 		}
 
 		internal void ApplySettings(
@@ -392,9 +413,9 @@ namespace Seb.Fluid2D.Rendering
 			Renderer.SetSoftLightTexture(texture);
 		}
 
-		internal void Render(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget)
+		internal void Render(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, Camera cam)
 		{
-			Renderer.Render(commandBuffer, finalTarget);
+			Renderer.Render(commandBuffer, finalTarget, this, cam);
 		}
 
 		void Update()

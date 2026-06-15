@@ -345,7 +345,7 @@ namespace Seb.Fluid2D.Rendering
 				lighting.TertiaryLightDirection
 			);
 			lighting.SetSoftLightTexture(Texture2D.blackTexture);
-			lighting.Render(targetCommandBuffer, finalTarget);
+			lighting.Render(targetCommandBuffer, finalTarget, cam);
 			targetCommandBuffer.EndSample("Jump Flood/Material Pipeline");
 			return true;
 		}

@@ -111,7 +111,6 @@ namespace Seb.Fluid2D.Simulation
         public class PhaseConfig
         {
             public string name = "Water";
-            public Gradient colourMap;
             public float targetDensity = 234;
             public float viscosity = 0.03f;
             [Tooltip("Fractional viscosity change per degree relative to ambient temperature. Positive values make hot fluid less viscous and cold fluid more viscous.")]
@@ -370,8 +369,6 @@ namespace Seb.Fluid2D.Simulation
             markSingleParticleBlobsKernel = compute.FindKernel("MarkSingleParticleBlobs");
 
             particleDisplay = GetComponent<Rendering.ParticleDisplay2D>();
-            if (phases != null)
-                particleDisplay?.SetPhaseColors(phases.Select(p => p.colourMap).ToArray());
             if (phases == null || phases.Length == 0)
                 throw new InvalidOperationException("At least one phase is required.");
 
@@ -706,8 +703,6 @@ namespace Seb.Fluid2D.Simulation
             phaseNonCoalescenceStrengthBuffer = new ComputeBuffer(phaseCount, sizeof(float));
             phaseNonCoalescenceRadiusMultiplierBuffer.SetData(phases.Select(p => p.nonCoalescenceRadiusMultiplier).ToArray());
             phaseNonCoalescenceStrengthBuffer.SetData(phases.Select(p => p.nonCoalescenceStrength).ToArray());
-
-            particleDisplay?.SetPhaseColors(phases.Select(p => p.colourMap).ToArray());
 
             ComputeHelper.SetBuffer(compute, phaseTargetDensityBuffer, "PhaseTargetDensities", thermalBuoyancyKernel, updateThermalExpansionKernel);
             ComputeHelper.SetBuffer(compute, phaseViscosityBuffer,            "PhaseViscosities",         viscosityKernel);

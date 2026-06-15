@@ -6,28 +6,43 @@ namespace Seb.Fluid2D.Rendering
 	internal sealed class ParticleFluidLightingRenderer2D
 	{
 		const int LightingPass = 0;
+		const int ColorBleedDownsamplePass = 0;
+		const int ColorBleedHorizontalPass = 1;
+		const int ColorBleedVerticalPass = 2;
+		const int ColorBleedCompositePass = 3;
+		static readonly int FinalLightingTempId = Shader.PropertyToID("_ParticleFluidFinalLightingTemp");
+		static readonly int ColorBleedTemp0Id = Shader.PropertyToID("_ParticleFluidColorBleed0");
+		static readonly int ColorBleedTemp1Id = Shader.PropertyToID("_ParticleFluidColorBleed1");
 
 		Material lightingMaterial;
+		Material colorBleedMaterial;
 		Texture materialAlbedoTexture = Texture2D.blackTexture;
 		Texture materialNormal0Texture = Texture2D.blackTexture;
 		Texture materialNormal1Texture = Texture2D.blackTexture;
+		float currentZoomScale = 1f;
 
 		public Material Material => lightingMaterial;
 		public bool IsReady => lightingMaterial != null;
 
-		public void EnsureMaterial(Shader shader)
+		public void EnsureMaterials(Shader shader, Shader colorBleedShader)
 		{
-			if (shader == null || (lightingMaterial != null && lightingMaterial.shader == shader))
+			EnsureMaterial(ref lightingMaterial, shader);
+			EnsureMaterial(ref colorBleedMaterial, colorBleedShader);
+		}
+
+		static void EnsureMaterial(ref Material material, Shader shader)
+		{
+			if (shader == null || (material != null && material.shader == shader))
 			{
 				return;
 			}
 
-			if (lightingMaterial != null)
+			if (material != null)
 			{
-				Object.DestroyImmediate(lightingMaterial);
+				Object.DestroyImmediate(material);
 			}
 
-			lightingMaterial = new Material(shader);
+			material = new Material(shader);
 		}
 
 		public void SetMaterialTextures(Texture albedo, Texture normal0, Texture normal1)
@@ -76,6 +91,7 @@ namespace Seb.Fluid2D.Rendering
 			float worldHeight = Mathf.Max(cam.orthographicSize * 2f, 0.0001f);
 			float worldWidth = Mathf.Max(worldHeight * cam.aspect, 0.0001f);
 			Vector2 worldCenter = new Vector2(cam.transform.position.x, cam.transform.position.y);
+			currentZoomScale = display.GetZoomScale(cam);
 
 			BindMaterialTextures();
 			lightingMaterial.SetVector("particleFluidWorldCenter", new Vector4(worldCenter.x, worldCenter.y, 0f, 0f));
@@ -132,17 +148,19 @@ namespace Seb.Fluid2D.Rendering
 			lightingMaterial.SetFloat("particleFresnelPower", settings.fresnelPower);
 			lightingMaterial.SetFloat("screenSpaceReflectionStrength0", settings.phase0Material.screenSpaceReflectionStrength);
 			lightingMaterial.SetFloat("screenSpaceReflectionStrength1", settings.phase1Material.screenSpaceReflectionStrength);
-			lightingMaterial.SetFloat("screenSpaceReflectionDistance", settings.screenSpaceReflectionDistance * display.GetZoomScale(cam));
+			lightingMaterial.SetFloat("screenSpaceReflectionDistance", settings.screenSpaceReflectionDistance * currentZoomScale);
 			lightingMaterial.SetFloat("screenSpaceReflectionEdgePower", settings.screenSpaceReflectionEdgePower);
-			lightingMaterial.SetFloat("particleSpecularCausticSampleOffset", settings.specularCausticSampleOffset * display.GetZoomScale(cam));
-			lightingMaterial.SetVector("particleSpecularCausticPhaseScale", GetSpecularCausticPhaseScale(display.metaballs.phase0RenderBias));
+			lightingMaterial.SetFloat("particleSpecularCausticSampleOffset", settings.specularCausticSampleOffset * currentZoomScale);
+			Vector4 phaseRadiusScale = GetPhaseRadiusScale(display.metaballs.phase0RenderBias);
+			lightingMaterial.SetVector("particleSpecularCausticPhaseScale", phaseRadiusScale);
+			lightingMaterial.SetVector("particleAmbientOcclusionPhaseScale", phaseRadiusScale);
 			lightingMaterial.SetFloat("particleTransmissionIntensity", settings.transmissionIntensity);
 			lightingMaterial.SetFloat("particleTransmissionPower", settings.transmissionPower);
-			lightingMaterial.SetFloat("particleEdgeDarkening", settings.edgeDarkening);
-			lightingMaterial.SetFloat("particleEdgeDarkeningPower", settings.edgeDarkeningPower);
+			lightingMaterial.SetFloat("particleAmbientOcclusion", settings.ambientOcclusion);
+			lightingMaterial.SetFloat("particleAmbientOcclusionPower", settings.ambientOcclusionPower);
 		}
 
-		static Vector4 GetSpecularCausticPhaseScale(float phase0RenderBias)
+		static Vector4 GetPhaseRadiusScale(float phase0RenderBias)
 		{
 			float phaseBoundary = Mathf.Clamp01(0.5f + Mathf.Clamp(phase0RenderBias, -1f, 1f) * 0.5f);
 			float phase0Scale = Mathf.Sqrt(Mathf.Max(phaseBoundary * 2f, 0.0001f));
@@ -168,7 +186,7 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
-		public void Render(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget)
+		public void Render(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, ParticleFluidLighting2D settings, Camera cam)
 		{
 			if (!IsReady || commandBuffer == null)
 			{
@@ -177,8 +195,66 @@ namespace Seb.Fluid2D.Rendering
 
 			BindMaterialTextures();
 			commandBuffer.BeginSample("Particle Fluid/Final Lighting");
-			commandBuffer.Blit(null, finalTarget, lightingMaterial, LightingPass);
+			if (!ShouldRenderColorBleed(settings))
+			{
+				commandBuffer.Blit(null, finalTarget, lightingMaterial, LightingPass);
+			}
+			else
+			{
+				RenderWithColorBleed(commandBuffer, finalTarget, settings, cam);
+			}
 			commandBuffer.EndSample("Particle Fluid/Final Lighting");
+		}
+
+		bool ShouldRenderColorBleed(ParticleFluidLighting2D settings)
+		{
+			return settings != null
+			       && settings.diffuseColorBleedEnabled
+			       && settings.diffuseColorBleedStrength > 0f
+			       && settings.diffuseColorBleedRadius > 0f
+			       && colorBleedMaterial != null;
+		}
+
+		void RenderWithColorBleed(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, ParticleFluidLighting2D settings, Camera cam)
+		{
+			int materialWidth = Mathf.Max(materialAlbedoTexture != null ? materialAlbedoTexture.width : 1, 1);
+			int materialHeight = Mathf.Max(materialAlbedoTexture != null ? materialAlbedoTexture.height : 1, 1);
+			int sourceWidth = Mathf.Max(cam != null ? cam.pixelWidth : materialWidth, 1);
+			int sourceHeight = Mathf.Max(cam != null ? cam.pixelHeight : materialHeight, 1);
+			float bleedScale = Mathf.Clamp(settings.diffuseColorBleedTextureScale, 0.125f, 1f);
+			int bleedWidth = Mathf.Max(1, Mathf.RoundToInt(sourceWidth * bleedScale));
+			int bleedHeight = Mathf.Max(1, Mathf.RoundToInt(sourceHeight * bleedScale));
+
+			commandBuffer.GetTemporaryRT(FinalLightingTempId, sourceWidth, sourceHeight, 0, FilterMode.Bilinear, RenderTextureFormat.ARGBHalf);
+			commandBuffer.GetTemporaryRT(ColorBleedTemp0Id, bleedWidth, bleedHeight, 0, FilterMode.Bilinear, RenderTextureFormat.ARGBHalf);
+			commandBuffer.GetTemporaryRT(ColorBleedTemp1Id, bleedWidth, bleedHeight, 0, FilterMode.Bilinear, RenderTextureFormat.ARGBHalf);
+
+			commandBuffer.SetRenderTarget(FinalLightingTempId);
+			commandBuffer.ClearRenderTarget(false, true, Color.clear);
+			commandBuffer.Blit(null, FinalLightingTempId, lightingMaterial, LightingPass);
+			BindColorBleedMaterial(settings, bleedScale);
+			commandBuffer.SetGlobalTexture("_ParticleFluidSourceTex", FinalLightingTempId);
+			commandBuffer.Blit(FinalLightingTempId, ColorBleedTemp0Id, colorBleedMaterial, ColorBleedDownsamplePass);
+			commandBuffer.Blit(ColorBleedTemp0Id, ColorBleedTemp1Id, colorBleedMaterial, ColorBleedHorizontalPass);
+			commandBuffer.Blit(ColorBleedTemp1Id, ColorBleedTemp0Id, colorBleedMaterial, ColorBleedVerticalPass);
+			commandBuffer.SetGlobalTexture("_ParticleFluidSourceTex", FinalLightingTempId);
+			commandBuffer.SetGlobalTexture("_ParticleFluidBleedTex", ColorBleedTemp0Id);
+			commandBuffer.Blit(FinalLightingTempId, finalTarget, colorBleedMaterial, ColorBleedCompositePass);
+
+			commandBuffer.ReleaseTemporaryRT(ColorBleedTemp1Id);
+			commandBuffer.ReleaseTemporaryRT(ColorBleedTemp0Id);
+			commandBuffer.ReleaseTemporaryRT(FinalLightingTempId);
+		}
+
+		void BindColorBleedMaterial(ParticleFluidLighting2D settings, float bleedScale)
+		{
+			colorBleedMaterial.SetTexture("MaterialAlbedoTex", materialAlbedoTexture != null ? materialAlbedoTexture : Texture2D.blackTexture);
+			colorBleedMaterial.SetTexture("MaterialNormalTex", materialNormal0Texture != null ? materialNormal0Texture : Texture2D.blackTexture);
+			colorBleedMaterial.SetTexture("MaterialNormalTex1", materialNormal1Texture != null ? materialNormal1Texture : Texture2D.blackTexture);
+			colorBleedMaterial.SetFloat("_BleedStrength", Mathf.Max(settings.diffuseColorBleedStrength, 0f));
+			colorBleedMaterial.SetFloat("_BleedRadius", Mathf.Max(settings.diffuseColorBleedRadius * currentZoomScale * bleedScale, 0f));
+			colorBleedMaterial.SetFloat("_BleedSelfSubtract", Mathf.Clamp01(settings.diffuseColorBleedSelfSubtract));
+			colorBleedMaterial.SetFloat("_BleedNormalWeight", Mathf.Clamp01(settings.diffuseColorBleedNormalWeight));
 		}
 
 		public void Release()
@@ -187,6 +263,12 @@ namespace Seb.Fluid2D.Rendering
 			{
 				Object.DestroyImmediate(lightingMaterial);
 				lightingMaterial = null;
+			}
+
+			if (colorBleedMaterial != null)
+			{
+				Object.DestroyImmediate(colorBleedMaterial);
+				colorBleedMaterial = null;
 			}
 		}
 	}

@@ -77,6 +77,8 @@ float3 causticsLightDirection;
 float3 causticsLightMultiplier;
 float4 causticsLightPoint;
 float causticsLightPointFalloff;
+float causticsLightPointAngleStart;
+float causticsLightPointAngleRange;
 int causticsSecondaryLightEnabled;
 int causticsSecondaryLightType;
 float causticsSecondaryLightTemperatureKelvin;
@@ -85,6 +87,8 @@ float3 causticsSecondaryLightDirection;
 float3 causticsSecondaryLightMultiplier;
 float4 causticsSecondaryLightPoint;
 float causticsSecondaryLightPointFalloff;
+float causticsSecondaryLightPointAngleStart;
+float causticsSecondaryLightPointAngleRange;
 int causticsTertiaryLightEnabled;
 int causticsTertiaryLightType;
 float causticsTertiaryLightTemperatureKelvin;
@@ -93,6 +97,8 @@ float3 causticsTertiaryLightDirection;
 float3 causticsTertiaryLightMultiplier;
 float4 causticsTertiaryLightPoint;
 float causticsTertiaryLightPointFalloff;
+float causticsTertiaryLightPointAngleStart;
+float causticsTertiaryLightPointAngleRange;
 int useEllipticalBounds;
 float2 ellipseBoundsCenter;
 float2 ellipseBoundsSize;
@@ -780,6 +786,8 @@ bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir, out float3 lightM
 	float3 lightDirection = tertiaryRay ? causticsTertiaryLightDirection : secondaryRay ? causticsSecondaryLightDirection : causticsLightDirection;
 	pointLightData = tertiaryRay ? causticsTertiaryLightPoint : secondaryRay ? causticsSecondaryLightPoint : causticsLightPoint;
 	pointLightFalloff = tertiaryRay ? causticsTertiaryLightPointFalloff : secondaryRay ? causticsSecondaryLightPointFalloff : causticsLightPointFalloff;
+	float pointLightAngleStart = tertiaryRay ? causticsTertiaryLightPointAngleStart : secondaryRay ? causticsSecondaryLightPointAngleStart : causticsLightPointAngleStart;
+	float pointLightAngleRange = tertiaryRay ? causticsTertiaryLightPointAngleRange : secondaryRay ? causticsSecondaryLightPointAngleRange : causticsLightPointAngleRange;
 	float rayStartOffset = tertiaryRay ? causticsTertiaryRayStartOffset : secondaryRay ? causticsSecondaryRayStartOffset : causticsRayStartOffset;
 	float raySpacing = tertiaryRay ? causticsTertiaryRaySpacing : secondaryRay ? causticsSecondaryRaySpacing : causticsRaySpacing;
 	lightMultiplier = tertiaryRay ? max(causticsTertiaryLightMultiplier, 0.0) : secondaryRay ? max(causticsSecondaryLightMultiplier, 0.0) : max(causticsLightMultiplier, 0.0);
@@ -805,7 +813,8 @@ bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir, out float3 lightM
 	pointLight = lightType == 1 ? 1 : 0;
 	if (pointLight != 0)
 	{
-		float angle = ((float)localBaseRay + rayOffset) / max((float)localRayCount, 1.0) * 6.28318530718 + temporalJitter.x * 0.01;
+		float angleRange = max(pointLightAngleRange, 0.0001);
+		float angle = pointLightAngleStart + ((float)localBaseRay + rayOffset) / max((float)localRayCount, 1.0) * angleRange + temporalJitter.x * 0.01;
 		rayDir = float2(cos(angle), sin(angle));
 		rayDir = Rotate2D(rayDir, angleJitter);
 		uv = WorldToUv(pointLightData.xy) + rayDir * temporalJitter.y / causticSize;

@@ -56,7 +56,12 @@ namespace Seb.Fluid2D.Rendering
 		public Shader metaballShader;
 		[Tooltip("World-space radius of each particle sprite.")]
 		public float scale;
-		private Gradient[] colourMap;
+
+		[Header("Albedo")]
+		[Tooltip("Base albedo gradient for phase 0 particles.")]
+		public Gradient phase0ColourMap;
+		[Tooltip("Base albedo gradient for phase 1 particles.")]
+		public Gradient phase1ColourMap;
 		[Tooltip("Number of pixels in the gradient lookup texture. Higher values give smoother colour transitions.")]
 		public int gradientResolution;
 
@@ -225,12 +230,6 @@ namespace Seb.Fluid2D.Rendering
 				debugMode = DebugVisualization.ParticleMotion;
 			}
 		}
-
-        public void SetPhaseColors(Gradient[] gradients)
-        {
-	        colourMap = gradients;
-	        needsUpdate = true;
-        }
 
 		void UpdateSettings()
 		{
@@ -422,9 +421,10 @@ namespace Seb.Fluid2D.Rendering
 
 		Gradient GetGradient(int index)
 		{
-			if (colourMap != null && colourMap.Length > index && colourMap[index] != null)
+			Gradient colourMap = index == 0 ? phase0ColourMap : phase1ColourMap;
+			if (colourMap != null)
 			{
-				return colourMap[index];
+				return colourMap;
 			}
 
 			Gradient gradient = new Gradient();
