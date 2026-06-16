@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace Seb.Fluid2D.Rendering
 {
-	internal readonly struct ParticleFluidRenderRegion2D
+	public readonly struct ParticleFluidRenderRegion2D
 	{
 		public readonly Vector2 WorldCenter;
 		public readonly Vector2 WorldSize;

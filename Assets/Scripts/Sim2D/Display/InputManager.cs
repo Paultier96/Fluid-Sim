@@ -5,7 +5,7 @@ namespace Seb.Fluid2D.Rendering
 	[AddComponentMenu("Fluid Sim/2D/Particle Fluid Input Manager 2D")]
 	[DisallowMultipleComponent]
 	[RequireComponent(typeof(ParticleDisplay2D))]
-	public sealed class ParticleFluidInputManager2D : MonoBehaviour
+	public sealed class InputManager : MonoBehaviour
 	{
 		[SerializeField] ParticleDisplay2D display;
 		[SerializeField] ParticleFluidLighting2D lighting;
@@ -13,6 +13,7 @@ namespace Seb.Fluid2D.Rendering
 		void Awake()
 		{
 			FindMissingReferences();
+
 		}
 
 		void OnValidate()
@@ -23,6 +24,70 @@ namespace Seb.Fluid2D.Rendering
 		void Update()
 		{
 			UpdateDebugModeFromKeyboard();
+			if (!AnyPointLightFollowsMouse())
+			{
+				return;
+			}
+
+			if (!TryGetMouseWorldPosition(out Vector2 mouseWorldPosition))
+			{
+				return;
+			}
+
+			ApplyMousePosition(lighting.primaryLight, mouseWorldPosition);
+			ApplyMousePosition(lighting.secondaryLight, mouseWorldPosition);
+			ApplyMousePosition(lighting.tertiaryLight, mouseWorldPosition);
+		}
+		
+		
+
+		static void ApplyMousePosition(ParticleFluidLighting2D.DirectionalLightSettings light, Vector2 mouseWorldPosition)
+		{
+			if (light != null && light.type == ParticleFluidLighting2D.DirectionalLightSettings.LightType.Point && light.pointFollowsMouse)
+			{
+				light.pointPosition = mouseWorldPosition;
+			}
+		}
+
+		bool AnyPointLightFollowsMouse()
+		{
+			return PointLightFollowsMouse(lighting.primaryLight)
+			       || PointLightFollowsMouse(lighting.secondaryLight)
+			       || PointLightFollowsMouse(lighting.tertiaryLight);
+		}
+
+		static bool PointLightFollowsMouse(ParticleFluidLighting2D.DirectionalLightSettings light)
+		{
+			return light != null && light.type == ParticleFluidLighting2D.DirectionalLightSettings.LightType.Point && light.pointFollowsMouse;
+		}
+
+		static bool TryGetMouseWorldPosition(out Vector2 mouseWorldPosition)
+		{
+			mouseWorldPosition = Vector2.zero;
+			Camera cam = Camera.main;
+			if (cam == null)
+			{
+				return false;
+			}
+
+			Vector3 mousePosition = Input.mousePosition;
+			if (!float.IsFinite(mousePosition.x) || !float.IsFinite(mousePosition.y) || !float.IsFinite(mousePosition.z))
+			{
+				return false;
+			}
+
+			if (!cam.pixelRect.Contains(mousePosition))
+			{
+				return false;
+			}
+
+			Plane simulationPlane = new Plane(Vector3.forward, Vector3.zero);
+			Ray ray = cam.ScreenPointToRay(mousePosition);
+			Vector3 worldPosition = simulationPlane.Raycast(ray, out float distance)
+				? ray.GetPoint(distance)
+				: cam.ScreenToWorldPoint(mousePosition);
+			mouseWorldPosition = worldPosition;
+			return true;
 		}
 
 		void FindMissingReferences()
@@ -90,6 +155,14 @@ namespace Seb.Fluid2D.Rendering
 			{
 				SetDebugMode(ParticleDisplay2D.DebugVisualization.None, ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion);
 			}
+			else if (Input.GetKeyDown(KeyCode.E))
+			{
+				SetDebugMode(ParticleDisplay2D.DebugVisualization.None, ParticleFluidLighting2D.LightingDebugVisualization.TemporalRejection);
+			}
+			else if (Input.GetKeyDown(KeyCode.R))
+			{
+				SetDebugMode(ParticleDisplay2D.DebugVisualization.None, ParticleFluidLighting2D.LightingDebugVisualization.TemporalClamp);
+			}
 			else if (Input.GetKeyDown(KeyCode.W))
 			{
 				SetDebugMode(ParticleDisplay2D.DebugVisualization.ParticleMotion, ParticleFluidLighting2D.LightingDebugVisualization.None);
@@ -113,7 +186,6 @@ namespace Seb.Fluid2D.Rendering
 				fontSize = 20,
 			};
 
-			ParticleFluidLighting2D lighting = GetComponent<ParticleFluidLighting2D>();
 			string debugLabel = display.debugMode != ParticleDisplay2D.DebugVisualization.None
 				? $"Debug: {display.debugMode}"
 				: lighting != null && lighting.debugMode != ParticleFluidLighting2D.LightingDebugVisualization.None

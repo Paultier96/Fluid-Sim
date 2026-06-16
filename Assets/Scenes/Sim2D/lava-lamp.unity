@@ -309,10 +309,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b090cee05a6cd0e4291a0e02381231c1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  jumpFlood:
-    computeShader: {fileID: 7200000, guid: 7349de8b8fa110249b104a7dac6f38c0, type: 3}
-    displayShader: {fileID: 4800000, guid: a3cfade596b52974f8bac4577967ca73, type: 3}
-    materialShader: {fileID: 4800000, guid: a9e2b4c1f7d84f3a9c6b2e014dd5a771, type: 3}
   metaballs:
     debugShader: {fileID: 4800000, guid: 1f8d4107ca3f4d4b9b40c40b6c545110, type: 3}
     materialShader: {fileID: 4800000, guid: bfc03134f0574af593fb2f016f652401, type: 3}
@@ -330,6 +326,10 @@ MonoBehaviour:
     normalBlurCompensation: 0.99
     ghostBoundaryNormalStrength: 1
     analyticBoundaryPadding: 0.4
+  jumpFlood:
+    computeShader: {fileID: 7200000, guid: 7349de8b8fa110249b104a7dac6f38c0, type: 3}
+    displayShader: {fileID: 4800000, guid: a3cfade596b52974f8bac4577967ca73, type: 3}
+    materialShader: {fileID: 4800000, guid: a9e2b4c1f7d84f3a9c6b2e014dd5a771, type: 3}
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
   renderMode: 2
@@ -469,20 +469,6 @@ MonoBehaviour:
   vectorUseLogScale: 1
   vectorLogScaleStrength: 100
   vectorWidth: 0.01
---- !u!114 &271053324
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 271053315}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 1f918b6a22b941efb72564d467068bd7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  display: {fileID: 271053322}
-  lighting: {fileID: 271053323}
 --- !u!114 &271053323
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -501,6 +487,7 @@ MonoBehaviour:
   computeShader: {fileID: 7200000, guid: 8f4e77c1b8284da4ca6c929de309e7a1, type: 3}
   phaseDiffuseLightCompute: {fileID: 7200000, guid: 6bbf221f0ffb42e4a93f4b9e0a63a64d, type: 3}
   radianceCascadeShader: {fileID: 4800000, guid: cf6b063e0da6b9d499eea03eed03b4ef, type: 3}
+  debugMode: 0
   primaryLight:
     enabled: 1
     type: 0
@@ -517,18 +504,18 @@ MonoBehaviour:
     pointFalloff: 2
   secondaryLight:
     enabled: 1
-    type: 0
+    type: 1
     azimuthDegrees: -120
     elevationDegrees: 20
-    temperatureKelvin: 20000
+    temperatureKelvin: 1000
     color: {r: 1, g: 1, b: 1, a: 1}
-    intensity: 0.1
+    intensity: 0.25
     sampleBias: 5
-    pointPosition: {x: 0, y: 0}
+    pointPosition: {x: 0, y: -13}
     pointFollowsMouse: 0
     pointHeight: 8
-    pointRange: 20
-    pointFalloff: 2
+    pointRange: 50
+    pointFalloff: 1
   tertiaryLight:
     enabled: 1
     type: 0
@@ -569,14 +556,14 @@ MonoBehaviour:
   textureScale: 0.5
   phase0Material:
     indexOfRefraction: 1.442
-    absorption: 1
+    absorption: 0.9
     absorptionDiffuseTintBlend: 0.05
     reflectance: 0.1
     roughness: 0.25
     metallic: 0
     screenSpaceReflectionStrength: 1
-    diffuseScatterStrength: 0.05
-    diffuseGaussianRadius: 24
+    diffuseScatterStrength: 0.1
+    diffuseGaussianRadius: 20
     diffuseLightTint: {r: 1, g: 0.62578607, b: 0.62578607, a: 1}
     diffuseAlbedoTintBlend: 0.25
   phase1Material:
@@ -603,7 +590,6 @@ MonoBehaviour:
     diffuseGaussianRadius: 24
     diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
     diffuseAlbedoTintBlend: 0
-  fresnelStrength: 1
   stochasticReflection: 1
   dispersionStrength: 0.33
   dispersionRotation: 0.1
@@ -622,17 +608,19 @@ MonoBehaviour:
   directionalLightFieldBlur: 10
   phaseDiffuseLightEnabled: 1
   phaseDiffuseLightTextureScale: 1
-  phaseDiffuseLightBoundarySharpness: 12
+  phaseDiffuseLightBoundarySharpness: 5
   radianceCascadeEnabled: 0
-  radianceCascadeTextureScale: 0.5
   radianceCascadeCount: 4
   radianceCascadeRayRange: 0.01
   radianceCascadeRaySteps: 16
   radianceCascadeIntensity: 150
   radianceCascadeDirectCausticStrength: 1
   radianceCascadeAbsorption: 1
-  temporalEnabled: 1
+  denoisingEnabled: 1
   temporalHistoryWeight: 0.9
+  temporalHistoryClampStrength: 0.6
+  temporalClampRejection: 0.5
+  temporalRejectedSpatialFilter: 0.5
   temporalMotionSource: 2
   motionBlurRadius: 25
   temporalMotionBlur: 25
@@ -640,6 +628,20 @@ MonoBehaviour:
   temporalMotionDilationIterations: 3
   temporalJitterPixels: 0.75
   surfaceNormalJitterPixels: 2
+--- !u!114 &271053324
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 271053315}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1f918b6a22b941efb72564d467068bd7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  display: {fileID: 271053322}
+  lighting: {fileID: 271053323}
 --- !u!1 &963194225
 GameObject:
   m_ObjectHideFlags: 0
@@ -881,6 +883,7 @@ MonoBehaviour:
   graphReferenceFps: 120
   frameTimeGraphMaxMs: 16.67
   frameTimeGraphReferenceMs: 16.67
+  graphRefreshRate: 60
   resetKey: 289
   screenOffset: {x: 12, y: 12}
 --- !u!4 &1214473944

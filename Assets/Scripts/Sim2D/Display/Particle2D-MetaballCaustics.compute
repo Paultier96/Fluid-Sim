@@ -56,7 +56,6 @@ float causticsPhase0Reflectance;
 float causticsPhase1Reflectance;
 float causticsPhase0Metallic;
 float causticsPhase1Metallic;
-float causticsFresnelStrength;
 float causticsLightAngularRadius;
 float causticsPhase0Absorption;
 float causticsPhase1Absorption;
@@ -480,7 +479,7 @@ float PhaseMetallic(int phase)
 
 float SurfaceReflectance(float2 rayDir, float2 normal, float eta, float materialReflectance)
 {
-	float fresnel = FresnelSchlick2D(rayDir, normal, eta) * max(causticsFresnelStrength, 0.0);
+	float fresnel = FresnelSchlick2D(rayDir, normal, eta);
 	return saturate(max(saturate(materialReflectance), fresnel));
 }
 

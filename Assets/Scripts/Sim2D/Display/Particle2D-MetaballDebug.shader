@@ -37,6 +37,7 @@ sampler2D SoftLightTex;
 sampler2D CausticHistoryTex;
 float4 _MainTex_TexelSize;
 int particleCausticRegionEnabled;
+int particleCausticTemporalDebugEnabled;
 float4 particleCausticUvRect;
 float causticMotionDilationRadius;
 float densityThreshold;
@@ -458,6 +459,7 @@ float4 frag(v2f i) : SV_Target
 	float2 causticUv = particleCausticRegionEnabled != 0
 		? (i.uv - particleCausticUvRect.xy) / max(particleCausticUvRect.zw, float2(0.000001, 0.000001))
 		: i.uv;
+	float2 causticLocalUv = particleCausticRegionEnabled != 0 ? causticUv : i.uv;
 	bool insideCausticRegion = particleCausticRegionEnabled == 0 || all(causticUv >= 0.0) && all(causticUv <= 1.0);
 	if (debugMode == 7)
 	{
@@ -466,9 +468,9 @@ float4 frag(v2f i) : SV_Target
 	if (debugMode == 8)
 	{
 		float3 softLight = 0.0;
-		if (metaballPhaseDiffuseLightEnabled != 0)
+		if (insideCausticRegion && metaballPhaseDiffuseLightEnabled != 0)
 		{
-			float4 combined = tex2D(CombinedTex, i.uv);
+			float4 combined = tex2D(CombinedTex, causticLocalUv);
 			float density0 = Phase0Density(combined);
 			float density1 = combined.a;
 			float phaseT = ShiftedPhaseT(density0, density1);
@@ -479,7 +481,7 @@ float4 frag(v2f i) : SV_Target
 			float3 diffuseAlbedo1 = SamplePhaseGradientColour(data1, true, noise);
 			float3 diffuseTint0 = lerp(metaballPhase0DiffuseLightTint.rgb, diffuseAlbedo0, saturate(metaballPhase0DiffuseAlbedoTintBlend));
 			float3 diffuseTint1 = lerp(metaballPhase1DiffuseLightTint.rgb, diffuseAlbedo1, saturate(metaballPhase1DiffuseAlbedoTintBlend));
-			float4 packedSoftLight = insideCausticRegion ? tex2D(SoftLightTex, causticUv) : 0.0;
+			float4 packedSoftLight = tex2D(SoftLightTex, causticUv);
 			softLight += packedSoftLight.rgb * (1.0 - phaseT) * diffuseTint0;
 			if (metaballSoftLightPhase0Only == 0)
 			{
@@ -503,7 +505,7 @@ float4 frag(v2f i) : SV_Target
 	if (debugMode == 10)
 	{
 		float4 motionDebug = insideCausticRegion ? tex2D(CausticMotionTex, causticUv) : 0.0;
-		float2 debugMotion = motionDebug.xy * metaballWorldSize;
+		float2 debugMotion = motionDebug.xy * max(causticCurrentWorldSize, float2(0.0001, 0.0001));
 		float motionConfidence = saturate(motionDebug.z);
 		float motionScale = max(debugGradientMax, 0.0001);
 		float rawMotionMagnitude = length(debugMotion) * motionScale;
@@ -514,6 +516,30 @@ float4 frag(v2f i) : SV_Target
 		float3 debugColour = movingColour;
 		debugColour = motionConfidence > 0.0 ? ApplyMotionClipMarker(rawMotionMagnitude, debugColour) : debugColour;
 		return float4(debugColour, 1.0);
+	}
+	if (debugMode == 12)
+	{
+		if (particleCausticTemporalDebugEnabled == 0)
+		{
+			return float4(0.0, 0.1, 0.35, 1.0);
+		}
+
+		float historyWeight = insideCausticRegion ? saturate(tex2D(CausticTex, causticUv).a) : 0.0;
+		float3 rejected = float3(1.0, 0.05, 0.0);
+		float3 accepted = float3(0.0, 1.0, 0.15);
+		return float4(lerp(rejected, accepted, historyWeight), 1.0);
+	}
+	if (debugMode == 13)
+	{
+		if (particleCausticTemporalDebugEnabled == 0)
+		{
+			return float4(0.0, 0.1, 0.35, 1.0);
+		}
+
+		float clampAmount = insideCausticRegion ? saturate(tex2D(CausticTex, causticUv).a) : 0.0;
+		float3 unclamped = float3(0.0, 0.0, 0.0);
+		float3 clamped = float3(0.0, 0.35, 1.0);
+		return float4(lerp(unclamped, clamped, clampAmount), 1.0);
 	}
 	if (debugMode == 11)
 	{

@@ -35,6 +35,9 @@ float phase0RenderBias;
 int debugMode;
 float motionDebugDeltaTime;
 float causticTemporalHistoryWeight;
+float causticTemporalHistoryClampStrength;
+float causticTemporalClampRejection;
+float causticTemporalRejectedSpatialFilter;
 int causticTemporalMotionSource;
 float2 causticCurrentWorldCenter;
 float2 causticCurrentWorldSize;
@@ -68,6 +71,47 @@ float ShiftedPhaseT(float density0, float density1)
 	return smoothstep(-phaseAA, phaseAA, phaseDelta);
 }
 
+void CurrentNeighbourhoodBounds(float2 uv, out float3 minColour, out float3 maxColour)
+{
+	float2 texel = _MainTex_TexelSize.xy;
+	minColour =  float3(1000000.0, 1000000.0, 1000000.0);
+	maxColour = -float3(1000000.0, 1000000.0, 1000000.0);
+
+	[unroll]
+	for (int y = -1; y <= 1; y++)
+	{
+		[unroll]
+		for (int x = -1; x <= 1; x++)
+		{
+			float3 sampleColour = tex2D(_MainTex, uv + texel * float2(x, y)).rgb;
+			minColour = min(minColour, sampleColour);
+			maxColour = max(maxColour, sampleColour);
+		}
+	}
+}
+
+float3 CurrentSpatialFallback(float2 uv)
+{
+	float2 texel = _MainTex_TexelSize.xy;
+	float3 sum = tex2D(_MainTex, uv).rgb * 4.0;
+	float weight = 4.0;
+
+	float3 axial0 = tex2D(_MainTex, uv + texel * float2(1, 0)).rgb;
+	float3 axial1 = tex2D(_MainTex, uv + texel * float2(-1, 0)).rgb;
+	float3 axial2 = tex2D(_MainTex, uv + texel * float2(0, 1)).rgb;
+	float3 axial3 = tex2D(_MainTex, uv + texel * float2(0, -1)).rgb;
+	sum += axial0 * 2.0 + axial1 * 2.0 + axial2 * 2.0 + axial3 * 2.0;
+	weight += 8.0;
+
+	sum += tex2D(_MainTex, uv + texel * float2(1, 1)).rgb;
+	sum += tex2D(_MainTex, uv + texel * float2(-1, 1)).rgb;
+	sum += tex2D(_MainTex, uv + texel * float2(1, -1)).rgb;
+	sum += tex2D(_MainTex, uv + texel * float2(-1, -1)).rgb;
+	weight += 4.0;
+
+	return sum / max(weight, 0.0001);
+}
+
 float4 fragCausticTemporal(v2f i) : SV_Target
 {
 	float3 current = tex2D(_MainTex, i.uv).rgb;
@@ -93,11 +137,34 @@ float4 fragCausticTemporal(v2f i) : SV_Target
 		float4 motion = tex2D(CausticMotionTex, i.uv);
 		float2 motionWorld = motion.xy * causticCurrentWorldSize;
 		float2 motionHistoryUv = stationaryHistoryUv - motionWorld / max(causticHistoryWorldSize, float2(0.0001, 0.0001));
-		historyUv = lerp(stationaryHistoryUv, motionHistoryUv, smoothstep(0.05, 0.35, saturate(motion.z)));
+		float causticMotionConfidence = smoothstep(0.05, 0.35, saturate(motion.z));
+		historyUv = lerp(stationaryHistoryUv, motionHistoryUv, causticMotionConfidence);
 	}
 	float historyInFrame = step(0.0, historyUv.x) * step(historyUv.x, 1.0) * step(0.0, historyUv.y) * step(historyUv.y, 1.0);
 	float3 history = tex2D(CausticHistoryTex, historyUv).rgb;
-	return float4(lerp(current, history, saturate(causticTemporalHistoryWeight) * historyInFrame), 1.0);
+
+	float3 minColour;
+	float3 maxColour;
+	CurrentNeighbourhoodBounds(i.uv, minColour, maxColour);
+	float3 neighbourhoodRange = max(maxColour - minColour, 0.0);
+	float3 clampMargin = neighbourhoodRange * 0.75 + max(maxColour, current) * 0.08 + 0.0005;
+	minColour = max(minColour - clampMargin, 0.0);
+	maxColour = maxColour + clampMargin;
+	float3 clampedHistory = clamp(history, minColour, maxColour);
+	float clampStrength = saturate(causticTemporalHistoryClampStrength);
+	float3 validatedHistory = lerp(history, clampedHistory, clampStrength);
+
+	float clampDelta = length(history - clampedHistory) / max(length(history), 0.01);
+	float clampAmount = saturate(clampDelta * clampStrength);
+	float clampValidity = rcp(1.0 + clampDelta * max(causticTemporalClampRejection, 0.0) * clampStrength);
+
+	float historyWeight = saturate(causticTemporalHistoryWeight) * historyInFrame * clampValidity;
+	float baseHistoryWeight = saturate(causticTemporalHistoryWeight) * historyInFrame;
+	float rejectedT = baseHistoryWeight > 0.0001 ? saturate(1.0 - historyWeight / baseHistoryWeight) : 1.0;
+	float3 spatialCurrent = CurrentSpatialFallback(i.uv);
+	float3 filteredCurrent = lerp(current, spatialCurrent, rejectedT * saturate(causticTemporalRejectedSpatialFilter));
+	float temporalDebug = debugMode == 13 ? clampAmount : historyWeight;
+	return float4(lerp(filteredCurrent, validatedHistory, historyWeight), temporalDebug);
 }
 
 float MotionDilationScore(float4 motion)

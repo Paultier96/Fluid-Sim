@@ -6,38 +6,25 @@ using UnityEngine.Serialization;
 namespace Seb.Fluid2D.Rendering
 {
 	[DisallowMultipleComponent]
-	public sealed class ParticleFluidLighting2D : MonoBehaviour
+	public class ParticleFluidLighting2D : MonoBehaviour
 	{
 		[Serializable]
-		public sealed class PhaseMaterialSettings
+		public class PhaseMaterialSettings
 		{
-			[Tooltip("Index of refraction used when bending lighting rays across visible phase boundaries.")]
 			[Min(1.0001f)] public float indexOfRefraction = 1.333f;
-			[Tooltip("Exponential energy loss per world unit travelled through this phase.")]
 			[Min(0f)] public float absorption = 0f;
 			[Tooltip("Blends ray absorption colour from the phase albedo gradient toward Diffuse Light Tint. 0 uses the current albedo-based absorption; 1 uses Diffuse Light Tint.")]
 			[Range(0f, 1f)] public float absorptionDiffuseTintBlend = 0f;
-			[Tooltip("Minimum reflection probability at this phase's surface before Fresnel is applied. 0 uses Fresnel only; higher values make the phase more reflective at all angles.")]
 			[Range(0f, 1f)] public float reflectance = 0f;
-			[Tooltip("Surface roughness used by the rasterized direct lighting. Lower values make smaller, sharper highlights; higher values make broader, dimmer highlights.")]
 			[Range(0.02f, 1f)] public float roughness = 0.35f;
-			[Tooltip("Tints reflected rays toward this material's colour. 0 keeps reflections neutral, 1 fully applies the material colour to reflected light.")]
 			[Range(0f, 1f)] public float metallic = 0f;
-			[Tooltip("Strength of cheap screen-space reflections from neighbouring fluid pixels on this phase.")]
-			[Min(0f)] public float screenSpaceReflectionStrength = 0f;
-			[Tooltip("Initial fraction of sharp ray marched light injected into the phase-aware diffuse lighting pass.")]
+			[Range(0f, 1f)] public float screenSpaceReflectionStrength = 0f;
 			[Min(0f)] public float diffuseScatterStrength = 0f;
-			[Tooltip("Full-resolution pixel radius for masked Gaussian phase diffuse light. Internally scaled by render texture, ray lighting, and diffuse texture scale.")]
 			[Min(0f)] public float diffuseGaussianRadius = 24f;
-			[Tooltip("Tint applied to this phase's phase-aware diffuse lighting.")]
 			[ColorUsage(false, true)] public Color diffuseLightTint = Color.white;
 			[Tooltip("Blends phase-aware diffuse lighting tint from Diffuse Light Tint toward the local phase albedo gradient. 0 uses Diffuse Light Tint; 1 uses albedo.")]
 			[Range(0f, 1f)] public float diffuseAlbedoTintBlend = 0f;
-
-			public PhaseMaterialSettings()
-			{
-			}
-
+			
 			public PhaseMaterialSettings(float indexOfRefraction)
 			{
 				this.indexOfRefraction = indexOfRefraction;
@@ -45,7 +32,7 @@ namespace Seb.Fluid2D.Rendering
 		}
 
 		[Serializable]
-		public sealed class DirectionalLightSettings
+		public class DirectionalLightSettings
 		{
 			public enum LightType
 			{
@@ -53,38 +40,25 @@ namespace Seb.Fluid2D.Rendering
 				Point
 			}
 
-			[Tooltip("Enables this light for rasterized lighting and raymarched caustic allocation.")]
 			public bool enabled = true;
-			[Tooltip("Directional lights have a constant direction. Point lights emit a 2D angular fan from a world-space position.")]
 			public LightType type = LightType.Directional;
-			[Tooltip("Horizontal screen/world angle of the light direction in degrees.")]
 			public float azimuthDegrees = 122.5f;
-			[Tooltip("Vertical angle of the light direction in degrees. 0 lies in the 2D plane, 90 points toward the camera.")]
 			[Range(-89, 89f)] public float elevationDegrees = 50.3f;
-			[Tooltip("Colour temperature of the light in Kelvin. 6500 is neutral daylight; lower values are warmer, higher values are cooler.")]
+			[Tooltip("6500 -> neutral daylight; 2700 -> incandescent light")]
 			[Range(1000f, 20000f)] public float temperatureKelvin = 6500f;
-			[Tooltip("Colour of the light.")]
 			[ColorUsage(false, true)] public Color color = Color.white;
-			[Tooltip("Intensity of the light.")]
 			[Min(0f)] public float intensity = 0.45f;
-			[Tooltip("Multiplier for brightness-weighted ray allocation. 1 follows this light's brightness, higher values allocate more caustic rays without changing light intensity.")]
+			[Tooltip("Multiplier ray allocation.")]
 			[Min(0f)] public float sampleBias = 1f;
 			[Header("Point Light")]
-			[Tooltip("World-space XY position used when Type is Point.")]
 			public Vector2 pointPosition;
-			[Tooltip("Overrides Point Position with the current mouse position in world space while Type is Point.")]
 			public bool pointFollowsMouse = false;
-			[Tooltip("World-space height above the 2D simulation plane used when Type is Point.")]
 			[Min(0.0001f)] public float pointHeight = 8f;
 			[Tooltip("World-space radius over which point-light brightness fades to zero.")]
 			[Min(0.0001f)] public float pointRange = 20f;
 			[Tooltip("Point-light attenuation exponent. 1 is linear, higher values make the light fall off faster near the edge of its range.")]
 			[Min(0.1f)] public float pointFalloff = 2f;
-
-			public DirectionalLightSettings()
-			{
-			}
-
+			
 			public DirectionalLightSettings(float azimuthDegrees, float elevationDegrees, float intensity)
 				: this(azimuthDegrees, elevationDegrees, intensity, true)
 			{
@@ -175,97 +149,66 @@ namespace Seb.Fluid2D.Rendering
 			Caustics,
 			SoftLight,
 			DirectionalLightField,
-			CausticMotion
+			CausticMotion,
+			TemporalRejection,
+			TemporalClamp
 		}
 
 		[Header("Shaders")]
-		[Tooltip("Shader used by the separated fullscreen lighting pass. If left empty, Hidden/Particle2DParticleFluidLighting is used as a fallback.")]
 		public Shader lightingShader;
-		[Tooltip("Shader used by the optional screen-space final-colour diffuse bleed pass. If left empty, Hidden/Particle2DParticleFluidColorBleed is used as a fallback.")]
 		public Shader colorBleedShader;
-		[Tooltip("Shader used for caustic temporal reprojection and caustic motion dilation. If left empty, Hidden/Particle2DMetaballTemporal is used as a fallback.")]
 		public Shader temporalShader;
-		[Tooltip("Compute shader used to raymarch the fluid surface and accumulate screen-space lighting.")]
 		public ComputeShader computeShader;
-		[Tooltip("Compute shader used for the optional phase-aware diffuse caustics/SSS lighting pass.")]
 		public ComputeShader phaseDiffuseLightCompute;
-		[Tooltip("Shader used for the optional radiance cascade soft lighting pass.")]
 		public Shader radianceCascadeShader;
 
 		[Header("Debug")]
-		[Tooltip("Debug visualization for raymarched/soft lighting buffers.")]
 		public LightingDebugVisualization debugMode = LightingDebugVisualization.None;
 
 		[Header("Lights")]
-		public DirectionalLightSettings primaryLight = new DirectionalLightSettings(122.5f, 50.3f, 0.45f);
-		[Tooltip("Adds a second light. Rasterized lighting evaluates all enabled lights; raymarched lighting splits the existing ray budget between enabled directional lights.")]
-		public DirectionalLightSettings secondaryLight = new DirectionalLightSettings(45f, 40f, 0.2f, false);
-		[Tooltip("Adds a third light. Rasterized lighting evaluates all enabled lights; raymarched lighting splits the existing ray budget between enabled directional lights.")]
-		public DirectionalLightSettings tertiaryLight = new DirectionalLightSettings(-60f, 35f, 0.1f, false);
+		public DirectionalLightSettings primaryLight = new (122.5f, 50.3f, 0.45f);
+		public DirectionalLightSettings secondaryLight = new (45f, 40f, 0.2f, false);
+		public DirectionalLightSettings tertiaryLight = new (-60f, 35f, 0.1f, false);
 		[Tooltip("Unlit colour multiplier. Increase if shadowed particles are too dark.")]
 		[Range(0f, 1f)] public float ambientLight = 0.65f;
 
 		[Header("Fresnel")]
-		[Tooltip("Colour added at grazing view angles to fake transparent liquid edges.")]
 		[ColorUsage(false, true)] public Color fresnelColor = new Color(0.75f, 0.9f, 1f, 1f);
-		[Tooltip("Strength of the Fresnel edge glow.")]
 		[Min(0f)] public float fresnelIntensity = 0.25f;
-		[Tooltip("Fresnel exponent. Higher values concentrate the glow closer to grazing angles.")]
 		[Min(0.1f)] public float fresnelPower = 3f;
 
 		[Header("Screen-Space Refraction And Reflections")]
-		[Tooltip("Screen-space UV offset strength for refracting the blurred colour data outward from the normal. This is separate from raymarched refraction. Alpha and phase remain unwarped.")]
 		[Min(0)] public float refractionStrength = 0.01f;
-		[Tooltip("Density distance over which screen-space refraction fades in from the visible edge. Higher values push refraction farther inward.")]
 		[Min(0)] public float refractionEdgeFade = 0.05f;
-		[Tooltip("Allows screen-space refraction to sample colours from the other fluid phase. Disable to preserve sharp same-phase refraction.")]
 		public bool screenSpaceRefractionCanCrossPhases = false;
 		[Space]
-		[Tooltip("Reflection lookup distance in material-map pixels. Higher values let blobs reflect farther-away neighbours.")]
 		[Min(0f)] public float screenSpaceReflectionDistance = 24f;
-		[Tooltip("Edge mask exponent for screen-space reflections. Higher values keep reflections tighter to side-facing normals.")]
 		[Min(0.1f)] public float screenSpaceReflectionEdgePower = 1.5f;
-		[Tooltip("Base virtual-depth scale in material-map pixels for sampling caustic light colour outside the blob for rasterized specular highlights. The actual offset grows with normal.z / length(normal.xy) and phase radius bias. 0 uses the local caustic colour.")]
+		[Tooltip("Base virtual-depth scale in material-map pixels for sampling caustic light colour outside the blob for rasterized specular highlights.")]
 		[Min(0f)] public float specularCausticSampleOffset = 6f;
 
 		[Header("Transmission")]
-		[Tooltip("Strength of the fake transmission/backlight term.")]
 		[Min(0f)] public float transmissionIntensity = 0.2f;
-		[Tooltip("Transmission exponent. Higher values make transmission more directional.")]
 		[Min(0.1f)] public float transmissionPower = 2f;
 
 		[Header("Ambient Occlusion")]
-		[Tooltip("Darkens thin/edge regions to approximate ambient occlusion from liquid thickness. The normal range is phase-bias aware: larger phases darken closer to the rim, smaller phases darken across a wider normal range.")]
-		[FormerlySerializedAs("edgeDarkening")]
 		[Range(0f, 1f)] public float ambientOcclusion = 0.2f;
-		[Tooltip("Ambient occlusion exponent. Higher values keep the darkening tighter to the edge.")]
-		[FormerlySerializedAs("edgeDarkeningPower")]
 		[Min(0.1f)] public float ambientOcclusionPower = 2f;
 
 		[Header("Diffuse Color Bleed")]
-		[Tooltip("Adds a low-resolution screen-space diffuse bleed pass based on the final lit fluid colour.")]
 		public bool diffuseColorBleedEnabled = false;
-		[Tooltip("Strength of the final-colour diffuse bleed added back into the lit image.")]
 		[Min(0f)] public float diffuseColorBleedStrength = 0.15f;
-		[Tooltip("Resolution of the diffuse bleed texture relative to the material maps. Lower values are cheaper and blurrier.")]
 		[Range(0.125f, 1f)] public float diffuseColorBleedTextureScale = 0.35f;
-		[Tooltip("Full-resolution pixel radius for the diffuse bleed blur. Internally scaled by the bleed texture scale.")]
 		[Min(0f)] public float diffuseColorBleedRadius = 48f;
-		[Tooltip("Subtracts a fraction of the local final colour from the blurred colour before adding bleed. Higher values reduce uniform glow.")]
 		[Range(0f, 1f)] public float diffuseColorBleedSelfSubtract = 0.5f;
-		[Tooltip("How much side-facing normals contribute as bleed emitters and receivers. 0 uses the whole fluid evenly, 1 concentrates the effect near visible edges.")]
 		[Range(0f, 1f)] public float diffuseColorBleedNormalWeight = 0.5f;
 
 		[Header("Iridescence")]
-		[Tooltip("Strength of fake thin-film iridescence in rasterized fluid rendering.")]
 		[Min(0f)] public float iridescenceIntensity = 0f;
-		[Tooltip("Number of hue cycles across the iridescence phase. Higher values make tighter rainbow bands.")]
 		[Min(0f)] public float iridescenceScale = 2.0f;
 
 		[Header("Raymarched Lighting - Setup")]
-		[Tooltip("Adds low-resolution screen-space raymarched lighting generated from the particle fluid surface.")]
-		[FormerlySerializedAs("enabled")] public bool causticsEnabled;
-		[Tooltip("Resolution of the raymarched lighting textures relative to the surface render textures.")]
+		public bool causticsEnabled;
 		[Range(0.125f, 1f)] public float textureScale = 0.5f;
 
 		[Header("Phase Materials")]
@@ -274,11 +217,7 @@ namespace Seb.Fluid2D.Rendering
 		public PhaseMaterialSettings boundaryMaterial = new PhaseMaterialSettings(1.516f);
 
 		[Header("Raymarched Lighting - Refraction")]
-		[Tooltip("Multiplier for Fresnel reflection at phase surfaces. 0 disables stochastic reflections, 1 is physical Schlick Fresnel, higher values exaggerate internal reflections.")]
-		[Min(0f)] public float fresnelStrength = 1f;
-		[Tooltip("Uses Fresnel as a probability to randomly reflect lighting rays at surfaces instead of always transmitting one refracted ray.")]
-		public bool stochasticReflection = false;
-		[Tooltip("Relative IOR spread used by stochastic spectral raymarching. 0.02 means red/blue use roughly -/+2% IOR.")]
+		public bool stochasticReflection = true;
 		[Min(0f)] public float dispersionStrength = 0f;
 		[Tooltip("Randomly rotates the stratified spectral band assignment per ray and frame. 0 keeps fixed bands; 1 fully randomizes the band rotation to reduce stripes.")]
 		[Range(0f, 1f)] public float dispersionRotation = 1f;
@@ -294,35 +233,25 @@ namespace Seb.Fluid2D.Rendering
 		[Header("Raymarched Lighting - Rays")]
 		[Tooltip("Number of raymarch steps used per lighting ray. Higher values find exits more reliably but cost more.")]
 		[Range(8, 192)] public int raySteps = 64;
-		[HideInInspector] public float stepPixels = 1.0f;
-		[Tooltip("Brightness deposited along ray paths. Keep at 0 to hide debug-visible ray paths.")]
-		[Min(0f)] public float rayBrightness = 0.05f;
-		[Tooltip("Launches only every Nth ray for easier debugging. 1 uses every ray.")]
+		[HideInInspector] public float stepPixels = 1.0f; //delete?
+		[Min(0f)] public float rayBrightness = 1f; //delete?
 		[Min(1)] public int rayStride = 1;
-		[Tooltip("Launches multiple rays per source pixel for denser supersampling. Cost scales roughly linearly.")]
 		[Range(1, 64)] public int raysPerPixel = 1;
-		[Tooltip("Samples the medium colour every N ray steps while absorption is active. 1 samples every step; higher values are cheaper but preserve less interior colour variation.")]
+		[Tooltip("Samples the medium colour every N ray steps while absorption is active.")]
 		[Min(1)] public int colourSampleStride = 8;
-		[Tooltip("Small full-resolution pixel blur applied to the resolved raymarched lighting texture to reduce atomic splat noise. Internally scaled by render texture scale and lighting texture scale.")]
 		[Min(0f)] public float blur = 1.5f;
 		public DirectionalLightingMode directionalLightingMode = DirectionalLightingMode.RefractAtAnalyticBoundary;
-		[Tooltip("Full-resolution pixel blur radius for the directional light-field texture. Higher values reduce specular noise but make local light direction less precise.")]
 		[Min(0f)] public float directionalLightFieldBlur = 1.5f;
 
 		[Header("Soft Subsurface Lighting")]
-		[Tooltip("Enables a separate phase-aware diffuse lighting pass derived from the sharp raymarched lighting.")]
 		public bool phaseDiffuseLightEnabled = false;
-		[Tooltip("Resolution of the phase-aware diffuse lighting textures relative to the raymarched lighting texture.")]
 		[Range(0.25f, 1f)] public float phaseDiffuseLightTextureScale = 0.5f;
 		[Tooltip("How strongly phase boundaries block phase-aware diffuse lighting. Higher values keep light inside each phase.")]
-		[Min(0f)] public float phaseDiffuseLightBoundarySharpness = 12f;
-		[Tooltip("Uses a radiance cascade pass derived from the raymarched lighting texture as the soft indirect light source. Overrides Phase Diffuse Light when enabled.")]
+		[Min(0f)] public float phaseDiffuseLightBoundarySharpness = 5f; //delete?
 		public bool radianceCascadeEnabled = false;
-		[Tooltip("Resolution of the radiance cascade texture relative to the raymarched lighting texture.")]
-		[Range(0.25f, 1f)] public float radianceCascadeTextureScale = 0.5f;
 		[Tooltip("Number of cascade levels. Higher values spread soft light farther but cost one fullscreen pass per level.")]
 		[Range(1, 6)] public int radianceCascadeCount = 4;
-		[Tooltip("Maximum ray range in normalized lighting-texture UV space at the reference zoom. Automatically scales with camera zoom to keep the world-space scattering radius stable.")]
+		[Tooltip("Maximum ray range in normalized lighting-texture UV space at the reference zoom.")]
 		[Min(0.0001f)] public float radianceCascadeRayRange = 1.25f;
 		[Tooltip("Raymarch samples per cascade ray segment.")]
 		[Range(1, 64)] public int radianceCascadeRaySteps = 16;
@@ -333,12 +262,15 @@ namespace Seb.Fluid2D.Rendering
 		[Tooltip("Applies the same Beer-Lambert RGB absorption used by raymarched caustics while radiance cascade rays travel through phase 0.")]
 		public bool radianceCascadeAbsorption = true;
 
-		[Header("Raymarched Lighting - Temporal Smoothing")]
-		[Tooltip("Blends raymarched lighting with the previous frame to reduce flicker.")]
-		public bool temporalEnabled = false;
-		[Tooltip("Previous-frame weight used by temporal blending. 0 uses only current frame; 0.55 means current * 0.45 + previous * 0.55.")]
+		[Header("Raymarched Lighting - Temporal Denoising")]
+		public bool denoisingEnabled = true;
 		[Range(0f, 0.99f)] public float temporalHistoryWeight = 0.95f;
-		[Tooltip("Motion source used to reproject temporal raymarched lighting history.")]
+		[Tooltip("Clamps reprojected history into the current 3x3 neighbourhood before blending. Reduces stale bright/dark trails in newly revealed areas.")]
+		[Range(0f, 1f)] public float temporalHistoryClampStrength = 0.6f;
+		[Tooltip("How aggressively clamped history is rejected. Higher values reduce disocclusion trails more but keep less accumulated history around sharp caustics.")]
+		[Min(0f)] public float temporalClampRejection = 0.5f;
+		[Tooltip("Reduces disocclusion fizzle without blurring stable temporally accumulated regions.")]
+		[Range(0f, 1f)] public float temporalRejectedSpatialFilter = 1f;
 		public TemporalMotionSource temporalMotionSource = TemporalMotionSource.Static;
 		[Tooltip("Radius in pixels at resolution factor 1 of the phase-separated velocity blur used by particle and caustic motion. Higher values smooth unstable boundary motion without mixing phase velocities.")]
 		[Min(0)] public float motionBlurRadius = 6;
@@ -353,39 +285,87 @@ namespace Seb.Fluid2D.Rendering
 		[Tooltip("Subpixel normal resampling radius used for reflected and refracted lighting rays at phase boundaries. Helps multiple rays per pixel see different boundary normals.")]
 		[Min(0f)] public float surfaceNormalJitterPixels = 0f;
 
-		ParticleFluidLightingRenderer2D lightingRenderer;
-
-		ParticleFluidLightingRenderer2D Renderer => lightingRenderer ??= new ParticleFluidLightingRenderer2D();
-
-		internal bool IsReady => Renderer.IsReady;
-
-		public Vector3 LightDirection => PrimaryLight.Direction;
-
-		public Vector3 SecondaryLightDirection => SecondaryLight.Direction;
-
-		public Vector3 TertiaryLightDirection => TertiaryLight.Direction;
-
-		public Color EffectiveLightColor => PrimaryLight.EffectiveColor;
-
-		public Color EffectiveSecondaryLightColor => SecondaryLight.EffectiveColor;
-
-		public Color EffectiveTertiaryLightColor => TertiaryLight.EffectiveColor;
-
-		public DirectionalLightSettings PrimaryLight => primaryLight ??= new DirectionalLightSettings(122.5f, 50.3f, 0.45f);
-
-		public DirectionalLightSettings SecondaryLight => secondaryLight ??= new DirectionalLightSettings(45f, 40f, 0.2f, false);
-
-		public DirectionalLightSettings TertiaryLight => tertiaryLight ??= new DirectionalLightSettings(-60f, 35f, 0.1f, false);
-
+		
 		internal void EnsureMaterial(Shader shader)
 		{
 			Shader bleedShader = colorBleedShader != null
 				? colorBleedShader
 				: Shader.Find("Hidden/Particle2DParticleFluidColorBleed");
-			Renderer.EnsureMaterials(shader, bleedShader);
+			EnsureMaterials(shader, bleedShader);
 		}
 
-		internal void ApplySettings(
+		const int LightingPass = 0;
+		const int ColorBleedDownsamplePass = 0;
+		const int ColorBleedHorizontalPass = 1;
+		const int ColorBleedVerticalPass = 2;
+		const int ColorBleedCompositePass = 3;
+		static readonly int FinalLightingTempId = Shader.PropertyToID("_ParticleFluidFinalLightingTemp");
+		static readonly int ColorBleedTemp0Id = Shader.PropertyToID("_ParticleFluidColorBleed0");
+		static readonly int ColorBleedTemp1Id = Shader.PropertyToID("_ParticleFluidColorBleed1");
+
+		Material lightingMaterial;
+		Material colorBleedMaterial;
+		Texture materialAlbedoTexture = Texture2D.blackTexture;
+		Texture materialNormal0Texture = Texture2D.blackTexture;
+		Texture materialNormal1Texture = Texture2D.blackTexture;
+		ParticleFluidRenderRegion2D materialRenderRegion;
+		ParticleFluidRenderRegion2D causticRenderRegion;
+		float currentZoomScale = 1f;
+
+		public Material Material => lightingMaterial;
+		public bool IsReady => lightingMaterial != null;
+
+		public void EnsureMaterials(Shader shader, Shader colorBleedShader)
+		{
+			EnsureMaterial(ref lightingMaterial, shader);
+			EnsureMaterial(ref colorBleedMaterial, colorBleedShader);
+		}
+
+		static void EnsureMaterial(ref Material material, Shader shader)
+		{
+			if (shader == null || (material != null && material.shader == shader))
+			{
+				return;
+			}
+
+			if (material != null)
+			{
+				DestroyImmediate(material);
+			}
+
+			material = new Material(shader);
+		}
+
+		public void SetMaterialTextures(Texture albedo, Texture normal0, Texture normal1, ParticleFluidRenderRegion2D renderRegion)
+		{
+			materialAlbedoTexture = albedo != null ? albedo : Texture2D.blackTexture;
+			materialNormal0Texture = normal0 != null ? normal0 : Texture2D.blackTexture;
+			materialNormal1Texture = normal1 != null ? normal1 : Texture2D.blackTexture;
+			materialRenderRegion = renderRegion;
+			BindMaterialTextures();
+		}
+
+		public void BindMaterialTextures()
+		{
+			if (lightingMaterial == null)
+			{
+				return;
+			}
+
+			lightingMaterial.SetTexture("MaterialAlbedoTex", materialAlbedoTexture != null ? materialAlbedoTexture : Texture2D.blackTexture);
+			lightingMaterial.SetTexture("MaterialNormalTex", materialNormal0Texture != null ? materialNormal0Texture : Texture2D.blackTexture);
+			lightingMaterial.SetTexture("MaterialNormalTex1", materialNormal1Texture != null ? materialNormal1Texture : Texture2D.blackTexture);
+			lightingMaterial.SetInt("particleFluidCompositeRegionEnabled", materialRenderRegion.IsCropped ? 1 : 0);
+			lightingMaterial.SetVector("particleFluidCompositeUvRect", materialRenderRegion.SourceUvRect);
+			lightingMaterial.SetVector("particleFluidCameraUvRect", materialRenderRegion.SourceUvRect);
+			lightingMaterial.SetInt("particleFluidClipRegionEnabled", 0);
+			lightingMaterial.SetVector("particleFluidClipRect", materialRenderRegion.SourceUvRect);
+			int width = Mathf.Max(materialAlbedoTexture != null ? materialAlbedoTexture.width : 1, 1);
+			int height = Mathf.Max(materialAlbedoTexture != null ? materialAlbedoTexture.height : 1, 1);
+			lightingMaterial.SetVector("MaterialAlbedoTex_TexelSize", new Vector4(1f / width, 1f / height, width, height));
+		}
+
+		public void ApplySettings(
 			ParticleDisplay2D display,
 			Camera cam,
 			bool renderCaustics,
@@ -396,121 +376,220 @@ namespace Seb.Fluid2D.Rendering
 			Texture lightDirectionTexture,
 			float analyticBoundaryExpansion,
 			ParticleFluidRenderRegion2D renderRegion,
-			ParticleFluidRenderRegion2D causticRenderRegion,
+			ParticleFluidRenderRegion2D causticRegion,
 			Vector3 primaryDirectLightingDirection,
 			Vector3 secondaryDirectLightingDirection,
 			Vector3 tertiaryDirectLightingDirection)
 		{
-			Renderer.ApplySettings(
-				display,
-				this,
-				cam,
-				renderCaustics,
-				renderDirectionalLightField,
-				renderSoftLight,
-				radianceCascadeSoftLight,
-				causticTexture,
-				lightDirectionTexture,
-				analyticBoundaryExpansion,
-				renderRegion,
-				causticRenderRegion,
-				primaryDirectLightingDirection,
-				secondaryDirectLightingDirection,
-				tertiaryDirectLightingDirection
-			);
+			if (lightingMaterial == null)
+			{
+				return;
+			}
+
+			materialRenderRegion = renderRegion;
+			causticRenderRegion = causticRegion;
+			currentZoomScale = display.GetZoomScale(cam);
+
+			BindMaterialTextures();
+			lightingMaterial.SetVector("particleFluidWorldCenter", new Vector4(materialRenderRegion.WorldCenter.x, materialRenderRegion.WorldCenter.y, 0f, 0f));
+			lightingMaterial.SetVector("particleFluidWorldSize", new Vector4(materialRenderRegion.WorldSize.x, materialRenderRegion.WorldSize.y, 0f, 0f));
+			lightingMaterial.SetInt("useEllipticalBounds", display.sim.useEllipticalBounds ? 1 : 0);
+			lightingMaterial.SetVector("ellipseBoundsCenter", new Vector4(display.sim.ellipseBoundsCenter.x, display.sim.ellipseBoundsCenter.y, 0f, 0f));
+			lightingMaterial.SetVector("ellipseBoundsSize", new Vector4(display.sim.ellipseBoundsSize.x, display.sim.ellipseBoundsSize.y, 0f, 0f));
+			lightingMaterial.SetFloat("obstacleY", display.sim.obstacleY);
+			lightingMaterial.SetFloat("analyticBoundaryExpansion", analyticBoundaryExpansion);
+			lightingMaterial.SetInt("particleFluidCausticsEnabled", renderCaustics ? 1 : 0);
+			lightingMaterial.SetTexture("CausticTex", causticTexture != null ? causticTexture : Texture2D.blackTexture);
+			lightingMaterial.SetInt("particleFluidCausticRegionEnabled", causticRenderRegion.IsCropped ? 1 : 0);
+			lightingMaterial.SetVector("particleFluidCausticUvRect", causticRenderRegion.SourceUvRect);
+			lightingMaterial.SetInt("particleFluidDirectionalLightFieldEnabled", renderDirectionalLightField ? 1 : 0);
+			lightingMaterial.SetTexture("LightDirectionTex", lightDirectionTexture != null ? lightDirectionTexture : Texture2D.blackTexture);
+			lightingMaterial.SetInt("particleFluidPhaseDiffuseLightEnabled", renderSoftLight ? 1 : 0);
+			lightingMaterial.SetInt("particleFluidSoftLightPhase0Only", radianceCascadeSoftLight ? 1 : 0);
+			lightingMaterial.SetFloat("particleFluidRadianceCascadeDirectCausticStrength", radianceCascadeDirectCausticStrength);
+			lightingMaterial.SetTexture("SoftLightTex", Texture2D.blackTexture);
+			lightingMaterial.SetColor("particleFluidPhase0DiffuseLightTint", phase0Material.diffuseLightTint);
+			lightingMaterial.SetColor("particleFluidPhase1DiffuseLightTint", phase1Material.diffuseLightTint);
+			lightingMaterial.SetFloat("particleFluidIridescenceIntensity", iridescenceIntensity);
+			lightingMaterial.SetFloat("particleFluidIridescenceScale", iridescenceScale);
+			lightingMaterial.SetVector("particleBaseLightDirection", primaryLight.Direction);
+			lightingMaterial.SetVector("particleLightDirection", primaryDirectLightingDirection);
+			lightingMaterial.SetInt("particleLightType", (int)primaryLight.type);
+			lightingMaterial.SetVector("particleLightPoint", GetPointLightVector(primaryLight));
+			lightingMaterial.SetFloat("particleLightPointFalloff", primaryLight.pointFalloff);
+			lightingMaterial.SetVector("particleSecondaryBaseLightDirection", secondaryLight.Direction);
+			lightingMaterial.SetVector("particleSecondaryLightDirection", secondaryDirectLightingDirection);
+			lightingMaterial.SetInt("particleSecondaryLightEnabled", secondaryLight.enabled && secondaryLight.intensity > 0f ? 1 : 0);
+			lightingMaterial.SetInt("particleSecondaryLightType", (int)secondaryLight.type);
+			lightingMaterial.SetVector("particleSecondaryLightPoint", GetPointLightVector(secondaryLight));
+			lightingMaterial.SetFloat("particleSecondaryLightPointFalloff", secondaryLight.pointFalloff);
+			lightingMaterial.SetVector("particleTertiaryBaseLightDirection", tertiaryLight.Direction);
+			lightingMaterial.SetVector("particleTertiaryLightDirection", tertiaryDirectLightingDirection);
+			lightingMaterial.SetInt("particleTertiaryLightEnabled", tertiaryLight.enabled && tertiaryLight.intensity > 0f ? 1 : 0);
+			lightingMaterial.SetInt("particleTertiaryLightType", (int)tertiaryLight.type);
+			lightingMaterial.SetVector("particleTertiaryLightPoint", GetPointLightVector(tertiaryLight));
+			lightingMaterial.SetFloat("particleTertiaryLightPointFalloff", tertiaryLight.pointFalloff);
+			lightingMaterial.SetColor("particleLightColor", primaryLight.EffectiveColor);
+			lightingMaterial.SetColor("particleSecondaryLightColor", secondaryLight.EffectiveColor);
+			lightingMaterial.SetColor("particleTertiaryLightColor", tertiaryLight.EffectiveColor);
+			lightingMaterial.SetFloat("particleAmbientLight", ambientLight);
+			lightingMaterial.SetFloat("particleLightIntensity", primaryLight.enabled ? primaryLight.intensity : 0f);
+			lightingMaterial.SetFloat("particleSecondaryLightIntensity", secondaryLight.intensity);
+			lightingMaterial.SetFloat("particleTertiaryLightIntensity", tertiaryLight.intensity);
+			lightingMaterial.SetFloat("particlePhase0Reflectance", phase0Material.reflectance);
+			lightingMaterial.SetFloat("particlePhase1Reflectance", phase1Material.reflectance);
+			lightingMaterial.SetFloat("particlePhase0Roughness", phase0Material.roughness);
+			lightingMaterial.SetFloat("particlePhase1Roughness", phase1Material.roughness);
+			lightingMaterial.SetFloat("particlePhase0Metallic", phase0Material.metallic);
+			lightingMaterial.SetFloat("particlePhase1Metallic", phase1Material.metallic);
+			lightingMaterial.SetColor("particleFresnelColor", fresnelColor);
+			lightingMaterial.SetFloat("particleFresnelIntensity", fresnelIntensity);
+			lightingMaterial.SetFloat("particleFresnelPower", fresnelPower);
+			lightingMaterial.SetFloat("screenSpaceReflectionStrength0", phase0Material.screenSpaceReflectionStrength);
+			lightingMaterial.SetFloat("screenSpaceReflectionStrength1", phase1Material.screenSpaceReflectionStrength);
+			lightingMaterial.SetFloat("screenSpaceReflectionDistance", screenSpaceReflectionDistance * currentZoomScale);
+			lightingMaterial.SetFloat("screenSpaceReflectionEdgePower", screenSpaceReflectionEdgePower);
+			lightingMaterial.SetFloat("particleSpecularCausticSampleOffset", specularCausticSampleOffset * currentZoomScale);
+			Vector4 phaseRadiusScale = GetPhaseRadiusScale(display.metaballs.phase0RenderBias);
+			lightingMaterial.SetVector("particleSpecularCausticPhaseScale", phaseRadiusScale);
+			lightingMaterial.SetVector("particleAmbientOcclusionPhaseScale", phaseRadiusScale);
+			lightingMaterial.SetFloat("particleTransmissionIntensity", transmissionIntensity);
+			lightingMaterial.SetFloat("particleTransmissionPower", transmissionPower);
+			lightingMaterial.SetFloat("particleAmbientOcclusion", ambientOcclusion);
+			lightingMaterial.SetFloat("particleAmbientOcclusionPower", ambientOcclusionPower);
 		}
 
-		internal void SetMaterialTextures(Texture albedo, Texture normal0, Texture normal1, ParticleFluidRenderRegion2D renderRegion)
+		static Vector4 GetPhaseRadiusScale(float phase0RenderBias)
 		{
-			Renderer.SetMaterialTextures(albedo, normal0, normal1, renderRegion);
+			float phaseBoundary = Mathf.Clamp01(0.5f + Mathf.Clamp(phase0RenderBias, -1f, 1f) * 0.5f);
+			float phase0Scale = Mathf.Sqrt(Mathf.Max(phaseBoundary * 2f, 0.0001f));
+			float phase1Scale = Mathf.Sqrt(Mathf.Max((1f - phaseBoundary) * 2f, 0.0001f));
+			return new Vector4(phase0Scale, phase1Scale, 0f, 0f);
 		}
 
-		internal void SetSoftLightTexture(Texture texture)
+		static Vector4 GetPointLightVector(DirectionalLightSettings light)
 		{
-			Renderer.SetSoftLightTexture(texture);
+			if (light == null)
+			{
+				return new Vector4(0f, 0f, 0.0001f, 0.0001f);
+			}
+
+			return new Vector4(light.pointPosition.x, light.pointPosition.y, Mathf.Max(light.pointHeight, 0.0001f), Mathf.Max(light.pointRange, 0.0001f));
 		}
 
+		public void SetSoftLightTexture(Texture texture)
+		{
+			if (lightingMaterial != null)
+			{
+				lightingMaterial.SetTexture("SoftLightTex", texture != null ? texture : Texture2D.blackTexture);
+			}
+		}
+		
 		internal void Render(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, Camera cam)
 		{
-			Renderer.Render(commandBuffer, finalTarget, this, cam);
-		}
-
-		void Update()
-		{
-			if (!AnyPointLightFollowsMouse())
+			if (!IsReady || commandBuffer == null)
 			{
 				return;
 			}
 
-			if (!TryGetMouseWorldPosition(out Vector2 mouseWorldPosition))
+			BindMaterialTextures();
+			commandBuffer.BeginSample("Particle Fluid/Final Lighting");
+			if (!ShouldRenderColorBleed())
 			{
-				return;
+				ConfigureLightingCompositeToCamera();
+				commandBuffer.Blit(null, finalTarget, lightingMaterial, LightingPass);
+				ConfigureLightingIntermediate();
+			}
+			else
+			{
+				RenderWithColorBleed(commandBuffer, finalTarget, cam);
+			}
+			commandBuffer.EndSample("Particle Fluid/Final Lighting");
+		}
+
+		bool ShouldRenderColorBleed()
+		{
+			return diffuseColorBleedEnabled
+			       && diffuseColorBleedStrength > 0f
+			       && diffuseColorBleedRadius > 0f
+			       && colorBleedMaterial != null;
+		}
+
+		void RenderWithColorBleed(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, Camera cam)
+		{
+			int materialWidth = Mathf.Max(materialAlbedoTexture != null ? materialAlbedoTexture.width : 1, 1);
+			int materialHeight = Mathf.Max(materialAlbedoTexture != null ? materialAlbedoTexture.height : 1, 1);
+			int sourceWidth = materialRenderRegion.IsCropped ? materialWidth : Mathf.Max(cam != null ? cam.pixelWidth : materialWidth, 1);
+			int sourceHeight = materialRenderRegion.IsCropped ? materialHeight : Mathf.Max(cam != null ? cam.pixelHeight : materialHeight, 1);
+			float bleedScale = Mathf.Clamp(diffuseColorBleedTextureScale, 0.125f, 1f);
+			int bleedWidth = Mathf.Max(1, Mathf.RoundToInt(sourceWidth * bleedScale));
+			int bleedHeight = Mathf.Max(1, Mathf.RoundToInt(sourceHeight * bleedScale));
+
+			commandBuffer.GetTemporaryRT(FinalLightingTempId, sourceWidth, sourceHeight, 0, FilterMode.Bilinear, RenderTextureFormat.ARGBHalf);
+			commandBuffer.GetTemporaryRT(ColorBleedTemp0Id, bleedWidth, bleedHeight, 0, FilterMode.Bilinear, RenderTextureFormat.ARGBHalf);
+			commandBuffer.GetTemporaryRT(ColorBleedTemp1Id, bleedWidth, bleedHeight, 0, FilterMode.Bilinear, RenderTextureFormat.ARGBHalf);
+
+			commandBuffer.SetRenderTarget(FinalLightingTempId);
+			commandBuffer.ClearRenderTarget(false, true, Color.clear);
+			ConfigureLightingIntermediate();
+			commandBuffer.Blit(null, FinalLightingTempId, lightingMaterial, LightingPass);
+			BindColorBleedMaterial(bleedScale, false);
+			commandBuffer.SetGlobalTexture("_ParticleFluidSourceTex", FinalLightingTempId);
+			commandBuffer.Blit(FinalLightingTempId, ColorBleedTemp0Id, colorBleedMaterial, ColorBleedDownsamplePass);
+			commandBuffer.Blit(ColorBleedTemp0Id, ColorBleedTemp1Id, colorBleedMaterial, ColorBleedHorizontalPass);
+			commandBuffer.Blit(ColorBleedTemp1Id, ColorBleedTemp0Id, colorBleedMaterial, ColorBleedVerticalPass);
+			BindColorBleedMaterial(bleedScale, true);
+			commandBuffer.SetGlobalTexture("_ParticleFluidSourceTex", FinalLightingTempId);
+			commandBuffer.SetGlobalTexture("_ParticleFluidBleedTex", ColorBleedTemp0Id);
+			commandBuffer.Blit(FinalLightingTempId, finalTarget, colorBleedMaterial, ColorBleedCompositePass);
+
+			commandBuffer.ReleaseTemporaryRT(ColorBleedTemp1Id);
+			commandBuffer.ReleaseTemporaryRT(ColorBleedTemp0Id);
+			commandBuffer.ReleaseTemporaryRT(FinalLightingTempId);
+		}
+
+		void ConfigureLightingCompositeToCamera()
+		{
+			lightingMaterial.SetInt("particleFluidCompositeRegionEnabled", materialRenderRegion.IsCropped ? 1 : 0);
+			lightingMaterial.SetInt("particleFluidClipRegionEnabled", 0);
+			lightingMaterial.SetVector("particleFluidClipRect", materialRenderRegion.SourceUvRect);
+		}
+
+		void ConfigureLightingIntermediate()
+		{
+			lightingMaterial.SetInt("particleFluidCompositeRegionEnabled", 0);
+			lightingMaterial.SetInt("particleFluidClipRegionEnabled", 0);
+			lightingMaterial.SetVector("particleFluidClipRect", materialRenderRegion.SourceUvRect);
+		}
+
+		void BindColorBleedMaterial(float bleedScale, bool compositeToCamera)
+		{
+			colorBleedMaterial.SetTexture("MaterialAlbedoTex", materialAlbedoTexture != null ? materialAlbedoTexture : Texture2D.blackTexture);
+			colorBleedMaterial.SetTexture("MaterialNormalTex", materialNormal0Texture != null ? materialNormal0Texture : Texture2D.blackTexture);
+			colorBleedMaterial.SetTexture("MaterialNormalTex1", materialNormal1Texture != null ? materialNormal1Texture : Texture2D.blackTexture);
+			colorBleedMaterial.SetInt("particleFluidCompositeRegionEnabled", compositeToCamera && materialRenderRegion.IsCropped ? 1 : 0);
+			colorBleedMaterial.SetInt("particleFluidClipRegionEnabled", 0);
+			colorBleedMaterial.SetVector("particleFluidCompositeUvRect", materialRenderRegion.SourceUvRect);
+			colorBleedMaterial.SetVector("particleFluidClipRect", materialRenderRegion.SourceUvRect);
+			colorBleedMaterial.SetFloat("_BleedStrength", Mathf.Max(diffuseColorBleedStrength, 0f));
+			colorBleedMaterial.SetFloat("_BleedRadius", Mathf.Max(diffuseColorBleedRadius * currentZoomScale * bleedScale, 0f));
+			colorBleedMaterial.SetFloat("_BleedSelfSubtract", Mathf.Clamp01(diffuseColorBleedSelfSubtract));
+			colorBleedMaterial.SetFloat("_BleedNormalWeight", Mathf.Clamp01(diffuseColorBleedNormalWeight));
+		}
+
+		public void Release()
+		{
+			if (lightingMaterial != null)
+			{
+				DestroyImmediate(lightingMaterial);
+				lightingMaterial = null;
 			}
 
-			ApplyMousePosition(PrimaryLight, mouseWorldPosition);
-			ApplyMousePosition(SecondaryLight, mouseWorldPosition);
-			ApplyMousePosition(TertiaryLight, mouseWorldPosition);
-		}
-
-		static void ApplyMousePosition(DirectionalLightSettings light, Vector2 mouseWorldPosition)
-		{
-			if (light != null && light.type == DirectionalLightSettings.LightType.Point && light.pointFollowsMouse)
+			if (colorBleedMaterial != null)
 			{
-				light.pointPosition = mouseWorldPosition;
+				DestroyImmediate(colorBleedMaterial);
+				colorBleedMaterial = null;
 			}
-		}
-
-		bool AnyPointLightFollowsMouse()
-		{
-			return PointLightFollowsMouse(PrimaryLight)
-			       || PointLightFollowsMouse(SecondaryLight)
-			       || PointLightFollowsMouse(TertiaryLight);
-		}
-
-		static bool PointLightFollowsMouse(DirectionalLightSettings light)
-		{
-			return light != null && light.type == DirectionalLightSettings.LightType.Point && light.pointFollowsMouse;
-		}
-
-		static bool TryGetMouseWorldPosition(out Vector2 mouseWorldPosition)
-		{
-			mouseWorldPosition = Vector2.zero;
-			Camera cam = Camera.main;
-			if (cam == null)
-			{
-				return false;
-			}
-
-			Vector3 mousePosition = Input.mousePosition;
-			if (!float.IsFinite(mousePosition.x) || !float.IsFinite(mousePosition.y) || !float.IsFinite(mousePosition.z))
-			{
-				return false;
-			}
-
-			if (!cam.pixelRect.Contains(mousePosition))
-			{
-				return false;
-			}
-
-			Plane simulationPlane = new Plane(Vector3.forward, Vector3.zero);
-			Ray ray = cam.ScreenPointToRay(mousePosition);
-			Vector3 worldPosition = simulationPlane.Raycast(ray, out float distance)
-				? ray.GetPoint(distance)
-				: cam.ScreenToWorldPoint(mousePosition);
-			mouseWorldPosition = worldPosition;
-			return true;
-		}
-
-		void OnDisable()
-		{
-			lightingRenderer?.Release();
-			lightingRenderer = null;
-		}
-
-		void OnDestroy()
-		{
-			lightingRenderer?.Release();
-			lightingRenderer = null;
 		}
 	}
 }
