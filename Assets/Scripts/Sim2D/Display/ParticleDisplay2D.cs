@@ -244,6 +244,7 @@ namespace Seb.Fluid2D.Rendering
 				jumpFloodRenderer?.RemoveCommandBuffer();
 				if (RenderPipelineManager.currentPipeline == null)
 				{
+					print(Camera.main);
 					MetaballRenderer.Render(this, Camera.main);
 				}
 				else
@@ -657,7 +658,7 @@ namespace Seb.Fluid2D.Rendering
 		void OnValidate()
 		{
 			needsUpdate = true;
-			metaballRenderer?.ClearCausticHistory();
+			//metaballRenderer?.ClearCausticHistory();
 		}
 
 		void OnDisable()

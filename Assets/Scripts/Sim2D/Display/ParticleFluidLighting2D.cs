@@ -1,5 +1,7 @@
 using System;
+using Seb.Helpers;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 using UnityEngine.Serialization;
 
@@ -311,6 +313,47 @@ namespace Seb.Fluid2D.Rendering
 		ParticleFluidRenderRegion2D materialRenderRegion;
 		ParticleFluidRenderRegion2D causticRenderRegion;
 		float currentZoomScale = 1f;
+		
+		
+		ComputeBuffer causticAccumulationBuffer;
+		ComputeBuffer causticMotionAccumulationBuffer;
+		ComputeBuffer lightDirectionAccumulationBuffer;
+		ComputeBuffer lightDirectionAccumulationFallbackBuffer;
+		public RenderTexture lightDirectionResultFallbackTexture;
+		public RenderTexture causticResolvedTexture;
+		public RenderTexture causticBlurTexture;
+		public RenderTexture causticMotionTexture;
+		public RenderTexture causticMotionDilatedTexture;
+		public RenderTexture causticMotionDilationScratchTexture;
+		public RenderTexture lightDirectionTexture;
+		public RenderTexture lightDirectionBlurTexture;
+		public RenderTexture softLightTexture0;
+		public RenderTexture softLightTexture1;
+		public RenderTexture causticHistoryTexture;
+		public RenderTexture causticTemporalTexture;
+		public RenderTexture lightDirectionHistoryTexture;
+		public RenderTexture lightDirectionTemporalTexture;
+		
+		public bool clearCausticHistory;
+		public bool hasPreviousCausticCamera;
+		public int causticFrameIndex;
+		public int causticTemporalFrameCount;
+		public Vector2 previousCausticWorldCenter;
+		public Vector2 previousCausticWorldSize;
+		
+		public ParticleFluidRenderRegion2D currentCausticRenderRegion;
+		
+		
+		internal struct LightingFrameContext
+		{
+			public ParticleFluidRenderRegion2D MaterialRegion;
+			public ParticleFluidRenderRegion2D CausticRegion;
+			public RenderTexture CombinedTex;
+			public RenderTexture NormalTex;
+			public RenderTexture VelocityTex0;
+			public RenderTexture VelocityTex1;
+			public float AnalyticBoundaryExpansion;
+		}
 
 		public Material Material => lightingMaterial;
 		public bool IsReady => lightingMaterial != null;
@@ -364,6 +407,164 @@ namespace Seb.Fluid2D.Rendering
 			int height = Mathf.Max(materialAlbedoTexture != null ? materialAlbedoTexture.height : 1, 1);
 			lightingMaterial.SetVector("MaterialAlbedoTex_TexelSize", new Vector4(1f / width, 1f / height, width, height));
 		}
+		
+		public Vector3 GetDirectLightingDirection(ParticleDisplay2D display, ParticleFluidLighting2D settings, Vector3 lightDirection)
+		{
+			if (settings.directionalLightingMode == ParticleFluidLighting2D.DirectionalLightingMode.Direct || !display.sim.useEllipticalBounds)
+			{
+				return lightDirection;
+			}
+
+			Vector2 lightXY = new Vector2(lightDirection.x, lightDirection.y);
+			float planarLength = lightXY.magnitude;
+			if (planarLength <= 0.0001f)
+			{
+				return lightDirection;
+			}
+
+			Vector2 directionToLight = lightXY / planarLength;
+			if (!TryGetAnalyticBoundaryHitFromCenter(display, directionToLight, out Vector2 hitPoint, out Vector2 outwardNormal))
+			{
+				return lightDirection;
+			}
+
+			Vector2 incomingRayDirection = -directionToLight;
+			Vector2 refractedRayDirection = Refract2D(incomingRayDirection, outwardNormal, 1f / Mathf.Max(settings.phase1Material.indexOfRefraction, 1.0001f));
+			Vector2 refractedLightXY = -refractedRayDirection * planarLength;
+			return new Vector3(refractedLightXY.x, refractedLightXY.y, lightDirection.z).normalized;
+		}
+		
+		float GetAnalyticBoundaryExpansion(ParticleDisplay2D display)
+		{
+			return display.metaballs.analyticBoundaryPadding;
+		}
+
+		bool TryGetAnalyticBoundaryHitFromCenter(ParticleDisplay2D display, Vector2 directionToLight, out Vector2 hitPoint, out Vector2 outwardNormal)
+		{
+			float expansion = GetAnalyticBoundaryExpansion(display);
+			Vector2 center = display.sim.ellipseBoundsCenter;
+			Vector2 radii = new Vector2(Mathf.Abs(display.sim.ellipseBoundsSize.x), Mathf.Abs(display.sim.ellipseBoundsSize.y)) + Vector2.one * expansion;
+			float cutY = display.sim.obstacleY - expansion;
+			float topY = center.y + radii.y;
+			Vector2 start = new Vector2(center.x, (topY + cutY) * 0.5f);
+			hitPoint = Vector2.zero;
+			outwardNormal = Vector2.up;
+			if (radii.x <= 0.0001f || radii.y <= 0.0001f)
+			{
+				return false;
+			}
+
+			float bestT = float.PositiveInfinity;
+			bool hasHit = false;
+
+			float invRx2 = 1f / (radii.x * radii.x);
+			float invRy2 = 1f / (radii.y * radii.y);
+			float a = directionToLight.x * directionToLight.x * invRx2 + directionToLight.y * directionToLight.y * invRy2;
+			Vector2 startRel = start - center;
+			float b = 2f * (startRel.x * directionToLight.x * invRx2 + startRel.y * directionToLight.y * invRy2);
+			float c = startRel.x * startRel.x * invRx2 + startRel.y * startRel.y * invRy2 - 1f;
+			float discriminant = b * b - 4f * a * c;
+			if (discriminant >= 0f && a > 0.000001f)
+			{
+				float sqrtDiscriminant = Mathf.Sqrt(discriminant);
+				TryUseAnalyticBoundaryCandidate(start, (-b - sqrtDiscriminant) / (2f * a), directionToLight, center, radii, cutY, false, ref bestT, ref hitPoint, ref outwardNormal, ref hasHit);
+				TryUseAnalyticBoundaryCandidate(start, (-b + sqrtDiscriminant) / (2f * a), directionToLight, center, radii, cutY, false, ref bestT, ref hitPoint, ref outwardNormal, ref hasHit);
+			}
+
+			if (directionToLight.y < -0.0001f)
+			{
+				float cutT = (cutY - start.y) / directionToLight.y;
+				TryUseAnalyticBoundaryCandidate(start, cutT, directionToLight, center, radii, cutY, true, ref bestT, ref hitPoint, ref outwardNormal, ref hasHit);
+			}
+
+			return hasHit;
+		}
+
+		void TryUseAnalyticBoundaryCandidate(Vector2 start, float t, Vector2 direction, Vector2 center, Vector2 radii, float cutY, bool isCut, ref float bestT, ref Vector2 hitPoint, ref Vector2 outwardNormal, ref bool hasHit)
+		{
+			if (t <= 0.0001f || t >= bestT)
+			{
+				return;
+			}
+
+			Vector2 point = start + direction * t;
+			Vector2 rel = point - center;
+			float ellipseValue = rel.x * rel.x / (radii.x * radii.x) + rel.y * rel.y / (radii.y * radii.y);
+			if (isCut)
+			{
+				if (ellipseValue > 1.0001f)
+				{
+					return;
+				}
+
+				outwardNormal = Vector2.down;
+			}
+			else
+			{
+				if (point.y < cutY - 0.0001f)
+				{
+					return;
+				}
+
+				Vector2 ellipseNormal = new Vector2(rel.x / (radii.x * radii.x), rel.y / (radii.y * radii.y));
+				if (ellipseNormal.sqrMagnitude <= 0.000001f)
+				{
+					return;
+				}
+
+				outwardNormal = ellipseNormal.normalized;
+			}
+
+			bestT = t;
+			hitPoint = point;
+			hasHit = true;
+		}
+
+		Vector2 Refract2D(Vector2 rayDirection, Vector2 normal, float eta)
+		{
+			if (Vector2.Dot(rayDirection, normal) > 0f)
+			{
+				normal = -normal;
+			}
+
+			float cosI = Vector2.Dot(-rayDirection, normal);
+			float sinT2 = eta * eta * Mathf.Max(0f, 1f - cosI * cosI);
+			if (sinT2 > 1f)
+			{
+				return (rayDirection - 2f * Vector2.Dot(rayDirection, normal) * normal).normalized;
+			}
+
+			float cosT = Mathf.Sqrt(Mathf.Max(0f, 1f - sinT2));
+			return (eta * rayDirection + (eta * cosI - cosT) * normal).normalized;
+		}
+		
+		public void ApplyFrameSettings(ParticleDisplay2D display, Camera cam, ParticleFluidRenderRegion2D currentMaterialRenderRegion)
+		{
+			bool renderCaustics = ShouldRenderCaustics();
+			bool renderDirectionalLightField = ShouldRenderDirectionalLightField();
+			bool renderSoftLight = ShouldRenderPhaseDiffuseLight() || ShouldRenderRadianceCascadeLight();
+			Texture causticTexture = denoisingEnabled ? causticTemporalTexture : causticResolvedTexture;
+			Texture lightDirectionTextureForLighting = Texture2D.blackTexture;
+			if (renderDirectionalLightField)
+			{
+				lightDirectionTextureForLighting = denoisingEnabled ? lightDirectionTemporalTexture : lightDirectionTexture;
+			}
+
+			ApplySettings(
+				display,
+				cam,
+				renderCaustics,
+				renderDirectionalLightField,
+				renderSoftLight,
+				ShouldRenderRadianceCascadeLight(),
+				causticTexture,
+				lightDirectionTextureForLighting,
+				GetAnalyticBoundaryExpansion(display),
+				currentMaterialRenderRegion,
+				currentCausticRenderRegion
+			);
+		}
+		
 
 		public void ApplySettings(
 			ParticleDisplay2D display,
@@ -376,15 +577,16 @@ namespace Seb.Fluid2D.Rendering
 			Texture lightDirectionTexture,
 			float analyticBoundaryExpansion,
 			ParticleFluidRenderRegion2D renderRegion,
-			ParticleFluidRenderRegion2D causticRegion,
-			Vector3 primaryDirectLightingDirection,
-			Vector3 secondaryDirectLightingDirection,
-			Vector3 tertiaryDirectLightingDirection)
+			ParticleFluidRenderRegion2D causticRegion)
 		{
 			if (lightingMaterial == null)
 			{
 				return;
 			}
+
+			Vector3 primaryDirectLightingDirection = GetDirectLightingDirection(display, this, primaryLight.Direction);
+			Vector3 secondaryDirectLightingDirection = GetDirectLightingDirection(display, this, secondaryLight.Direction);
+			Vector3 tertiaryDirectLightingDirection = GetDirectLightingDirection(display, this, tertiaryLight.Direction);
 
 			materialRenderRegion = renderRegion;
 			causticRenderRegion = causticRegion;
@@ -576,6 +778,178 @@ namespace Seb.Fluid2D.Rendering
 			colorBleedMaterial.SetFloat("_BleedSelfSubtract", Mathf.Clamp01(diffuseColorBleedSelfSubtract));
 			colorBleedMaterial.SetFloat("_BleedNormalWeight", Mathf.Clamp01(diffuseColorBleedNormalWeight));
 		}
+		
+		public bool ShouldRenderCaustics()
+		{
+			return causticsEnabled && computeShader != null;
+		}
+		
+		public bool ShouldRenderPhaseDiffuseLight()
+		{
+			return ShouldRenderCaustics()
+			       && phaseDiffuseLightEnabled
+			       && phaseDiffuseLightEnabled
+			       && phaseDiffuseLightCompute != null
+			       && (
+				       phase0Material.diffuseScatterStrength > 0f
+				       || phase1Material.diffuseScatterStrength > 0f
+			       );
+		}
+
+		public bool ShouldRenderRadianceCascadeLight()
+		{
+			return ShouldRenderCaustics()
+			       && radianceCascadeEnabled
+			       && radianceCascadeShader != null
+			       && phase0Material.diffuseScatterStrength > 0f;
+		}
+
+		public bool ShouldRenderDirectionalLightField()
+		{
+			return ShouldRenderCaustics() && directionalLightingMode == DirectionalLightingMode.DirectionalLightField;
+		}
+		
+		public bool ShouldRenderCausticDebug()
+		{
+			return LightingDebugMode(this) != LightingDebugVisualization.None;
+		}
+
+		public static LightingDebugVisualization LightingDebugMode(ParticleFluidLighting2D settings)
+		{
+			return settings != null ? settings.debugMode : LightingDebugVisualization.None;
+		}
+
+		public void EnsureLightingResources(ParticleFluidRenderRegion2D currentMaterialRenderRegion)
+		{
+			currentCausticRenderRegion = GetScaledRenderRegion(currentMaterialRenderRegion, textureScale);
+			if (ShouldRenderCaustics() && (this != null || ShouldRenderCausticDebug()))
+			{
+				bool renderDirectionalLightField = ShouldRenderDirectionalLightField();
+				bool renderPhaseDiffuseLight = ShouldRenderPhaseDiffuseLight();
+				bool renderRadianceCascadeLight = ShouldRenderRadianceCascadeLight();
+				bool renderSoftLight = renderPhaseDiffuseLight || renderRadianceCascadeLight;
+				int causticWidth = currentCausticRenderRegion.PixelWidth;
+				int causticHeight = currentCausticRenderRegion.PixelHeight;
+				int causticAccumulationCount = causticWidth * causticHeight * 4;
+				
+				
+				ComputeHelper.CreateStructuredBuffer<uint>(ref causticAccumulationBuffer, causticAccumulationCount);
+				ComputeHelper.CreateStructuredBuffer<int>(ref causticMotionAccumulationBuffer, causticAccumulationCount);
+				ComputeHelper.CreateStructuredBuffer<uint>(ref lightDirectionAccumulationFallbackBuffer, 4);
+				ComputeHelper.CreateRenderTexture(ref lightDirectionResultFallbackTexture, 1, 1, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Light Direction Result Fallback");
+				ComputeHelper.CreateRenderTexture(ref causticResolvedTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Resolved");
+				ComputeHelper.CreateRenderTexture(ref causticBlurTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Blur");
+				ComputeHelper.CreateRenderTexture(ref causticMotionTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Motion");
+				ComputeHelper.CreateRenderTexture(ref causticMotionDilatedTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Motion Dilated");
+				ComputeHelper.CreateRenderTexture(ref causticMotionDilationScratchTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Motion Dilation Scratch");
+				if (renderDirectionalLightField)
+				{
+					ComputeHelper.CreateStructuredBuffer<uint>(ref lightDirectionAccumulationBuffer, causticAccumulationCount);
+					ComputeHelper.CreateRenderTexture(ref lightDirectionTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Light Direction");
+					ComputeHelper.CreateRenderTexture(ref lightDirectionBlurTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Light Direction Blur");
+				}
+				else
+				{
+					ReleaseLightDirectionTextures();
+				}
+				if (renderSoftLight)
+				{
+					float softLightScale = phaseDiffuseLightTextureScale;
+					int softLightWidth = Mathf.Max(1, Mathf.RoundToInt(causticWidth * softLightScale));
+					int softLightHeight = Mathf.Max(1, Mathf.RoundToInt(causticHeight * softLightScale));
+					ComputeHelper.CreateRenderTexture(ref softLightTexture0, softLightWidth, softLightHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Diffuse Light 0");
+					ComputeHelper.CreateRenderTexture(ref softLightTexture1, softLightWidth, softLightHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Diffuse Light 1");
+				}
+				else
+				{
+					ReleasePhaseDiffuseLightTextures();
+				}
+				if (denoisingEnabled)
+				{
+					bool historyChanged = ComputeHelper.CreateRenderTexture(ref causticHistoryTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic History");
+					ComputeHelper.CreateRenderTexture(ref causticTemporalTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Temporal");
+					if (renderDirectionalLightField)
+					{
+						historyChanged |= ComputeHelper.CreateRenderTexture(ref lightDirectionHistoryTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Light Direction History");
+						ComputeHelper.CreateRenderTexture(ref lightDirectionTemporalTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Light Direction Temporal");
+					}
+					else
+					{
+						ComputeHelper.Release(lightDirectionHistoryTexture, lightDirectionTemporalTexture);
+						lightDirectionHistoryTexture = null;
+						lightDirectionTemporalTexture = null;
+					}
+					clearCausticHistory |= historyChanged;
+				}
+				else
+				{
+					ComputeHelper.Release(causticHistoryTexture, causticTemporalTexture, lightDirectionHistoryTexture, lightDirectionTemporalTexture);
+					causticHistoryTexture = null;
+					causticTemporalTexture = null;
+					lightDirectionHistoryTexture = null;
+					lightDirectionTemporalTexture = null;
+					clearCausticHistory = true;
+					hasPreviousCausticCamera = false;
+					causticTemporalFrameCount = 0;
+				}
+			}
+			else
+			{
+				ComputeHelper.Release(causticAccumulationBuffer, causticMotionAccumulationBuffer);
+				causticAccumulationBuffer = null;
+				causticMotionAccumulationBuffer = null;
+				ComputeHelper.Release(causticResolvedTexture, causticBlurTexture, causticMotionTexture, causticMotionDilatedTexture, causticMotionDilationScratchTexture, causticHistoryTexture, causticTemporalTexture);
+				ReleaseOptionalCausticFallbackTextures();
+				ReleaseLightDirectionTextures();
+				ReleasePhaseDiffuseLightTextures();
+				causticResolvedTexture = null;
+				causticBlurTexture = null;
+				causticMotionTexture = null;
+				causticMotionDilatedTexture = null;
+				causticMotionDilationScratchTexture = null;
+				causticHistoryTexture = null;
+				causticTemporalTexture = null;
+				clearCausticHistory = true;
+				hasPreviousCausticCamera = false;
+				causticTemporalFrameCount = 0;
+			}
+		}
+		
+		static ParticleFluidRenderRegion2D GetScaledRenderRegion(ParticleFluidRenderRegion2D source, float scale)
+		{
+			float clampedScale = Mathf.Max(scale, 0.0001f);
+			return new ParticleFluidRenderRegion2D(
+				source.WorldCenter,
+				source.WorldSize,
+				source.SourceUvRect,
+				Mathf.Max(1, Mathf.RoundToInt(source.PixelWidth * clampedScale)),
+				Mathf.Max(1, Mathf.RoundToInt(source.PixelHeight * clampedScale)),
+				source.IsCropped
+			);
+		}
+		
+		public void ClearCausticHistory()
+		{
+			clearCausticHistory = true;
+			hasPreviousCausticCamera = false;
+			causticTemporalFrameCount = 0;
+		}
+		
+		public void BindCausticAccumulationTextures(CommandBuffer targetCommandBuffer, ComputeShader compute, int kernel)
+		{
+			targetCommandBuffer.SetComputeBufferParam(compute, kernel, "CausticAccum", causticAccumulationBuffer);
+		}
+
+		public void BindCausticMotionTextures(CommandBuffer targetCommandBuffer, ComputeShader compute, int kernel)
+		{
+			targetCommandBuffer.SetComputeBufferParam(compute, kernel, "CausticMotionAccum", causticMotionAccumulationBuffer);
+		}
+
+		public void BindLightDirectionTextures(CommandBuffer targetCommandBuffer, ComputeShader compute, int kernel, bool renderDirectionalLightField)
+		{
+			targetCommandBuffer.SetComputeBufferParam(compute, kernel, "LightDirectionAccum", renderDirectionalLightField ? lightDirectionAccumulationBuffer : lightDirectionAccumulationFallbackBuffer);
+		}
+		
 
 		public void Release()
 		{
@@ -590,6 +964,40 @@ namespace Seb.Fluid2D.Rendering
 				DestroyImmediate(colorBleedMaterial);
 				colorBleedMaterial = null;
 			}
+			
+			ComputeHelper.Release(causticAccumulationBuffer, causticMotionAccumulationBuffer);
+			causticAccumulationBuffer = null;
+			causticMotionAccumulationBuffer = null;
+			ComputeHelper.Release(causticResolvedTexture, causticBlurTexture, causticMotionTexture, causticMotionDilatedTexture, causticMotionDilationScratchTexture, causticHistoryTexture, causticTemporalTexture);
+			ReleaseOptionalCausticFallbackTextures();
+			ReleaseLightDirectionTextures();
+			ReleasePhaseDiffuseLightTextures();
+		}
+		
+		void ReleasePhaseDiffuseLightTextures()
+		{
+			ComputeHelper.Release(softLightTexture0, softLightTexture1);
+			softLightTexture0 = null;
+			softLightTexture1 = null;
+		}
+
+		void ReleaseLightDirectionTextures()
+		{
+			ComputeHelper.Release(lightDirectionAccumulationBuffer);
+			lightDirectionAccumulationBuffer = null;
+			ComputeHelper.Release(lightDirectionTexture, lightDirectionBlurTexture, lightDirectionHistoryTexture, lightDirectionTemporalTexture);
+			lightDirectionTexture = null;
+			lightDirectionBlurTexture = null;
+			lightDirectionHistoryTexture = null;
+			lightDirectionTemporalTexture = null;
+		}
+
+		void ReleaseOptionalCausticFallbackTextures()
+		{
+			ComputeHelper.Release(lightDirectionAccumulationFallbackBuffer);
+			lightDirectionAccumulationFallbackBuffer = null;
+			ComputeHelper.Release(lightDirectionResultFallbackTexture);
+			lightDirectionResultFallbackTexture = null;
 		}
 	}
 }

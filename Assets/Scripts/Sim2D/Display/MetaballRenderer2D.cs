@@ -32,35 +32,12 @@ namespace Seb.Fluid2D.Rendering
 		RenderTexture velocityPhase0BlurTexture;
 		RenderTexture velocityPhase1AccumulationTexture;
 		RenderTexture velocityPhase1BlurTexture;
-		ComputeBuffer causticAccumulationBuffer;
-		ComputeBuffer causticMotionAccumulationBuffer;
-		ComputeBuffer lightDirectionAccumulationBuffer;
-		ComputeBuffer lightDirectionAccumulationFallbackBuffer;
-		RenderTexture lightDirectionResultFallbackTexture;
-		RenderTexture causticResolvedTexture;
-		RenderTexture causticBlurTexture;
-		RenderTexture causticMotionTexture;
-		RenderTexture causticMotionDilatedTexture;
-		RenderTexture causticMotionDilationScratchTexture;
-		RenderTexture lightDirectionTexture;
-		RenderTexture lightDirectionBlurTexture;
-		RenderTexture softLightTexture0;
-		RenderTexture softLightTexture1;
-		RenderTexture causticHistoryTexture;
-		RenderTexture causticTemporalTexture;
-		RenderTexture lightDirectionHistoryTexture;
-		RenderTexture lightDirectionTemporalTexture;
+		
 		CommandBuffer commandBuffer;
 		readonly float[] pointLightBoundaryAngles = new float[PointLightBoundaryEllipseSamples + PointLightBoundaryCutSamples + 2];
 		bool commandBufferAttached;
-		bool clearCausticHistory;
-		bool hasPreviousCausticCamera;
-		int causticFrameIndex;
-		int causticTemporalFrameCount;
-		Vector2 previousCausticWorldCenter;
-		Vector2 previousCausticWorldSize;
+		
 		ParticleFluidRenderRegion2D currentMaterialRenderRegion;
-		ParticleFluidRenderRegion2D currentCausticRenderRegion;
 
 		public void Render(ParticleDisplay2D display, Camera cam)
 		{
@@ -70,6 +47,7 @@ namespace Seb.Fluid2D.Rendering
 				RemoveCommandBuffer();
 				return;
 			}
+			
 
 			EnsureCommandBuffer(cam);
 			commandBuffer.Clear();
@@ -78,7 +56,8 @@ namespace Seb.Fluid2D.Rendering
 			ApplyDebugSettings(display, cam);
 			ApplyTemporalSettings(display);
 			ApplyMaterialSettings(display, cam);
-			ApplyLightingSettings(display, cam);
+			//slow?
+			GetActiveLighting(display).ApplyFrameSettings(display, cam, currentMaterialRenderRegion);
 			BuildCommandBuffer(display, cam, commandBuffer, BuiltinRenderTextureType.CameraTarget);
 		}
 
@@ -95,7 +74,7 @@ namespace Seb.Fluid2D.Rendering
 			ApplyDebugSettings(display, cam);
 			ApplyTemporalSettings(display);
 			ApplyMaterialSettings(display, cam);
-			ApplyLightingSettings(display, cam);
+			GetActiveLighting(display).ApplyFrameSettings(display, cam, currentMaterialRenderRegion);
 			BuildCommandBuffer(display, cam, targetCommandBuffer, finalTarget);
 		}
 
@@ -144,13 +123,8 @@ namespace Seb.Fluid2D.Rendering
 			ComputeHelper.Release(combinedAccumulationTexture, combinedBlurTexture);
 			ComputeHelper.Release(normalAccumulationTexture, normalBlurTexture, velocityPhase0AccumulationTexture, velocityPhase0BlurTexture, velocityPhase1AccumulationTexture, velocityPhase1BlurTexture);
 			materialRenderer.Release();
-			ComputeHelper.Release(causticAccumulationBuffer, causticMotionAccumulationBuffer);
-			causticAccumulationBuffer = null;
-			causticMotionAccumulationBuffer = null;
-			ComputeHelper.Release(causticResolvedTexture, causticBlurTexture, causticMotionTexture, causticMotionDilatedTexture, causticMotionDilationScratchTexture, causticHistoryTexture, causticTemporalTexture);
-			ReleaseOptionalCausticFallbackTextures();
-			ReleaseLightDirectionTextures();
-			ReleasePhaseDiffuseLightTextures();
+			
+
 
 			if (commandBuffer != null)
 			{
@@ -214,13 +188,6 @@ namespace Seb.Fluid2D.Rendering
 
 		}
 
-		public void ClearCausticHistory()
-		{
-			clearCausticHistory = true;
-			hasPreviousCausticCamera = false;
-			causticTemporalFrameCount = 0;
-		}
-
 		void EnsureMaterials(ParticleDisplay2D display)
 		{
 			EnsureMaterial(ref metaballMaterial, display.metaballShader);
@@ -259,31 +226,7 @@ namespace Seb.Fluid2D.Rendering
 			material = new Material(shader);
 		}
 
-		void ReleasePhaseDiffuseLightTextures()
-		{
-			ComputeHelper.Release(softLightTexture0, softLightTexture1);
-			softLightTexture0 = null;
-			softLightTexture1 = null;
-		}
 
-		void ReleaseLightDirectionTextures()
-		{
-			ComputeHelper.Release(lightDirectionAccumulationBuffer);
-			lightDirectionAccumulationBuffer = null;
-			ComputeHelper.Release(lightDirectionTexture, lightDirectionBlurTexture, lightDirectionHistoryTexture, lightDirectionTemporalTexture);
-			lightDirectionTexture = null;
-			lightDirectionBlurTexture = null;
-			lightDirectionHistoryTexture = null;
-			lightDirectionTemporalTexture = null;
-		}
-
-		void ReleaseOptionalCausticFallbackTextures()
-		{
-			ComputeHelper.Release(lightDirectionAccumulationFallbackBuffer);
-			lightDirectionAccumulationFallbackBuffer = null;
-			ComputeHelper.Release(lightDirectionResultFallbackTexture);
-			lightDirectionResultFallbackTexture = null;
-		}
 
 		void ApplyMetaballMaterialSettings(ParticleDisplay2D display)
 		{
@@ -350,96 +293,9 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			ParticleFluidLighting2D lighting = GetActiveLighting(display);
-			currentCausticRenderRegion = GetScaledRenderRegion(currentMaterialRenderRegion, lighting != null ? lighting.textureScale : 1f);
-			if (ShouldRenderCaustics(lighting) && (lighting != null || ShouldRenderCausticDebug(lighting)))
-			{
-				bool renderDirectionalLightField = ShouldRenderDirectionalLightField(lighting);
-				bool renderPhaseDiffuseLight = ShouldRenderPhaseDiffuseLight(lighting);
-				bool renderRadianceCascadeLight = ShouldRenderRadianceCascadeLight(lighting);
-				bool renderSoftLight = renderPhaseDiffuseLight || renderRadianceCascadeLight;
-				int causticWidth = currentCausticRenderRegion.PixelWidth;
-				int causticHeight = currentCausticRenderRegion.PixelHeight;
-				int causticAccumulationCount = causticWidth * causticHeight * 4;
-				ComputeHelper.CreateStructuredBuffer<uint>(ref causticAccumulationBuffer, causticAccumulationCount);
-				ComputeHelper.CreateStructuredBuffer<int>(ref causticMotionAccumulationBuffer, causticAccumulationCount);
-				ComputeHelper.CreateStructuredBuffer<uint>(ref lightDirectionAccumulationFallbackBuffer, 4);
-				ComputeHelper.CreateRenderTexture(ref lightDirectionResultFallbackTexture, 1, 1, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Light Direction Result Fallback");
-				ComputeHelper.CreateRenderTexture(ref causticResolvedTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Resolved");
-				ComputeHelper.CreateRenderTexture(ref causticBlurTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Blur");
-				ComputeHelper.CreateRenderTexture(ref causticMotionTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Motion");
-				ComputeHelper.CreateRenderTexture(ref causticMotionDilatedTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Motion Dilated");
-				ComputeHelper.CreateRenderTexture(ref causticMotionDilationScratchTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Motion Dilation Scratch");
-				if (renderDirectionalLightField)
-				{
-					ComputeHelper.CreateStructuredBuffer<uint>(ref lightDirectionAccumulationBuffer, causticAccumulationCount);
-					ComputeHelper.CreateRenderTexture(ref lightDirectionTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Light Direction");
-					ComputeHelper.CreateRenderTexture(ref lightDirectionBlurTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Light Direction Blur");
-				}
-				else
-				{
-					ReleaseLightDirectionTextures();
-				}
-				if (renderSoftLight)
-				{
-					float softLightScale = lighting.phaseDiffuseLightTextureScale;
-					int softLightWidth = Mathf.Max(1, Mathf.RoundToInt(causticWidth * softLightScale));
-					int softLightHeight = Mathf.Max(1, Mathf.RoundToInt(causticHeight * softLightScale));
-					ComputeHelper.CreateRenderTexture(ref softLightTexture0, softLightWidth, softLightHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Diffuse Light 0");
-					ComputeHelper.CreateRenderTexture(ref softLightTexture1, softLightWidth, softLightHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Diffuse Light 1");
-				}
-				else
-				{
-					ReleasePhaseDiffuseLightTextures();
-				}
-				if (lighting.denoisingEnabled)
-				{
-					bool historyChanged = ComputeHelper.CreateRenderTexture(ref causticHistoryTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic History");
-					ComputeHelper.CreateRenderTexture(ref causticTemporalTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Temporal");
-					if (renderDirectionalLightField)
-					{
-						historyChanged |= ComputeHelper.CreateRenderTexture(ref lightDirectionHistoryTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Light Direction History");
-						ComputeHelper.CreateRenderTexture(ref lightDirectionTemporalTexture, causticWidth, causticHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Light Direction Temporal");
-					}
-					else
-					{
-						ComputeHelper.Release(lightDirectionHistoryTexture, lightDirectionTemporalTexture);
-						lightDirectionHistoryTexture = null;
-						lightDirectionTemporalTexture = null;
-					}
-					clearCausticHistory |= historyChanged;
-				}
-				else
-				{
-					ComputeHelper.Release(causticHistoryTexture, causticTemporalTexture, lightDirectionHistoryTexture, lightDirectionTemporalTexture);
-					causticHistoryTexture = null;
-					causticTemporalTexture = null;
-					lightDirectionHistoryTexture = null;
-					lightDirectionTemporalTexture = null;
-					clearCausticHistory = true;
-					hasPreviousCausticCamera = false;
-					causticTemporalFrameCount = 0;
-				}
-			}
-			else
-			{
-				ComputeHelper.Release(causticAccumulationBuffer, causticMotionAccumulationBuffer);
-				causticAccumulationBuffer = null;
-				causticMotionAccumulationBuffer = null;
-				ComputeHelper.Release(causticResolvedTexture, causticBlurTexture, causticMotionTexture, causticMotionDilatedTexture, causticMotionDilationScratchTexture, causticHistoryTexture, causticTemporalTexture);
-				ReleaseOptionalCausticFallbackTextures();
-				ReleaseLightDirectionTextures();
-				ReleasePhaseDiffuseLightTextures();
-				causticResolvedTexture = null;
-				causticBlurTexture = null;
-				causticMotionTexture = null;
-				causticMotionDilatedTexture = null;
-				causticMotionDilationScratchTexture = null;
-				causticHistoryTexture = null;
-				causticTemporalTexture = null;
-				clearCausticHistory = true;
-				hasPreviousCausticCamera = false;
-				causticTemporalFrameCount = 0;
-			}
+			lighting.EnsureLightingResources(currentMaterialRenderRegion);
+			
+			
 		}
 
 		void ApplyDebugSettings(ParticleDisplay2D display, Camera cam)
@@ -466,7 +322,7 @@ namespace Seb.Fluid2D.Rendering
 			debugMaterial.SetTexture("NormalTex", normalAccumulationTexture);
 			debugMaterial.SetTexture("VelocityTex0", velocityPhase0AccumulationTexture);
 			debugMaterial.SetTexture("VelocityTex1", velocityPhase1AccumulationTexture);
-			debugMaterial.SetTexture("CausticMotionTex", causticMotionTexture != null ? causticMotionTexture : Texture2D.blackTexture);
+			debugMaterial.SetTexture("CausticMotionTex", lighting.causticMotionTexture != null ? lighting.causticMotionTexture : Texture2D.blackTexture);
 			debugMaterial.SetTexture("ColourMap", display.gradientTexture);
 			debugMaterial.SetTexture("ColourMap2", display.gradientTexture2);
 			debugMaterial.SetTexture("DebugHeatMap", display.debugHeatMapTexture);
@@ -480,18 +336,18 @@ namespace Seb.Fluid2D.Rendering
 			debugMaterial.SetVector("metaballWorldCenter", new Vector4(worldCenter.x, worldCenter.y, 0f, 0f));
 			debugMaterial.SetVector("metaballWorldSize", new Vector4(worldWidth, worldHeight, 0f, 0f));
 			debugMaterial.SetInt("screenSpaceRefractionCanCrossPhases", lighting != null && lighting.screenSpaceRefractionCanCrossPhases ? 1 : 0);
-			debugMaterial.SetTexture("CausticTex", lighting != null && lighting.denoisingEnabled ? causticTemporalTexture : causticResolvedTexture);
-			bool renderDirectionalLightField = ShouldRenderDirectionalLightField(lighting);
+			debugMaterial.SetTexture("CausticTex", lighting != null && lighting.denoisingEnabled ? lighting.causticTemporalTexture : lighting.causticResolvedTexture);
+			bool renderDirectionalLightField = lighting.ShouldRenderDirectionalLightField();
 			debugMaterial.SetInt("metaballDirectionalLightFieldEnabled", renderDirectionalLightField ? 1 : 0);
 			Texture lightDirectionTex = Texture2D.blackTexture;
 			if (renderDirectionalLightField)
 			{
-				lightDirectionTex = lighting.denoisingEnabled ? lightDirectionTemporalTexture : lightDirectionTexture;
+				lightDirectionTex = lighting.denoisingEnabled ? lighting.lightDirectionTemporalTexture : lighting.lightDirectionTexture;
 			}
 			debugMaterial.SetTexture("LightDirectionTex", lightDirectionTex);
-			bool renderSoftLight = ShouldRenderPhaseDiffuseLight(lighting) || ShouldRenderRadianceCascadeLight(lighting);
+			bool renderSoftLight = lighting.ShouldRenderPhaseDiffuseLight() || lighting.ShouldRenderRadianceCascadeLight();
 			debugMaterial.SetInt("metaballPhaseDiffuseLightEnabled", renderSoftLight ? 1 : 0);
-			debugMaterial.SetInt("metaballSoftLightPhase0Only", ShouldRenderRadianceCascadeLight(lighting) ? 1 : 0);
+			debugMaterial.SetInt("metaballSoftLightPhase0Only", lighting.ShouldRenderRadianceCascadeLight() ? 1 : 0);
 			debugMaterial.SetTexture("SoftLightTex", Texture2D.blackTexture);
 			debugMaterial.SetColor("metaballPhase0DiffuseLightTint", lighting != null ? lighting.phase0Material.diffuseLightTint : Color.white);
 			debugMaterial.SetColor("metaballPhase1DiffuseLightTint", lighting != null ? lighting.phase1Material.diffuseLightTint : Color.white);
@@ -504,10 +360,10 @@ namespace Seb.Fluid2D.Rendering
 			display.ApplyDebugClipSettings(debugMaterial);
 			debugMaterial.SetFloat("particleCausticDebugExposure", GetCausticDebugExposure(lighting));
 			debugMaterial.SetInt("particleCausticTemporalDebugEnabled", lighting != null && lighting.denoisingEnabled ? 1 : 0);
-			debugMaterial.SetInt("particleCausticRegionEnabled", currentCausticRenderRegion.IsCropped ? 1 : 0);
-			debugMaterial.SetVector("particleCausticUvRect", currentCausticRenderRegion.SourceUvRect);
-			debugMaterial.SetVector("causticCurrentWorldCenter", new Vector4(currentCausticRenderRegion.WorldCenter.x, currentCausticRenderRegion.WorldCenter.y, 0f, 0f));
-			debugMaterial.SetVector("causticCurrentWorldSize", new Vector4(currentCausticRenderRegion.WorldSize.x, currentCausticRenderRegion.WorldSize.y, 0f, 0f));
+			debugMaterial.SetInt("particleCausticRegionEnabled", lighting.currentCausticRenderRegion.IsCropped ? 1 : 0);
+			debugMaterial.SetVector("particleCausticUvRect", lighting.currentCausticRenderRegion.SourceUvRect);
+			debugMaterial.SetVector("causticCurrentWorldCenter", new Vector4(lighting.currentCausticRenderRegion.WorldCenter.x, lighting.currentCausticRenderRegion.WorldCenter.y, 0f, 0f));
+			debugMaterial.SetVector("causticCurrentWorldSize", new Vector4(lighting.currentCausticRenderRegion.WorldSize.x, lighting.currentCausticRenderRegion.WorldSize.y, 0f, 0f));
 			debugMaterial.SetFloat("particleNormalStrength", effectiveNormalStrength);
 			blurMaterial.SetFloat("blurRadius", effectiveBlurRadius);
 		}
@@ -524,7 +380,7 @@ namespace Seb.Fluid2D.Rendering
 			temporalMaterial.SetTexture("CombinedTex", combinedAccumulationTexture);
 			temporalMaterial.SetTexture("VelocityTex0", velocityPhase0AccumulationTexture);
 			temporalMaterial.SetTexture("VelocityTex1", velocityPhase1AccumulationTexture);
-			temporalMaterial.SetTexture("CausticMotionTex", causticMotionTexture != null ? causticMotionTexture : Texture2D.blackTexture);
+			temporalMaterial.SetTexture("CausticMotionTex", lighting.causticMotionTexture != null ? lighting.causticMotionTexture : Texture2D.blackTexture);
 			temporalMaterial.SetFloat("densityThreshold", settings.densityThreshold);
 			temporalMaterial.SetFloat("phaseBlendWidth", settings.phaseBlendWidth);
 			temporalMaterial.SetFloat("phase0RenderBias", settings.phase0RenderBias);
@@ -541,42 +397,6 @@ namespace Seb.Fluid2D.Rendering
 		{
 			float effectiveNormalStrength = display.GetEffectiveNormalStrength(display.EffectiveConfiguredBlurRadius);
 			materialRenderer.ApplySettings(display, cam, combinedAccumulationTexture, normalAccumulationTexture, currentMaterialRenderRegion, GetAnalyticBoundaryExpansion(display), effectiveNormalStrength, GetActiveLighting(display));
-		}
-
-		void ApplyLightingSettings(ParticleDisplay2D display, Camera cam)
-		{
-			ParticleFluidLighting2D lighting = GetActiveLighting(display);
-			if (lighting == null)
-			{
-				return;
-			}
-
-			bool renderCaustics = ShouldRenderCaustics(lighting);
-			bool renderDirectionalLightField = ShouldRenderDirectionalLightField(lighting);
-			bool renderSoftLight = ShouldRenderPhaseDiffuseLight(lighting) || ShouldRenderRadianceCascadeLight(lighting);
-			Texture causticTexture = lighting.denoisingEnabled ? causticTemporalTexture : causticResolvedTexture;
-			Texture lightDirectionTextureForLighting = Texture2D.blackTexture;
-			if (renderDirectionalLightField)
-			{
-				lightDirectionTextureForLighting = lighting.denoisingEnabled ? lightDirectionTemporalTexture : lightDirectionTexture;
-			}
-
-			lighting.ApplySettings(
-				display,
-				cam,
-				renderCaustics,
-				renderDirectionalLightField,
-				renderSoftLight,
-				ShouldRenderRadianceCascadeLight(lighting),
-				causticTexture,
-				lightDirectionTextureForLighting,
-				GetAnalyticBoundaryExpansion(display),
-				currentMaterialRenderRegion,
-				currentCausticRenderRegion,
-				GetDirectLightingDirection(display, lighting, lighting.primaryLight.Direction),
-				GetDirectLightingDirection(display, lighting, lighting.secondaryLight.Direction),
-				GetDirectLightingDirection(display, lighting, lighting.tertiaryLight.Direction)
-			);
 		}
 
 		void BuildCommandBuffer(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
@@ -625,7 +445,7 @@ namespace Seb.Fluid2D.Rendering
 
 			bool useMaterialPipeline = ShouldUseMaterialPipeline(display);
 			bool useLighting = useMaterialPipeline && lighting != null && lighting.IsReady;
-			if ((useLighting || ShouldRenderCausticDebug(lighting)) && ShouldRenderCaustics(lighting))
+			if ((useLighting || lighting.ShouldRenderCausticDebug()) && lighting.ShouldRenderCaustics())
 			{
 				BuildCaustics(display, cam, targetCommandBuffer);
 			}
@@ -662,18 +482,20 @@ namespace Seb.Fluid2D.Rendering
 
 		void BuildCaustics(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer)
 		{
+			ParticleFluidLighting2D lighting = GetActiveLighting(display);
+
 			targetCommandBuffer.BeginSample("Metaballs/Caustics");
 			ParticleDisplay2D.MetaballSettings surface = display.metaballs;
 			ParticleFluidLighting2D settings = GetActiveLighting(display);
 			ComputeShader compute = settings.computeShader;
-			bool renderDirectionalLightField = ShouldRenderDirectionalLightField(settings);
+			bool renderDirectionalLightField = settings.ShouldRenderDirectionalLightField();
 			bool renderCausticMotion = ShouldRenderCausticMotion(settings);
 			int clearKernel = compute.FindKernel("Clear");
 			int traceKernel = compute.FindKernel("Trace");
 			int resolveKernel = compute.FindKernel("Resolve");
 
-			int width = causticResolvedTexture.width;
-			int height = causticResolvedTexture.height;
+			int width = lighting.causticResolvedTexture.width;
+			int height = lighting.causticResolvedTexture.height;
 			Vector3 lightDirection = settings.primaryLight.Direction;
 			Vector3 secondaryLightDirection = settings.secondaryLight.Direction;
 			Vector3 tertiaryLightDirection = settings.tertiaryLight.Direction;
@@ -682,8 +504,8 @@ namespace Seb.Fluid2D.Rendering
 			bool tertiaryLightEnabled = SupportsCausticRaymarch(settings.tertiaryLight);
 			float analyticBoundaryExpansion = GetAnalyticBoundaryExpansion(display);
 
-			Vector2 currentWorldCenter = currentCausticRenderRegion.WorldCenter;
-			Vector2 currentWorldSize = currentCausticRenderRegion.WorldSize;
+			Vector2 currentWorldCenter = lighting.currentCausticRenderRegion.WorldCenter;
+			Vector2 currentWorldSize = lighting.currentCausticRenderRegion.WorldSize;
 			GetCausticRayRange(display, settings, width, height, lightDirection, currentWorldCenter, currentWorldSize, analyticBoundaryExpansion, out float primaryRayStartOffset, out int primaryRangeRayCount);
 			GetCausticRayRange(display, settings, width, height, secondaryLightDirection, currentWorldCenter, currentWorldSize, analyticBoundaryExpansion, out float secondaryRayStartOffset, out int secondaryRangeRayCount);
 			GetCausticRayRange(display, settings, width, height, tertiaryLightDirection, currentWorldCenter, currentWorldSize, analyticBoundaryExpansion, out float tertiaryRayStartOffset, out int tertiaryRangeRayCount);
@@ -804,7 +626,7 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsTemporalJitterPixels", settings.temporalJitterPixels);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsSurfaceNormalJitterPixels", settings.surfaceNormalJitterPixels);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsDeltaTime", display.sim.CurrentSimulationDeltaTime);
-			targetCommandBuffer.SetComputeIntParam(compute, "causticsFrameIndex", causticFrameIndex++);
+			targetCommandBuffer.SetComputeIntParam(compute, "causticsFrameIndex", lighting.causticFrameIndex++);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsLightType", (int)settings.primaryLight.type);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsLightTemperatureKelvin", settings.primaryLight.temperatureKelvin);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsLightDispersionScale", GetSaturationDispersionScale(settings.primaryLight.color));
@@ -843,12 +665,12 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeVectorParam(compute, "causticsWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
 			targetCommandBuffer.SetComputeVectorParam(compute, "causticsSourceUvRect", new Vector4(0f, 0f, 1f, 1f));
 
-			BindCausticAccumulationTextures(targetCommandBuffer, compute, clearKernel);
-			BindCausticMotionTextures(targetCommandBuffer, compute, clearKernel);
-			BindLightDirectionTextures(targetCommandBuffer, compute, clearKernel, renderDirectionalLightField);
-			targetCommandBuffer.SetComputeTextureParam(compute, clearKernel, "CausticResult", causticResolvedTexture);
-			targetCommandBuffer.SetComputeTextureParam(compute, clearKernel, "CausticMotionResult", causticMotionTexture);
-			targetCommandBuffer.SetComputeTextureParam(compute, clearKernel, "LightDirectionResult", renderDirectionalLightField ? lightDirectionTexture : lightDirectionResultFallbackTexture);
+			lighting.BindCausticAccumulationTextures(targetCommandBuffer, compute, clearKernel);
+			lighting.BindCausticMotionTextures(targetCommandBuffer, compute, clearKernel);
+			lighting.BindLightDirectionTextures(targetCommandBuffer, compute, clearKernel, renderDirectionalLightField);
+			targetCommandBuffer.SetComputeTextureParam(compute, clearKernel, "CausticResult", lighting.causticResolvedTexture);
+			targetCommandBuffer.SetComputeTextureParam(compute, clearKernel, "CausticMotionResult", lighting.causticMotionTexture);
+			targetCommandBuffer.SetComputeTextureParam(compute, clearKernel, "LightDirectionResult", renderDirectionalLightField ? lighting.lightDirectionTexture : lighting.lightDirectionResultFallbackTexture);
 			DispatchCaustics(targetCommandBuffer, compute, clearKernel, width, height);
 
 			targetCommandBuffer.SetComputeTextureParam(compute, traceKernel, "CombinedTex", combinedAccumulationTexture);
@@ -856,17 +678,17 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeTextureParam(compute, traceKernel, "VelocityTex1", velocityPhase1AccumulationTexture);
 			targetCommandBuffer.SetComputeTextureParam(compute, traceKernel, "ColourMap", display.gradientTexture);
 			targetCommandBuffer.SetComputeTextureParam(compute, traceKernel, "ColourMap2", display.gradientTexture2);
-			BindCausticAccumulationTextures(targetCommandBuffer, compute, traceKernel);
-			BindCausticMotionTextures(targetCommandBuffer, compute, traceKernel);
-			BindLightDirectionTextures(targetCommandBuffer, compute, traceKernel, renderDirectionalLightField);
+			lighting.BindCausticAccumulationTextures(targetCommandBuffer, compute, traceKernel);
+			lighting.BindCausticMotionTextures(targetCommandBuffer, compute, traceKernel);
+			lighting.BindLightDirectionTextures(targetCommandBuffer, compute, traceKernel, renderDirectionalLightField);
 			DispatchCausticTrace(targetCommandBuffer, compute, traceKernel, totalRayBudget, raysPerPixel);
 
-			BindCausticAccumulationTextures(targetCommandBuffer, compute, resolveKernel);
-			BindCausticMotionTextures(targetCommandBuffer, compute, resolveKernel);
-			BindLightDirectionTextures(targetCommandBuffer, compute, resolveKernel, renderDirectionalLightField);
-			targetCommandBuffer.SetComputeTextureParam(compute, resolveKernel, "CausticResult", causticResolvedTexture);
-			targetCommandBuffer.SetComputeTextureParam(compute, resolveKernel, "CausticMotionResult", causticMotionTexture);
-			targetCommandBuffer.SetComputeTextureParam(compute, resolveKernel, "LightDirectionResult", renderDirectionalLightField ? lightDirectionTexture : lightDirectionResultFallbackTexture);
+			lighting.BindCausticAccumulationTextures(targetCommandBuffer, compute, resolveKernel);
+			lighting.BindCausticMotionTextures(targetCommandBuffer, compute, resolveKernel);
+			lighting.BindLightDirectionTextures(targetCommandBuffer, compute, resolveKernel, renderDirectionalLightField);
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveKernel, "CausticResult", lighting.causticResolvedTexture);
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveKernel, "CausticMotionResult", lighting.causticMotionTexture);
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveKernel, "LightDirectionResult", renderDirectionalLightField ? lighting.lightDirectionTexture : lighting.lightDirectionResultFallbackTexture);
 			DispatchCaustics(targetCommandBuffer, compute, resolveKernel, width, height);
 
 			float rayTextureBlurScale = GetRayTextureBlurScale(surface, settings);
@@ -877,41 +699,41 @@ namespace Seb.Fluid2D.Rendering
 			{
 				causticBlurMaterial.SetFloat("blurRadius", causticBlurRadius);
 				targetCommandBuffer.SetGlobalVector("blurDirection", new Vector2(1, 0));
-				targetCommandBuffer.Blit(causticResolvedTexture, causticBlurTexture, causticBlurMaterial);
+				targetCommandBuffer.Blit(lighting.causticResolvedTexture, lighting.causticBlurTexture, causticBlurMaterial);
 				targetCommandBuffer.SetGlobalVector("blurDirection", new Vector2(0, 1));
-				targetCommandBuffer.Blit(causticBlurTexture, causticResolvedTexture, causticBlurMaterial);
+				targetCommandBuffer.Blit(lighting.causticBlurTexture, lighting.causticResolvedTexture, causticBlurMaterial);
 			}
 			if (renderDirectionalLightField && directionalLightFieldBlurRadius > 0.001f)
 			{
 				lightDirectionBlurMaterial.SetFloat("blurRadius", directionalLightFieldBlurRadius);
 				targetCommandBuffer.SetGlobalVector("blurDirection", new Vector2(1, 0));
-				targetCommandBuffer.Blit(lightDirectionTexture, lightDirectionBlurTexture, lightDirectionBlurMaterial);
+				targetCommandBuffer.Blit(lighting.lightDirectionTexture, lighting.lightDirectionBlurTexture, lightDirectionBlurMaterial);
 				targetCommandBuffer.SetGlobalVector("blurDirection", new Vector2(0, 1));
-				targetCommandBuffer.Blit(lightDirectionBlurTexture, lightDirectionTexture, lightDirectionBlurMaterial);
+				targetCommandBuffer.Blit(lighting.lightDirectionBlurTexture, lighting.lightDirectionTexture, lightDirectionBlurMaterial);
 			}
-			RenderTexture temporalMotionTexture = causticMotionTexture;
+			RenderTexture temporalMotionTexture = lighting.causticMotionTexture;
 			bool useCausticMotion = temporalMaterial != null && settings.temporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.CausticMotion;
-			if (useCausticMotion && settings.temporalMotionDilationRadius > 0.001f && causticMotionDilatedTexture != null && causticMotionDilationScratchTexture != null)
+			if (useCausticMotion && settings.temporalMotionDilationRadius > 0.001f && lighting.causticMotionDilatedTexture != null && lighting.causticMotionDilationScratchTexture != null)
 			{
 				int dilationIterations = Mathf.Max(1, settings.temporalMotionDilationIterations);
 				float motionDilationRadius = settings.temporalMotionDilationRadius * GetRayTextureBlurScale(surface, settings) / dilationIterations;
 				temporalMaterial.SetVector("causticCurrentWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
-				RenderTexture dilationSource = causticMotionTexture;
-				RenderTexture dilationTarget = causticMotionDilatedTexture;
+				RenderTexture dilationSource = lighting.causticMotionTexture;
+				RenderTexture dilationTarget = lighting.causticMotionDilatedTexture;
 				for (int i = 0; i < dilationIterations; i++)
 				{
 					temporalMaterial.SetFloat("causticMotionDilationRadius", motionDilationRadius);
 					targetCommandBuffer.Blit(dilationSource, dilationTarget, temporalMaterial, 1);
 					temporalMotionTexture = dilationTarget;
 					dilationSource = dilationTarget;
-					dilationTarget = dilationTarget == causticMotionDilatedTexture ? causticMotionDilationScratchTexture : causticMotionDilatedTexture;
+					dilationTarget = dilationTarget == lighting.causticMotionDilatedTexture ? lighting.causticMotionDilationScratchTexture : lighting.causticMotionDilatedTexture;
 				}
 			}
-			if (useCausticMotion && temporalMotionBlurRadius > 0.001f && temporalMotionTexture != null && causticMotionDilationScratchTexture != null)
+			if (useCausticMotion && temporalMotionBlurRadius > 0.001f && temporalMotionTexture != null && lighting.causticMotionDilationScratchTexture != null)
 			{
-				RenderTexture motionBlurScratch = temporalMotionTexture == causticMotionDilationScratchTexture
-					? causticMotionDilatedTexture
-					: causticMotionDilationScratchTexture;
+				RenderTexture motionBlurScratch = temporalMotionTexture == lighting.causticMotionDilationScratchTexture
+					? lighting.causticMotionDilatedTexture
+					: lighting.causticMotionDilationScratchTexture;
 				causticMotionBlurMaterial.SetFloat("blurRadius", temporalMotionBlurRadius);
 				targetCommandBuffer.SetGlobalVector("blurDirection", new Vector2(1, 0));
 				targetCommandBuffer.Blit(temporalMotionTexture, motionBlurScratch, causticMotionBlurMaterial);
@@ -920,68 +742,68 @@ namespace Seb.Fluid2D.Rendering
 			}
 			debugMaterial?.SetTexture("CausticMotionTex", temporalMotionTexture != null ? temporalMotionTexture : Texture2D.blackTexture);
 			temporalMaterial?.SetTexture("CausticMotionTex", temporalMotionTexture != null ? temporalMotionTexture : Texture2D.blackTexture);
-			targetCommandBuffer.SetGlobalTexture("CausticMotionTex", temporalMotionTexture != null ? temporalMotionTexture : causticMotionTexture);
+			targetCommandBuffer.SetGlobalTexture("CausticMotionTex", temporalMotionTexture != null ? temporalMotionTexture : lighting.causticMotionTexture);
 
 			if (settings.denoisingEnabled && temporalMaterial != null)
 			{
-				if (clearCausticHistory || !hasPreviousCausticCamera)
+				if (lighting.clearCausticHistory || !lighting.hasPreviousCausticCamera)
 				{
-					targetCommandBuffer.Blit(causticResolvedTexture, causticTemporalTexture);
-					targetCommandBuffer.Blit(causticResolvedTexture, causticHistoryTexture);
+					targetCommandBuffer.Blit(lighting.causticResolvedTexture, lighting.causticTemporalTexture);
+					targetCommandBuffer.Blit(lighting.causticResolvedTexture, lighting.causticHistoryTexture);
 					if (renderDirectionalLightField)
 					{
-						targetCommandBuffer.Blit(lightDirectionTexture, lightDirectionTemporalTexture);
-						targetCommandBuffer.Blit(lightDirectionTexture, lightDirectionHistoryTexture);
+						targetCommandBuffer.Blit(lighting.lightDirectionTexture, lighting.lightDirectionTemporalTexture);
+						targetCommandBuffer.Blit(lighting.lightDirectionTexture, lighting.lightDirectionHistoryTexture);
 					}
-					clearCausticHistory = false;
-					causticTemporalFrameCount = 1;
+					lighting.clearCausticHistory = false;
+					lighting.causticTemporalFrameCount = 1;
 				}
 				else
 				{
-					int nextFrameCount = Mathf.Max(causticTemporalFrameCount + 1, 2);
+					int nextFrameCount = Mathf.Max(lighting.causticTemporalFrameCount + 1, 2);
 					float targetHistoryWeight = display.sim.IsPaused ? 0.99f : settings.temporalHistoryWeight;
 					float warmupHistoryWeight = (nextFrameCount - 1f) / nextFrameCount;
 					temporalMaterial.SetFloat("causticTemporalHistoryWeight", Mathf.Min(targetHistoryWeight, warmupHistoryWeight));
 					temporalMaterial.SetInt("causticTemporalMotionSource", (int)settings.temporalMotionSource);
 					targetCommandBuffer.SetGlobalVector("causticCurrentWorldCenter", new Vector4(currentWorldCenter.x, currentWorldCenter.y, 0f, 0f));
 					targetCommandBuffer.SetGlobalVector("causticCurrentWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
-					targetCommandBuffer.SetGlobalVector("causticHistoryWorldCenter", new Vector4(previousCausticWorldCenter.x, previousCausticWorldCenter.y, 0f, 0f));
-					targetCommandBuffer.SetGlobalVector("causticHistoryWorldSize", new Vector4(previousCausticWorldSize.x, previousCausticWorldSize.y, 0f, 0f));
+					targetCommandBuffer.SetGlobalVector("causticHistoryWorldCenter", new Vector4(lighting.previousCausticWorldCenter.x, lighting.previousCausticWorldCenter.y, 0f, 0f));
+					targetCommandBuffer.SetGlobalVector("causticHistoryWorldSize", new Vector4(lighting.previousCausticWorldSize.x, lighting.previousCausticWorldSize.y, 0f, 0f));
 					temporalMaterial.SetVector("causticCurrentWorldCenter", new Vector4(currentWorldCenter.x, currentWorldCenter.y, 0f, 0f));
 					temporalMaterial.SetVector("causticCurrentWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
-					temporalMaterial.SetVector("causticHistoryWorldCenter", new Vector4(previousCausticWorldCenter.x, previousCausticWorldCenter.y, 0f, 0f));
-					temporalMaterial.SetVector("causticHistoryWorldSize", new Vector4(previousCausticWorldSize.x, previousCausticWorldSize.y, 0f, 0f));
-					temporalMaterial.SetTexture("CausticHistoryTex", causticHistoryTexture);
+					temporalMaterial.SetVector("causticHistoryWorldCenter", new Vector4(lighting.previousCausticWorldCenter.x, lighting.previousCausticWorldCenter.y, 0f, 0f));
+					temporalMaterial.SetVector("causticHistoryWorldSize", new Vector4(lighting.previousCausticWorldSize.x, lighting.previousCausticWorldSize.y, 0f, 0f));
+					temporalMaterial.SetTexture("CausticHistoryTex", lighting.causticHistoryTexture);
 					temporalMaterial.SetTexture("CausticMotionTex", temporalMotionTexture);
-					targetCommandBuffer.Blit(causticResolvedTexture, causticTemporalTexture, temporalMaterial, 0);
-					targetCommandBuffer.Blit(causticTemporalTexture, causticHistoryTexture);
+					targetCommandBuffer.Blit(lighting.causticResolvedTexture, lighting.causticTemporalTexture, temporalMaterial, 0);
+					targetCommandBuffer.Blit(lighting.causticTemporalTexture, lighting.causticHistoryTexture);
 					if (renderDirectionalLightField)
 					{
-						temporalMaterial.SetTexture("CausticHistoryTex", lightDirectionHistoryTexture);
+						temporalMaterial.SetTexture("CausticHistoryTex", lighting.lightDirectionHistoryTexture);
 						temporalMaterial.SetTexture("CausticMotionTex", temporalMotionTexture);
-						targetCommandBuffer.Blit(lightDirectionTexture, lightDirectionTemporalTexture, temporalMaterial, 0);
-						targetCommandBuffer.Blit(lightDirectionTemporalTexture, lightDirectionHistoryTexture);
+						targetCommandBuffer.Blit(lighting.lightDirectionTexture, lighting.lightDirectionTemporalTexture, temporalMaterial, 0);
+						targetCommandBuffer.Blit(lighting.lightDirectionTemporalTexture, lighting.lightDirectionHistoryTexture);
 					}
-					causticTemporalFrameCount = nextFrameCount;
+					lighting.causticTemporalFrameCount = nextFrameCount;
 				}
 
-				previousCausticWorldCenter = currentWorldCenter;
-				previousCausticWorldSize = currentWorldSize;
-				hasPreviousCausticCamera = true;
+				lighting.previousCausticWorldCenter = currentWorldCenter;
+				lighting.previousCausticWorldSize = currentWorldSize;
+				lighting.hasPreviousCausticCamera = true;
 			}
 			else
 			{
-				hasPreviousCausticCamera = false;
-				causticTemporalFrameCount = 0;
+				lighting.hasPreviousCausticCamera = false;
+				lighting.causticTemporalFrameCount = 0;
 			}
 
-			if (ShouldRenderRadianceCascadeLight(settings))
+			if (settings.ShouldRenderRadianceCascadeLight())
 			{
-				RenderRadianceCascadeLight(display, cam, targetCommandBuffer, surface, settings, settings.denoisingEnabled ? causticTemporalTexture : causticResolvedTexture, currentWorldCenter, currentWorldSize);
+				RenderRadianceCascadeLight(display, cam, targetCommandBuffer, surface, settings, settings.denoisingEnabled ? lighting.causticTemporalTexture : lighting.causticResolvedTexture, currentWorldCenter, currentWorldSize);
 			}
-			else if (ShouldRenderPhaseDiffuseLight(settings))
+			else if (settings.ShouldRenderPhaseDiffuseLight())
 			{
-				RenderPhaseDiffuseLight(display, targetCommandBuffer, surface, settings, settings.denoisingEnabled ? causticTemporalTexture : causticResolvedTexture, currentWorldCenter, currentWorldSize);
+				RenderPhaseDiffuseLight(display, targetCommandBuffer, surface, settings, settings.denoisingEnabled ? lighting.causticTemporalTexture : lighting.causticResolvedTexture, currentWorldCenter, currentWorldSize);
 			}
 			targetCommandBuffer.EndSample("Metaballs/Caustics");
 		}
@@ -989,11 +811,11 @@ namespace Seb.Fluid2D.Rendering
 		void RenderRadianceCascadeLight(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings surface, ParticleFluidLighting2D settings, Texture sharpCaustics, Vector2 currentWorldCenter, Vector2 currentWorldSize)
 		{
 			targetCommandBuffer.BeginSample("Metaballs/Radiance Cascades");
-			int width = softLightTexture0.width;
-			int height = softLightTexture0.height;
+			int width = settings.softLightTexture0.width;
+			int height = settings.softLightTexture0.height;
 			int cascadeCount = Mathf.Clamp(settings.radianceCascadeCount, 1, 6);
-			RenderTexture source = softLightTexture0;
-			RenderTexture target = softLightTexture1;
+			RenderTexture source = settings.softLightTexture0;
+			RenderTexture target = settings.softLightTexture1;
 			targetCommandBuffer.Blit(Texture2D.blackTexture, source);
 
 			SetRadianceCascadeCommonParams(display, cam, targetCommandBuffer, surface, settings, sharpCaustics, currentWorldCenter, currentWorldSize, width, height);
@@ -1057,15 +879,15 @@ namespace Seb.Fluid2D.Rendering
 			int initKernel = compute.FindKernel("Init");
 			int gaussianHorizontalKernel = compute.FindKernel("MaskedGaussianHorizontal");
 			int gaussianVerticalKernel = compute.FindKernel("MaskedGaussianVertical");
-			int width = softLightTexture0.width;
-			int height = softLightTexture0.height;
+			int width = settings.softLightTexture0.width;
+			int height = settings.softLightTexture0.height;
 
 			SetPhaseDiffuseCommonParams(display, targetCommandBuffer, compute, initKernel, gaussianHorizontalKernel, gaussianVerticalKernel, width, height, sharpCaustics, surface, settings, currentWorldCenter, currentWorldSize);
-			targetCommandBuffer.SetComputeTextureParam(compute, initKernel, "SoftLightWrite", softLightTexture0);
+			targetCommandBuffer.SetComputeTextureParam(compute, initKernel, "SoftLightWrite", settings.softLightTexture0);
 			DispatchCaustics(targetCommandBuffer, compute, initKernel, width, height);
 
-			RenderTexture source = softLightTexture0;
-			RenderTexture target = softLightTexture1;
+			RenderTexture source = settings.softLightTexture0;
+			RenderTexture target = settings.softLightTexture1;
 			SetPhaseDiffuseCommonParams(display, targetCommandBuffer, compute, initKernel, gaussianHorizontalKernel, gaussianVerticalKernel, width, height, sharpCaustics, surface, settings, currentWorldCenter, currentWorldSize);
 			targetCommandBuffer.SetComputeTextureParam(compute, gaussianHorizontalKernel, "SoftLightRead", source);
 			targetCommandBuffer.SetComputeTextureParam(compute, gaussianHorizontalKernel, "SoftLightWrite", target);
@@ -1138,6 +960,7 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
+		//double
 		float GetAnalyticBoundaryExpansion(ParticleDisplay2D display)
 		{
 			return display.metaballs.analyticBoundaryPadding;
@@ -1199,18 +1022,7 @@ namespace Seb.Fluid2D.Rendering
 			return new ParticleFluidRenderRegion2D(worldCenter, worldSize, sourceUvRect, pixelWidth, pixelHeight, true);
 		}
 
-		static ParticleFluidRenderRegion2D GetScaledRenderRegion(ParticleFluidRenderRegion2D source, float scale)
-		{
-			float clampedScale = Mathf.Max(scale, 0.0001f);
-			return new ParticleFluidRenderRegion2D(
-				source.WorldCenter,
-				source.WorldSize,
-				source.SourceUvRect,
-				Mathf.Max(1, Mathf.RoundToInt(source.PixelWidth * clampedScale)),
-				Mathf.Max(1, Mathf.RoundToInt(source.PixelHeight * clampedScale)),
-				source.IsCropped
-			);
-		}
+
 
 		static float GetRayTextureBlurScale(ParticleDisplay2D.MetaballSettings surface, ParticleFluidLighting2D settings)
 		{
@@ -1431,130 +1243,7 @@ namespace Seb.Fluid2D.Rendering
 			       && LightSampleWeight(light) > 0f;
 		}
 
-		Vector3 GetDirectLightingDirection(ParticleDisplay2D display, ParticleFluidLighting2D settings, Vector3 lightDirection)
-		{
-			if (settings.directionalLightingMode == ParticleFluidLighting2D.DirectionalLightingMode.Direct || !display.sim.useEllipticalBounds)
-			{
-				return lightDirection;
-			}
-
-			Vector2 lightXY = new Vector2(lightDirection.x, lightDirection.y);
-			float planarLength = lightXY.magnitude;
-			if (planarLength <= 0.0001f)
-			{
-				return lightDirection;
-			}
-
-			Vector2 directionToLight = lightXY / planarLength;
-			if (!TryGetAnalyticBoundaryHitFromCenter(display, directionToLight, out Vector2 hitPoint, out Vector2 outwardNormal))
-			{
-				return lightDirection;
-			}
-
-			Vector2 incomingRayDirection = -directionToLight;
-			Vector2 refractedRayDirection = Refract2D(incomingRayDirection, outwardNormal, 1f / Mathf.Max(settings.phase1Material.indexOfRefraction, 1.0001f));
-			Vector2 refractedLightXY = -refractedRayDirection * planarLength;
-			return new Vector3(refractedLightXY.x, refractedLightXY.y, lightDirection.z).normalized;
-		}
-
-		bool TryGetAnalyticBoundaryHitFromCenter(ParticleDisplay2D display, Vector2 directionToLight, out Vector2 hitPoint, out Vector2 outwardNormal)
-		{
-			float expansion = GetAnalyticBoundaryExpansion(display);
-			Vector2 center = display.sim.ellipseBoundsCenter;
-			Vector2 radii = new Vector2(Mathf.Abs(display.sim.ellipseBoundsSize.x), Mathf.Abs(display.sim.ellipseBoundsSize.y)) + Vector2.one * expansion;
-			float cutY = display.sim.obstacleY - expansion;
-			float topY = center.y + radii.y;
-			Vector2 start = new Vector2(center.x, (topY + cutY) * 0.5f);
-			hitPoint = Vector2.zero;
-			outwardNormal = Vector2.up;
-			if (radii.x <= 0.0001f || radii.y <= 0.0001f)
-			{
-				return false;
-			}
-
-			float bestT = float.PositiveInfinity;
-			bool hasHit = false;
-
-			float invRx2 = 1f / (radii.x * radii.x);
-			float invRy2 = 1f / (radii.y * radii.y);
-			float a = directionToLight.x * directionToLight.x * invRx2 + directionToLight.y * directionToLight.y * invRy2;
-			Vector2 startRel = start - center;
-			float b = 2f * (startRel.x * directionToLight.x * invRx2 + startRel.y * directionToLight.y * invRy2);
-			float c = startRel.x * startRel.x * invRx2 + startRel.y * startRel.y * invRy2 - 1f;
-			float discriminant = b * b - 4f * a * c;
-			if (discriminant >= 0f && a > 0.000001f)
-			{
-				float sqrtDiscriminant = Mathf.Sqrt(discriminant);
-				TryUseAnalyticBoundaryCandidate(start, (-b - sqrtDiscriminant) / (2f * a), directionToLight, center, radii, cutY, false, ref bestT, ref hitPoint, ref outwardNormal, ref hasHit);
-				TryUseAnalyticBoundaryCandidate(start, (-b + sqrtDiscriminant) / (2f * a), directionToLight, center, radii, cutY, false, ref bestT, ref hitPoint, ref outwardNormal, ref hasHit);
-			}
-
-			if (directionToLight.y < -0.0001f)
-			{
-				float cutT = (cutY - start.y) / directionToLight.y;
-				TryUseAnalyticBoundaryCandidate(start, cutT, directionToLight, center, radii, cutY, true, ref bestT, ref hitPoint, ref outwardNormal, ref hasHit);
-			}
-
-			return hasHit;
-		}
-
-		void TryUseAnalyticBoundaryCandidate(Vector2 start, float t, Vector2 direction, Vector2 center, Vector2 radii, float cutY, bool isCut, ref float bestT, ref Vector2 hitPoint, ref Vector2 outwardNormal, ref bool hasHit)
-		{
-			if (t <= 0.0001f || t >= bestT)
-			{
-				return;
-			}
-
-			Vector2 point = start + direction * t;
-			Vector2 rel = point - center;
-			float ellipseValue = rel.x * rel.x / (radii.x * radii.x) + rel.y * rel.y / (radii.y * radii.y);
-			if (isCut)
-			{
-				if (ellipseValue > 1.0001f)
-				{
-					return;
-				}
-
-				outwardNormal = Vector2.down;
-			}
-			else
-			{
-				if (point.y < cutY - 0.0001f)
-				{
-					return;
-				}
-
-				Vector2 ellipseNormal = new Vector2(rel.x / (radii.x * radii.x), rel.y / (radii.y * radii.y));
-				if (ellipseNormal.sqrMagnitude <= 0.000001f)
-				{
-					return;
-				}
-
-				outwardNormal = ellipseNormal.normalized;
-			}
-
-			bestT = t;
-			hitPoint = point;
-			hasHit = true;
-		}
-
-		Vector2 Refract2D(Vector2 rayDirection, Vector2 normal, float eta)
-		{
-			if (Vector2.Dot(rayDirection, normal) > 0f)
-			{
-				normal = -normal;
-			}
-
-			float cosI = Vector2.Dot(-rayDirection, normal);
-			float sinT2 = eta * eta * Mathf.Max(0f, 1f - cosI * cosI);
-			if (sinT2 > 1f)
-			{
-				return (rayDirection - 2f * Vector2.Dot(rayDirection, normal) * normal).normalized;
-			}
-
-			float cosT = Mathf.Sqrt(Mathf.Max(0f, 1f - sinT2));
-			return (eta * rayDirection + (eta * cosI - cosT) * normal).normalized;
-		}
+		
 
 		void GetCausticRayRange(ParticleDisplay2D display, ParticleFluidLighting2D settings, int width, int height, Vector3 lightDirection, Vector2 worldCenter, Vector2 worldSize, float analyticBoundaryExpansion, out float startOffset, out int rayCount)
 		{
@@ -1631,25 +1320,8 @@ namespace Seb.Fluid2D.Rendering
 			maxOffset = Mathf.Max(maxOffset, offset);
 		}
 
-		void BindCausticAccumulationTextures(CommandBuffer targetCommandBuffer, ComputeShader compute, int kernel)
-		{
-			targetCommandBuffer.SetComputeBufferParam(compute, kernel, "CausticAccum", causticAccumulationBuffer);
-		}
 
-		void BindCausticMotionTextures(CommandBuffer targetCommandBuffer, ComputeShader compute, int kernel)
-		{
-			targetCommandBuffer.SetComputeBufferParam(compute, kernel, "CausticMotionAccum", causticMotionAccumulationBuffer);
-		}
 
-		void BindLightDirectionTextures(CommandBuffer targetCommandBuffer, ComputeShader compute, int kernel, bool renderDirectionalLightField)
-		{
-			targetCommandBuffer.SetComputeBufferParam(compute, kernel, "LightDirectionAccum", renderDirectionalLightField ? lightDirectionAccumulationBuffer : lightDirectionAccumulationFallbackBuffer);
-		}
-
-		bool ShouldRenderCaustics(ParticleFluidLighting2D settings)
-		{
-			return settings != null && settings.causticsEnabled && settings.computeShader != null;
-		}
 
 		ParticleFluidLighting2D GetActiveLighting(ParticleDisplay2D display)
 		{
@@ -1660,7 +1332,7 @@ namespace Seb.Fluid2D.Rendering
 		bool ShouldUseMaterialPipeline(ParticleDisplay2D display)
 		{
 			return display.debugMode == ParticleDisplay2D.DebugVisualization.None
-			       && LightingDebugMode(GetActiveLighting(display)) == ParticleFluidLighting2D.LightingDebugVisualization.None;
+			       && ParticleFluidLighting2D.LightingDebugMode(GetActiveLighting(display)) == ParticleFluidLighting2D.LightingDebugVisualization.None;
 		}
 
 		bool ShouldUseCroppedRenderRegion(ParticleDisplay2D display)
@@ -1670,7 +1342,7 @@ namespace Seb.Fluid2D.Rendering
 				return true;
 			}
 
-			ParticleFluidLighting2D.LightingDebugVisualization lightingDebug = LightingDebugMode(GetActiveLighting(display));
+			ParticleFluidLighting2D.LightingDebugVisualization lightingDebug = ParticleFluidLighting2D.LightingDebugMode(GetActiveLighting(display));
 			return lightingDebug == ParticleFluidLighting2D.LightingDebugVisualization.Caustics
 			       || lightingDebug == ParticleFluidLighting2D.LightingDebugVisualization.SoftLight
 			       || lightingDebug == ParticleFluidLighting2D.LightingDebugVisualization.DirectionalLightField
@@ -1679,15 +1351,7 @@ namespace Seb.Fluid2D.Rendering
 			       || lightingDebug == ParticleFluidLighting2D.LightingDebugVisualization.TemporalClamp;
 		}
 
-		bool ShouldRenderCausticDebug(ParticleFluidLighting2D settings)
-		{
-			return LightingDebugMode(settings) != ParticleFluidLighting2D.LightingDebugVisualization.None;
-		}
 
-		static ParticleFluidLighting2D.LightingDebugVisualization LightingDebugMode(ParticleFluidLighting2D settings)
-		{
-			return settings != null ? settings.debugMode : ParticleFluidLighting2D.LightingDebugVisualization.None;
-		}
 
 		static int GetDebugShaderMode(ParticleDisplay2D display, ParticleFluidLighting2D settings)
 		{
@@ -1696,7 +1360,7 @@ namespace Seb.Fluid2D.Rendering
 				return (int)display.debugMode;
 			}
 
-			return LightingDebugMode(settings) switch
+			return ParticleFluidLighting2D.LightingDebugMode(settings) switch
 			{
 				ParticleFluidLighting2D.LightingDebugVisualization.Caustics => 7,
 				ParticleFluidLighting2D.LightingDebugVisualization.SoftLight => 8,
@@ -1708,35 +1372,11 @@ namespace Seb.Fluid2D.Rendering
 			};
 		}
 
-		bool ShouldRenderPhaseDiffuseLight(ParticleFluidLighting2D settings)
-		{
-			return ShouldRenderCaustics(settings)
-			       && settings.phaseDiffuseLightEnabled
-			       && settings.phaseDiffuseLightCompute != null
-			       && (
-				       settings.phase0Material.diffuseScatterStrength > 0f
-				       || settings.phase1Material.diffuseScatterStrength > 0f
-			       );
-		}
-
-		bool ShouldRenderRadianceCascadeLight(ParticleFluidLighting2D settings)
-		{
-			return ShouldRenderCaustics(settings)
-			       && settings.radianceCascadeEnabled
-			       && settings.radianceCascadeShader != null
-			       && settings.phase0Material.diffuseScatterStrength > 0f;
-		}
-
-		bool ShouldRenderDirectionalLightField(ParticleFluidLighting2D settings)
-		{
-			return ShouldRenderCaustics(settings) && settings.directionalLightingMode == ParticleFluidLighting2D.DirectionalLightingMode.DirectionalLightField;
-		}
-
 		bool ShouldRenderCausticMotion(ParticleFluidLighting2D settings)
 		{
-			return ShouldRenderCaustics(settings)
+			return settings.ShouldRenderCaustics()
 			       && (settings.temporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.CausticMotion
-			           || LightingDebugMode(settings) == ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion);
+			           || ParticleFluidLighting2D.LightingDebugMode(settings) == ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion);
 		}
 
 		void RemoveCommandBuffersByName(Camera cam, CameraEvent evt)
