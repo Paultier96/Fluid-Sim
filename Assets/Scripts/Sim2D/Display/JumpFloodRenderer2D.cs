@@ -350,7 +350,6 @@ namespace Seb.Fluid2D.Rendering
 				false,
 				Texture2D.blackTexture,
 				Texture2D.blackTexture,
-				0f,
 				renderRegion,
 				renderRegion
 			);
