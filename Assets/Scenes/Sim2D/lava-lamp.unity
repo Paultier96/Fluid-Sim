@@ -726,7 +726,7 @@ Camera:
   far clip plane: 1000
   field of view: 60
   orthographic: 1
-  orthographic size: 18
+  orthographic size: 21
   m_Depth: -1
   m_CullingMask:
     serializedVersion: 2
@@ -751,7 +751,7 @@ Transform:
   m_GameObject: {fileID: 963194225}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 7, z: -10}
+  m_LocalPosition: {x: 0, y: 10, z: -10}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -897,6 +897,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Simulation.PerformanceOverlay
   showOverlay: 1
+  overlayMode: 1
   sim: {fileID: 271053319}
   sampleWindow: 2
   graphHeight: 70
@@ -905,6 +906,7 @@ MonoBehaviour:
   frameTimeGraphMaxMs: 16.67
   frameTimeGraphReferenceMs: 16.67
   graphRefreshRate: 60
+  fpsOnlyRefreshInterval: 0.25
   resetKey: 289
   screenOffset: {x: 12, y: 12}
 --- !u!4 &1214473944

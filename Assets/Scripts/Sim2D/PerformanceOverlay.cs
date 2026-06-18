@@ -5,7 +5,14 @@ namespace Seb.Fluid2D.Simulation
 {
     public class PerformanceOverlay : MonoBehaviour
     {
+        public enum OverlayMode
+        {
+            Full,
+            FpsOnly
+        }
+
         public bool showOverlay = true;
+        public OverlayMode overlayMode = OverlayMode.Full;
         public FluidSim2D sim;
         [Tooltip("Rolling sample window in real seconds.")]
         [Min(0.25f)] public float sampleWindow = 5f;
@@ -15,6 +22,8 @@ namespace Seb.Fluid2D.Simulation
         [Min(1f)] public float frameTimeGraphMaxMs = 50f;
         [Min(0.1f)] public float frameTimeGraphReferenceMs = 16.67f;
         [Min(1f)] public float graphRefreshRate = 60f;
+        [Tooltip("Refresh rate for the lightweight FPS label.")]
+        [Min(0.05f)] public float fpsOnlyRefreshInterval = 0.25f;
         public KeyCode resetKey = KeyCode.F8;
         public Vector2 screenOffset = new Vector2(12, 12);
 
@@ -31,6 +40,10 @@ namespace Seb.Fluid2D.Simulation
         Color32[] frameTimeGraphPixels;
         float nextFpsGraphUpdateTime;
         float nextFrameTimeGraphUpdateTime;
+        float fpsOnlyAccumulatedTime;
+        int fpsOnlyAccumulatedFrames;
+        float fpsOnlyNextRefreshTime;
+        string fpsOnlyLabel = "FPS: 0";
 
         void Awake()
         {
@@ -50,6 +63,12 @@ namespace Seb.Fluid2D.Simulation
 
         void LateUpdate()
         {
+            if (overlayMode == OverlayMode.FpsOnly)
+            {
+                UpdateFpsOnlyLabel();
+                return;
+            }
+
             RecordSample();
         }
 
@@ -139,6 +158,10 @@ namespace Seb.Fluid2D.Simulation
             simulationTimeSum = 0;
             nextFpsGraphUpdateTime = 0;
             nextFrameTimeGraphUpdateTime = 0;
+            fpsOnlyAccumulatedTime = 0;
+            fpsOnlyAccumulatedFrames = 0;
+            fpsOnlyNextRefreshTime = 0;
+            fpsOnlyLabel = "FPS: 0";
         }
 
         void OnDestroy()
@@ -151,6 +174,12 @@ namespace Seb.Fluid2D.Simulation
         {
             if (!showOverlay)
             {
+                return;
+            }
+
+            if (overlayMode == OverlayMode.FpsOnly)
+            {
+                DrawFpsOnlyOverlay();
                 return;
             }
 
@@ -202,6 +231,33 @@ namespace Seb.Fluid2D.Simulation
             DrawFrameTimeGraphTexture(frameTimeGraphRect, Mathf.Max(1f, frameTimeGraphMaxMs));
             GUILayout.Label($"Reset: {resetKey}");
             GUILayout.EndArea();
+        }
+
+        void UpdateFpsOnlyLabel()
+        {
+            fpsOnlyAccumulatedFrames++;
+            fpsOnlyAccumulatedTime += Time.unscaledDeltaTime;
+
+            float now = Time.unscaledTime;
+            if (now < fpsOnlyNextRefreshTime || fpsOnlyAccumulatedTime <= 0f)
+            {
+                return;
+            }
+
+            float fps = fpsOnlyAccumulatedFrames / fpsOnlyAccumulatedTime;
+            fpsOnlyLabel = $"FPS: {fps:F1}";
+            fpsOnlyAccumulatedFrames = 0;
+            fpsOnlyAccumulatedTime = 0f;
+            fpsOnlyNextRefreshTime = now + Mathf.Max(0.05f, fpsOnlyRefreshInterval);
+        }
+
+        void DrawFpsOnlyOverlay()
+        {
+            const float width = 96f;
+            const float height = 28f;
+            float x = Mathf.Max(screenOffset.x, Screen.width - width - screenOffset.x);
+            Rect rect = new Rect(x, screenOffset.y, width, height);
+            GUI.Label(rect, fpsOnlyLabel, GUI.skin.box);
         }
 
         void DrawFpsGraphTexture(Rect rect, float maxFps)
