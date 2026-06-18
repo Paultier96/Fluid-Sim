@@ -483,6 +483,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   lightingShader: {fileID: 4800000, guid: 91a045632aa048d79b79c913d29bdb3c, type: 3}
   colorBleedShader: {fileID: 4800000, guid: 8e68536f2e6590d4e963ede85c509e0a, type: 3}
+  blurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
   temporalShader: {fileID: 4800000, guid: 73c5a11f4158468ab8fbd99b9bd1e938, type: 3}
   computeShader: {fileID: 7200000, guid: 8f4e77c1b8284da4ca6c929de309e7a1, type: 3}
   phaseDiffuseLightCompute: {fileID: 7200000, guid: 6bbf221f0ffb42e4a93f4b9e0a63a64d, type: 3}
@@ -628,6 +629,26 @@ MonoBehaviour:
   temporalMotionDilationIterations: 3
   temporalJitterPixels: 0.75
   surfaceNormalJitterPixels: 2
+  lightDirectionResultFallbackTexture: {fileID: 0}
+  causticResolvedTexture: {fileID: 0}
+  causticBlurTexture: {fileID: 0}
+  causticMotionTexture: {fileID: 0}
+  causticMotionDilatedTexture: {fileID: 0}
+  causticMotionDilationScratchTexture: {fileID: 0}
+  lightDirectionTexture: {fileID: 0}
+  lightDirectionBlurTexture: {fileID: 0}
+  softLightTexture0: {fileID: 0}
+  softLightTexture1: {fileID: 0}
+  causticHistoryTexture: {fileID: 0}
+  causticTemporalTexture: {fileID: 0}
+  lightDirectionHistoryTexture: {fileID: 0}
+  lightDirectionTemporalTexture: {fileID: 0}
+  clearCausticHistory: 0
+  hasPreviousCausticCamera: 0
+  causticFrameIndex: 0
+  causticTemporalFrameCount: 0
+  previousCausticWorldCenter: {x: 0, y: 0}
+  previousCausticWorldSize: {x: 0, y: 0}
 --- !u!114 &271053324
 MonoBehaviour:
   m_ObjectHideFlags: 0

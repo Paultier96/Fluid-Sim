@@ -341,17 +341,22 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			materialMaps.BindTo(lighting, renderRegion);
-			lighting.ApplySettings(
+			ParticleFluidLighting2D.FrameContext lightingContext = new ParticleFluidLighting2D.FrameContext(
 				display,
 				cam,
-				false,
-				false,
-				false,
-				false,
-				Texture2D.blackTexture,
-				Texture2D.blackTexture,
 				renderRegion,
-				renderRegion
+				renderRegion,
+				display.GetZoomScale(cam),
+				MetaballRenderer2D.GetAnalyticBoundaryExpansion(display)
+			);
+			lighting.ApplySettings(
+				lightingContext,
+				false,
+				false,
+				false,
+				false,
+				Texture2D.blackTexture,
+				Texture2D.blackTexture
 			);
 			lighting.SetSoftLightTexture(Texture2D.blackTexture);
 			lighting.Render(targetCommandBuffer, finalTarget, cam);

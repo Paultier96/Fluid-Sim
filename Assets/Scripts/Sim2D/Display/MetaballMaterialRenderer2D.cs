@@ -11,11 +11,8 @@ namespace Seb.Fluid2D.Rendering
 		const int UnlitPass = 3;
 
 		Material material;
-		readonly ParticleFluidMaterialMapSet materialMaps = new ParticleFluidMaterialMapSet();
+		readonly ParticleFluidMaterialMapSet materialMaps = new ();
 
-		public Texture AlbedoTexture => materialMaps.AlbedoTexture;
-		public Texture Normal0Texture => materialMaps.Normal0Texture;
-		public Texture Normal1Texture => materialMaps.Normal1Texture;
 		public ParticleFluidMaterialMapSet MaterialMaps => materialMaps;
 		public bool IsReady => material != null && materialMaps.IsAllocated;
 
@@ -85,7 +82,6 @@ namespace Seb.Fluid2D.Rendering
 			{
 				return;
 			}
-
 			materialMaps.Render(commandBuffer, material, AlbedoPass, Normal0Pass, Normal1Pass);
 		}
 
@@ -95,7 +91,6 @@ namespace Seb.Fluid2D.Rendering
 			{
 				return;
 			}
-
 			materialMaps.RenderUnlit(commandBuffer, material, finalTarget, UnlitPass, renderRegion);
 		}
 

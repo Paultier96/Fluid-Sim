@@ -676,6 +676,7 @@ namespace Seb.Fluid2D.Rendering
 			ComputeHelper.Release(vectorArgsBuffer);
 			metaballRenderer?.Release();
 			jumpFloodRenderer?.Release();
+			GetComponent<ParticleFluidLighting2D>()?.Release();
 			if (vectorArrowMesh != null)
 			{
 				DestroyImmediate(vectorArrowMesh);

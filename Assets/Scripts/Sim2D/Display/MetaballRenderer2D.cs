@@ -371,7 +371,15 @@ namespace Seb.Fluid2D.Rendering
 			bool useLighting = useMaterialPipeline && lighting != null && lighting.IsReady;
 			if ((useLighting || lighting.ShouldRenderCausticDebug()) && lighting.ShouldRenderCaustics())
 			{
-				lighting.BuildCaustics(display, cam, targetCommandBuffer, combinedAccumulationTexture, velocityPhase0AccumulationTexture, velocityPhase1AccumulationTexture);
+				ParticleFluidLighting2D.FrameContext lightingContext = new ParticleFluidLighting2D.FrameContext(
+					display,
+					cam,
+					currentMaterialRenderRegion,
+					lighting.currentCausticRenderRegion,
+					display.GetZoomScale(cam),
+					GetAnalyticBoundaryExpansion(display)
+				);
+				lighting.BuildCaustics(lightingContext, targetCommandBuffer, combinedAccumulationTexture, velocityPhase0AccumulationTexture, velocityPhase1AccumulationTexture);
 			}
 
 			if (useMaterialPipeline && materialRenderer.IsReady)
