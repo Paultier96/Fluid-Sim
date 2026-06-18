@@ -319,6 +319,10 @@ namespace Seb.Fluid2D.Rendering
 		const int PointLightBoundaryEllipseSamples = 128;
 		const int PointLightBoundaryCutSamples = 31;
 		readonly float[] pointLightBoundaryAngles = new float[PointLightBoundaryEllipseSamples + PointLightBoundaryCutSamples + 2];
+		ParticleFluidCausticsView caustics;
+		ParticleFluidCausticsTrace traceCaustics;
+		ParticleFluidCausticsTemporal temporalCaustics;
+		ParticleFluidCausticsSoftLight softLightCaustics;
 		Texture materialAlbedoTexture;
 		Texture materialNormal0Texture;
 		Texture materialNormal1Texture;
@@ -357,6 +361,17 @@ namespace Seb.Fluid2D.Rendering
 		
 		public Material Material => lightingMaterial;
 		public bool IsReady => lightingMaterial != null;
+		internal ParticleFluidCausticsView Caustics => caustics ??= new ParticleFluidCausticsView(this);
+		internal ParticleFluidCausticsTrace TraceCaustics => traceCaustics ??= new ParticleFluidCausticsTrace(Caustics);
+		internal ParticleFluidCausticsTemporal TemporalCaustics => temporalCaustics ??= new ParticleFluidCausticsTemporal(Caustics);
+		internal ParticleFluidCausticsSoftLight SoftLightCaustics => softLightCaustics ??= new ParticleFluidCausticsSoftLight(Caustics);
+		internal Material TemporalMaterial => temporalMaterial;
+		internal Material CausticMotionBlurMaterial => causticMotionBlurMaterial;
+		internal Material CausticBlurMaterial => causticBlurMaterial;
+		internal Material LightDirectionBlurMaterial => lightDirectionBlurMaterial;
+		internal Material RadianceCascadeMaterial => radianceCascadeMaterial;
+		internal int MaxCausticTraceThreadCount => MaxCausticTraceThreads;
+		internal int CausticTraceThreadGroupWidth => CausticTraceThreadGroupSize;
 
 		public void EnsureMaterials(Shader shader, Shader colorBleedShader)
 		{

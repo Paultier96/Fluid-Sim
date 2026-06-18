@@ -897,6 +897,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Simulation.PerformanceOverlay
   showOverlay: 1
+  overlayMode: 1
   sim: {fileID: 271053319}
   sampleWindow: 2
   graphHeight: 70
@@ -905,6 +906,7 @@ MonoBehaviour:
   frameTimeGraphMaxMs: 16.67
   frameTimeGraphReferenceMs: 16.67
   graphRefreshRate: 60
+  fpsOnlyRefreshInterval: 0.25
   resetKey: 289
   screenOffset: {x: 12, y: 12}
 --- !u!4 &1214473944
