@@ -313,7 +313,7 @@ MonoBehaviour:
     debugShader: {fileID: 4800000, guid: 1f8d4107ca3f4d4b9b40c40b6c545110, type: 3}
     materialShader: {fileID: 4800000, guid: bfc03134f0574af593fb2f016f652401, type: 3}
     blurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
-    renderTextureScale: 1
+    renderTextureScale: 0.5
     blurRadius: 10
     densityThreshold: 0.18
     edgeSoftness: 0.05
@@ -338,19 +338,19 @@ MonoBehaviour:
   scale: 0.07
   phase0ColourMap:
     serializedVersion: 2
-    key0: {r: 0.06, g: 0, b: 0.08, a: 1}
-    key1: {r: 0.25, g: 0, b: 0.45, a: 1}
-    key2: {r: 0.9, g: 0, b: 0.55, a: 0}
-    key3: {r: 1, g: 0.38, b: 0, a: 0}
-    key4: {r: 1, g: 1, b: 1, a: 0}
+    key0: {r: 0.22352943, g: 0.08235294, b: 0.42352945, a: 1}
+    key1: {r: 0.49411768, g: 0.16078432, b: 0.61960787, a: 1}
+    key2: {r: 0.5882353, g: 1, b: 0.9921569, a: 0}
+    key3: {r: 1, g: 1, b: 1, a: 0}
+    key4: {r: 0, g: 0, b: 0, a: 0}
     key5: {r: 0, g: 0, b: 0, a: 0}
     key6: {r: 0, g: 0, b: 0, a: 0}
     key7: {r: 0, g: 0, b: 0, a: 0}
     ctime0: 0
-    ctime1: 16384
-    ctime2: 32768
-    ctime3: 49151
-    ctime4: 65535
+    ctime1: 21823
+    ctime2: 43690
+    ctime3: 65535
+    ctime4: 0
     ctime5: 0
     ctime6: 0
     ctime7: 0
@@ -364,23 +364,23 @@ MonoBehaviour:
     atime7: 0
     m_Mode: 2
     m_ColorSpace: -1
-    m_NumColorKeys: 5
+    m_NumColorKeys: 4
     m_NumAlphaKeys: 2
   phase1ColourMap:
     serializedVersion: 2
     key0: {r: 0, g: 0.03, b: 0.08, a: 1}
     key1: {r: 0, g: 0.1, b: 0.45, a: 1}
-    key2: {r: 0, g: 0.75, b: 1, a: 0}
-    key3: {r: 0, g: 1, b: 0.6046601, a: 0}
-    key4: {r: 1, g: 1, b: 1, a: 0}
+    key2: {r: 0, g: 0, b: 0, a: 0}
+    key3: {r: 0, g: 0, b: 0, a: 0}
+    key4: {r: 0, g: 0, b: 0, a: 0}
     key5: {r: 0, g: 0, b: 0, a: 0}
     key6: {r: 0, g: 0, b: 0, a: 0}
     key7: {r: 0, g: 0, b: 0, a: 0}
     ctime0: 0
-    ctime1: 16384
-    ctime2: 32768
-    ctime3: 49151
-    ctime4: 65535
+    ctime1: 65535
+    ctime2: 0
+    ctime3: 0
+    ctime4: 0
     ctime5: 0
     ctime6: 0
     ctime7: 0
@@ -394,7 +394,7 @@ MonoBehaviour:
     atime7: 0
     m_Mode: 2
     m_ColorSpace: -1
-    m_NumColorKeys: 5
+    m_NumColorKeys: 2
     m_NumAlphaKeys: 2
   gradientResolution: 64
   debugMode: 0
@@ -508,7 +508,7 @@ MonoBehaviour:
     type: 1
     azimuthDegrees: -120
     elevationDegrees: 20
-    temperatureKelvin: 1000
+    temperatureKelvin: 2700
     color: {r: 1, g: 1, b: 1, a: 1}
     intensity: 0.25
     sampleBias: 5
@@ -553,20 +553,24 @@ MonoBehaviour:
   diffuseColorBleedNormalWeight: 1
   iridescenceIntensity: 74.65
   iridescenceScale: 2.5
-  causticsEnabled: 1
+  lightingMode: 2
   textureScale: 0.5
+  materialMapTextureScale: 1
+  phaseLookPreset: {fileID: 0}
+  applyPhaseLookPresetOnEnable: 1
+  applyPhaseLookPresetOnValidate: 1
   phase0Material:
     indexOfRefraction: 1.442
-    absorption: 0.9
-    absorptionDiffuseTintBlend: 0.05
-    reflectance: 0.1
+    absorption: 1.61
+    absorptionDiffuseTintBlend: 0
+    reflectance: 0.09775279
     roughness: 0.25
     metallic: 0
     screenSpaceReflectionStrength: 1
-    diffuseScatterStrength: 0.1
-    diffuseGaussianRadius: 20
-    diffuseLightTint: {r: 1, g: 0.62578607, b: 0.62578607, a: 1}
-    diffuseAlbedoTintBlend: 0.25
+    diffuseScatterStrength: 0.25
+    diffuseGaussianRadius: 52.5
+    diffuseLightTint: {r: 0.09803921, g: 1, b: 0.980392, a: 1}
+    diffuseAlbedoTintBlend: 0
   phase1Material:
     indexOfRefraction: 1.333
     absorption: 0.05
@@ -586,7 +590,7 @@ MonoBehaviour:
     reflectance: 0
     roughness: 0.35
     metallic: 0
-    screenSpaceReflectionStrength: 2
+    screenSpaceReflectionStrength: 1
     diffuseScatterStrength: 0
     diffuseGaussianRadius: 24
     diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
@@ -609,46 +613,36 @@ MonoBehaviour:
   directionalLightFieldBlur: 10
   phaseDiffuseLightEnabled: 1
   phaseDiffuseLightTextureScale: 1
-  phaseDiffuseLightBoundarySharpness: 5
-  radianceCascadeEnabled: 0
-  radianceCascadeCount: 4
-  radianceCascadeRayRange: 0.01
+  phaseDiffuseLightBoundarySharpness: 6.96
+  radianceCascadeEnabled: 1
+  radianceCascadeCount: 5
+  radianceCascadeRayRange: 0.25
   radianceCascadeRaySteps: 16
-  radianceCascadeIntensity: 150
+  radianceCascadeIntensity: 3
+  radianceCascadeBlobEmissionStrength: 1.66
+  radianceCascadeDirectionalLightEnabled: 1
+  radianceCascadeDirectionalLightStrength: 0.01
+  radianceCascadePhase0Visibility: 0.2
+  radianceCascadePhase1Visibility: 1
   radianceCascadeDirectCausticStrength: 1
   radianceCascadeAbsorption: 1
   denoisingEnabled: 1
-  temporalHistoryWeight: 0.9
+  temporalHistoryWeight: 0.95
   temporalHistoryClampStrength: 0.6
   temporalClampRejection: 0.5
   temporalRejectedSpatialFilter: 0.5
   temporalMotionSource: 2
-  motionBlurRadius: 25
+  motionBlurRadius: 100
+  motionVelocityThreshold: 0
   temporalMotionBlur: 25
   temporalMotionDilationRadius: 20
   temporalMotionDilationIterations: 3
   temporalJitterPixels: 0.75
   surfaceNormalJitterPixels: 2
-  lightDirectionResultFallbackTexture: {fileID: 0}
-  causticResolvedTexture: {fileID: 0}
-  causticBlurTexture: {fileID: 0}
-  causticMotionTexture: {fileID: 0}
-  causticMotionDilatedTexture: {fileID: 0}
-  causticMotionDilationScratchTexture: {fileID: 0}
-  lightDirectionTexture: {fileID: 0}
-  lightDirectionBlurTexture: {fileID: 0}
-  softLightTexture0: {fileID: 0}
-  softLightTexture1: {fileID: 0}
-  causticHistoryTexture: {fileID: 0}
-  causticTemporalTexture: {fileID: 0}
-  lightDirectionHistoryTexture: {fileID: 0}
-  lightDirectionTemporalTexture: {fileID: 0}
-  clearCausticHistory: 0
-  hasPreviousCausticCamera: 0
-  causticFrameIndex: 0
-  causticTemporalFrameCount: 0
-  previousCausticWorldCenter: {x: 0, y: 0}
-  previousCausticWorldSize: {x: 0, y: 0}
+  projectedShadowOffset: -0.5
+  projectedShadowExpansion: 0.05
+  projectedShadowHistoryRejection: 1
+  ReactiveShadowMapBins: 2048
 --- !u!114 &271053324
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -726,7 +720,7 @@ Camera:
   far clip plane: 1000
   field of view: 60
   orthographic: 1
-  orthographic size: 18
+  orthographic size: 21
   m_Depth: -1
   m_CullingMask:
     serializedVersion: 2
@@ -751,7 +745,7 @@ Transform:
   m_GameObject: {fileID: 963194225}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 7, z: -10}
+  m_LocalPosition: {x: 0, y: 10, z: -10}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []

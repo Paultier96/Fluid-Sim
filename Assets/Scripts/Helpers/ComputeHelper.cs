@@ -204,6 +204,10 @@ namespace Seb.Helpers
 			{
 				if (textures[i] != null)
 				{
+					if (RenderTexture.active == textures[i])
+					{
+						RenderTexture.active = null;
+					}
 					textures[i].Release();
 				}
 			}

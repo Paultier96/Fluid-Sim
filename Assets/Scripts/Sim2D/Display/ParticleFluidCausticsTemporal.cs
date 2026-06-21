@@ -19,6 +19,29 @@ namespace Seb.Fluid2D.Rendering
 			caustics.TemporalFrameCount = 0;
 		}
 
+		public bool TryMigrateHistoryOnResize(RenderTexture oldHistory, RenderTexture newHistory, Vector2 oldWorldCenter, Vector2 oldWorldSize, Vector2 newWorldCenter, Vector2 newWorldSize)
+		{
+			if (caustics.TemporalMaterial == null
+				|| oldHistory == null
+				|| newHistory == null
+				|| !caustics.HasPreviousCamera
+				|| oldHistory.width <= 0
+				|| oldHistory.height <= 0)
+			{
+				return false;
+			}
+
+			CommandBuffer commandBuffer = CommandBufferPool.Get("Particle2D Reproject History");
+			caustics.TemporalMaterial.SetVector("causticCurrentWorldCenter", new Vector4(newWorldCenter.x, newWorldCenter.y, 0f, 0f));
+			caustics.TemporalMaterial.SetVector("causticCurrentWorldSize", new Vector4(newWorldSize.x, newWorldSize.y, 0f, 0f));
+			caustics.TemporalMaterial.SetVector("causticHistoryWorldCenter", new Vector4(oldWorldCenter.x, oldWorldCenter.y, 0f, 0f));
+			caustics.TemporalMaterial.SetVector("causticHistoryWorldSize", new Vector4(oldWorldSize.x, oldWorldSize.y, 0f, 0f));
+			commandBuffer.Blit(oldHistory, newHistory, caustics.TemporalMaterial, 2);
+			Graphics.ExecuteCommandBuffer(commandBuffer);
+			CommandBufferPool.Release(commandBuffer);
+			return true;
+		}
+
 		public RenderTexture RecordBlurAndMotion(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer)
 		{
 			ParticleDisplay2D.MetaballSettings surface = context.display.metaballs;
@@ -99,21 +122,26 @@ namespace Seb.Fluid2D.Rendering
 
 		public Texture RecordTemporal(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, RenderTexture temporalMotionTexture)
 		{
+			const int CopyWithValidAlphaPass = 3;
 			ParticleDisplay2D display = context.display;
 			bool renderDirectionalLightField = caustics.ShouldRenderDirectionalLightField();
 			Vector2 currentWorldCenter = context.causticRenderRegion.WorldCenter;
 			Vector2 currentWorldSize = context.causticRenderRegion.WorldSize;
+			bool wantsReactiveShadowMap =
+				(caustics.ProjectedShadowHistoryRejection || caustics.TemporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.ProjectedShadow);
+			Vector2 reactiveShadowDirection = Vector2.zero;
+			bool useReactiveShadowMap = wantsReactiveShadowMap && caustics.ProjectedShadow.RecordCurrentShadowMap(context, targetCommandBuffer, out reactiveShadowDirection);
 
 			if (caustics.DenoisingEnabled && caustics.TemporalMaterial != null)
 			{
 				if (caustics.ClearHistory || !caustics.HasPreviousCamera)
 				{
 					targetCommandBuffer.Blit(caustics.CausticResolvedTexture, caustics.CausticTemporalTexture);
-					targetCommandBuffer.Blit(caustics.CausticResolvedTexture, caustics.CausticHistoryTexture);
+					targetCommandBuffer.Blit(caustics.CausticResolvedTexture, caustics.CausticHistoryTexture, caustics.TemporalMaterial, CopyWithValidAlphaPass);
 					if (renderDirectionalLightField)
 					{
 						targetCommandBuffer.Blit(caustics.LightDirectionTexture, caustics.LightDirectionTemporalTexture);
-						targetCommandBuffer.Blit(caustics.LightDirectionTexture, caustics.LightDirectionHistoryTexture);
+						targetCommandBuffer.Blit(caustics.LightDirectionTexture, caustics.LightDirectionHistoryTexture, caustics.TemporalMaterial, CopyWithValidAlphaPass);
 					}
 					caustics.ClearHistory = false;
 					caustics.TemporalFrameCount = 1;
@@ -133,28 +161,42 @@ namespace Seb.Fluid2D.Rendering
 					caustics.TemporalMaterial.SetVector("causticCurrentWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
 					caustics.TemporalMaterial.SetVector("causticHistoryWorldCenter", new Vector4(caustics.PreviousWorldCenter.x, caustics.PreviousWorldCenter.y, 0f, 0f));
 					caustics.TemporalMaterial.SetVector("causticHistoryWorldSize", new Vector4(caustics.PreviousWorldSize.x, caustics.PreviousWorldSize.y, 0f, 0f));
+					caustics.TemporalMaterial.SetFloat("causticReactiveShadowOffset", caustics.ProjectedShadowOffset);
+					caustics.TemporalMaterial.SetFloat("causticReactiveShadowExpansion", caustics.ProjectedShadowExpansion);
+					caustics.TemporalMaterial.SetInt("causticReactiveShadowMapEnabled", useReactiveShadowMap ? 1 : 0);
+					caustics.TemporalMaterial.SetVector("causticReactiveShadowDirection", new Vector4(reactiveShadowDirection.x, reactiveShadowDirection.y, 0f, 0f));
+					caustics.TemporalMaterial.SetVector("causticReactiveShadowHistoryDirection", new Vector4(caustics.PreviousReactiveShadowDirection.x, caustics.PreviousReactiveShadowDirection.y, 0f, 0f));
+					caustics.TemporalMaterial.SetTexture("CausticReactiveShadowMapTex", caustics.ReactiveShadowMapTexture);
+					caustics.TemporalMaterial.SetTexture("CausticReactiveShadowHistoryTex", caustics.ReactiveShadowMapHistoryTexture);
 					caustics.TemporalMaterial.SetTexture("CausticHistoryTex", caustics.CausticHistoryTexture);
 					caustics.TemporalMaterial.SetTexture("CausticMotionTex", temporalMotionTexture);
 					targetCommandBuffer.Blit(caustics.CausticResolvedTexture, caustics.CausticTemporalTexture, caustics.TemporalMaterial, 0);
-					targetCommandBuffer.Blit(caustics.CausticTemporalTexture, caustics.CausticHistoryTexture);
+					targetCommandBuffer.Blit(caustics.CausticTemporalTexture, caustics.CausticHistoryTexture, caustics.TemporalMaterial, CopyWithValidAlphaPass);
 					if (renderDirectionalLightField)
 					{
 						caustics.TemporalMaterial.SetTexture("CausticHistoryTex", caustics.LightDirectionHistoryTexture);
 						caustics.TemporalMaterial.SetTexture("CausticMotionTex", temporalMotionTexture);
 						targetCommandBuffer.Blit(caustics.LightDirectionTexture, caustics.LightDirectionTemporalTexture, caustics.TemporalMaterial, 0);
-						targetCommandBuffer.Blit(caustics.LightDirectionTemporalTexture, caustics.LightDirectionHistoryTexture);
+						targetCommandBuffer.Blit(caustics.LightDirectionTemporalTexture, caustics.LightDirectionHistoryTexture, caustics.TemporalMaterial, CopyWithValidAlphaPass);
 					}
 					caustics.TemporalFrameCount = nextFrameCount;
 				}
 
+				if (useReactiveShadowMap)
+				{
+					targetCommandBuffer.Blit(caustics.ReactiveShadowMapTexture, caustics.ReactiveShadowMapHistoryTexture);
+				}
+
 				caustics.PreviousWorldCenter = currentWorldCenter;
 				caustics.PreviousWorldSize = currentWorldSize;
+				caustics.PreviousReactiveShadowDirection = useReactiveShadowMap ? reactiveShadowDirection : Vector2.zero;
 				caustics.HasPreviousCamera = true;
 				return caustics.CausticTemporalTexture;
 			}
 
 			caustics.HasPreviousCamera = false;
 			caustics.TemporalFrameCount = 0;
+			caustics.PreviousReactiveShadowDirection = Vector2.zero;
 			return caustics.CausticResolvedTexture;
 		}
 	}

@@ -27,6 +27,8 @@ sampler2D MaterialNormalTex1;
 sampler2D CausticTex;
 sampler2D LightDirectionTex;
 sampler2D SoftLightTex;
+sampler2D SoftLightTexPhase1;
+sampler2D ProjectedShadowTex;
 float4 MaterialAlbedoTex_TexelSize;
 float2 particleFluidWorldCenter;
 float2 particleFluidWorldSize;
@@ -45,10 +47,15 @@ int particleFluidCausticRegionEnabled;
 float4 particleFluidCausticUvRect;
 int particleFluidDirectionalLightFieldEnabled;
 int particleFluidPhaseDiffuseLightEnabled;
-int particleFluidSoftLightPhase0Only;
+int particleFluidProjectedShadowEnabled;
+float2 particleFluidProjectedShadowDirection;
+float particleFluidProjectedShadowOffset;
+float particleFluidProjectedShadowExpansion;
 float particleFluidRadianceCascadeDirectCausticStrength;
 float4 particleFluidPhase0DiffuseLightTint;
 float4 particleFluidPhase1DiffuseLightTint;
+float particleFluidRadianceCascadePhase0Visibility;
+float particleFluidRadianceCascadePhase1Visibility;
 float particleFluidIridescenceIntensity;
 float particleFluidIridescenceScale;
 int particleLightType;
@@ -147,6 +154,81 @@ float2 CausticUvFromCameraUv(float2 cameraUv)
 	}
 
 	return (cameraUv - particleFluidCausticUvRect.xy) / max(particleFluidCausticUvRect.zw, float2(0.000001, 0.000001));
+}
+
+float ProjectedShadowHalfPerp(float2 direction, float2 regionSize)
+{
+	float2 dirLengthSafe = length(direction) > 0.0001 ? normalize(direction) : float2(0.0, -1.0);
+	float2 perp = float2(-dirLengthSafe.y, dirLengthSafe.x);
+	return max(0.5 * (abs(perp.x) * regionSize.x + abs(perp.y) * regionSize.y), 0.0001);
+}
+
+float ProjectedShadowHalfForward(float2 direction, float2 regionSize)
+{
+	float2 forward = length(direction) > 0.0001 ? normalize(direction) : float2(0.0, -1.0);
+	return max(0.5 * (abs(forward.x) * regionSize.x + abs(forward.y) * regionSize.y), 0.0001);
+}
+
+float4 SampleProjectedShadow(float2 worldPos, float2 regionCenter, float2 regionSize, float2 direction, sampler2D shadowMap)
+{
+	float dirLength = length(direction);
+	if (dirLength <= 0.0001)
+	{
+		return 0.0;
+	}
+
+	float2 forward = direction / dirLength;
+	float2 perp = float2(-forward.y, forward.x);
+	worldPos -= forward * particleFluidProjectedShadowOffset;
+	float halfPerp = ProjectedShadowHalfPerp(direction, regionSize);
+	float halfForward = ProjectedShadowHalfForward(direction, regionSize);
+	float2 rel = worldPos - regionCenter;
+	float binT = dot(rel, perp) / halfPerp * 0.5 + 0.5;
+	float depthT = dot(rel, forward) / halfForward * 0.5 + 0.5;
+	float perpExpansionT = max(particleFluidProjectedShadowExpansion, 0.0) / halfPerp * 0.5;
+	float forwardExpansionT = max(particleFluidProjectedShadowExpansion, 0.0) / halfForward * 0.5;
+	float4 bestSample = 0.0;
+	float bestDepth = 2.0;
+	float hasSample = 0.0;
+	float centerOccupied = 0.0;
+	int occupiedTapCount = 0;
+	float binOffsets[5] = { -1.0, -0.5, 0.0, 0.5, 1.0 };
+
+	[unroll]
+	for (int tap = 0; tap < 5; tap++)
+	{
+		float tapBinT = binT + binOffsets[tap] * perpExpansionT;
+		float tapInRange = step(0.0, tapBinT) * step(tapBinT, 1.0) * step(0.0, depthT) * step(depthT, 1.0);
+		float4 tapSample = tex2D(shadowMap, float2(tapBinT, 0.5));
+		float tapOccupied = tapInRange * tapSample.y * step(tapSample.x + 0.01 - forwardExpansionT, depthT);
+		if (tap == 2)
+		{
+			centerOccupied = tapOccupied;
+		}
+		if (tapOccupied > 0.0)
+		{
+			occupiedTapCount++;
+		}
+		if (tapOccupied > 0.0 && tapSample.x < bestDepth)
+		{
+			bestDepth = tapSample.x;
+			bestSample = float4(tapSample.x, tapSample.y, depthT, tapInRange);
+			hasSample = 1.0;
+		}
+	}
+
+	if (centerOccupied <= 0.0 && occupiedTapCount < 2)
+	{
+		return float4(0.0, 0.0, depthT, 0.0);
+	}
+
+	return hasSample > 0.0 ? bestSample : float4(0.0, 0.0, depthT, 0.0);
+}
+
+float ProjectedShadowOccupancy(float2 worldPos)
+{
+	float4 sample = SampleProjectedShadow(worldPos, particleFluidWorldCenter, particleFluidWorldSize, particleFluidProjectedShadowDirection, ProjectedShadowTex);
+	return sample.w * sample.y * step(sample.x + 0.01, sample.z);
 }
 
 float2 BoundaryDistances(float2 worldPos)
@@ -420,9 +502,16 @@ float4 fragSplitLighting(v2f i) : SV_Target
 		float3 lightField = tex2D(CausticTex, CausticUvFromCameraUv(cameraUv)).rgb;
 		float softLightDirectCausticStrength = particleFluidPhaseDiffuseLightEnabled != 0 ? saturate(particleFluidRadianceCascadeDirectCausticStrength) : 1.0;
 		float phase0DirectCausticStrength = softLightDirectCausticStrength;
-		float phase1DirectCausticStrength = particleFluidSoftLightPhase0Only == 0 ? softLightDirectCausticStrength : 1.0;
+		float phase1DirectCausticStrength = 1.0;
 		directLightIrradiance0 = lightField * phase0DirectCausticStrength;
 		directLightIrradiance1 = lightField * phase1DirectCausticStrength;
+	}
+	else if (particleFluidProjectedShadowEnabled != 0 && particleLightType == 0)
+	{
+		float shadowOccupancy = ProjectedShadowOccupancy(worldPos);
+		float shadowLight = 1.0 - shadowOccupancy;
+		directLightIrradiance0 = shadowLight;
+		directLightIrradiance1 = shadowLight;
 	}
 
 	float primaryPointAttenuation = particleLightType == 1 ? ParticlePointLightAttenuation(particleLightPoint, particleLightPointFalloff, worldPos) : 1.0;
@@ -466,12 +555,12 @@ float4 fragSplitLighting(v2f i) : SV_Target
 
 	if (particleFluidPhaseDiffuseLightEnabled != 0)
 	{
-		float4 softLight = tex2D(SoftLightTex, CausticUvFromCameraUv(cameraUv));
-		lit0 += softLight.rgb * (1.0 - phaseT) * particleFluidPhase0DiffuseLightTint.rgb;
-		if (particleFluidSoftLightPhase0Only == 0)
-		{
-			lit1 += softLight.rgb * phaseT * particleFluidPhase1DiffuseLightTint.rgb;
-		}
+		float2 softLightUv = CausticUvFromCameraUv(cameraUv);
+		float3 softLightPhase0 = tex2D(SoftLightTex, softLightUv).rgb;
+		float3 softLightPhase1 = tex2D(SoftLightTexPhase1, softLightUv).rgb;
+		lit0 += softLightPhase0 * (1.0 - phaseT) * particleFluidPhase0DiffuseLightTint.rgb;
+		lit0 += softLightPhase1 * max(particleFluidRadianceCascadePhase0Visibility, 0.0) * particleFluidPhase1DiffuseLightTint.rgb;
+		lit1 += softLightPhase1 * max(particleFluidRadianceCascadePhase1Visibility, 0.0) * particleFluidPhase1DiffuseLightTint.rgb;
 	}
 
 	lit0 = ApplyIridescence(lit0, normal0);

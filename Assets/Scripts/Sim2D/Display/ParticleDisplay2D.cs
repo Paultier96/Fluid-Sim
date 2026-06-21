@@ -202,8 +202,6 @@ namespace Seb.Fluid2D.Rendering
 		bool needsUpdate;
 		DebugVisualization lastDebugMode;
 		VectorFieldSource lastVectorFieldSource;
-		const string SceneViewDirectCommandBufferName = "Sim2D Scene View Direct Particles";
-
 		void Awake()
 		{
 			Debug.Assert(sim != null, "ParticleDisplay2D requires a FluidSim2D reference.", this);
@@ -227,34 +225,8 @@ namespace Seb.Fluid2D.Rendering
 			EnsureMaterials();
 			UpdateSettings();
 
-			if (renderMode == RenderMode.JumpFlood)
+			if (renderMode != RenderMode.JumpFlood && (renderMode != RenderMode.Metaballs || metaballs.blurShader == null))
 			{
-				if (RenderPipelineManager.currentPipeline == null)
-				{
-					JumpFloodRenderer.Render(this, Camera.main);
-				}
-				else
-				{
-					metaballRenderer?.RemoveCommandBuffer();
-					jumpFloodRenderer?.RemoveCommandBuffer();
-				}
-			}
-			else if (renderMode == RenderMode.Metaballs && metaballs.blurShader != null)
-			{
-				jumpFloodRenderer?.RemoveCommandBuffer();
-				if (RenderPipelineManager.currentPipeline == null)
-				{
-					print(Camera.main);
-					MetaballRenderer.Render(this, Camera.main);
-				}
-				else
-				{
-					MetaballRenderer.RemoveCommandBuffer();
-				}
-			}
-			else
-			{
-				RemoveCommandBuffer();
 				DrawDirectParticles(Camera.main);
 				DrawVectorField(Camera.main);
 			}
@@ -470,6 +442,26 @@ namespace Seb.Fluid2D.Rendering
 			return gradient;
 		}
 
+		internal void SetPhaseColourMaps(Gradient phase0, Gradient phase1)
+		{
+			phase0ColourMap = CloneGradient(phase0);
+			phase1ColourMap = CloneGradient(phase1);
+			needsUpdate = true;
+		}
+
+		internal static Gradient CloneGradient(Gradient source)
+		{
+			if (source == null)
+			{
+				return null;
+			}
+
+			Gradient clone = new Gradient();
+			clone.SetKeys(source.colorKeys, source.alphaKeys);
+			clone.mode = source.mode;
+			return clone;
+		}
+
 		int GetSignedGradientResolution()
 		{
 			int width = Mathf.Max(3, gradientResolution);
@@ -577,36 +569,10 @@ namespace Seb.Fluid2D.Rendering
 
 			EnsureMaterials();
 			UpdateSettings();
-			metaballRenderer?.RemoveFromCamera(sceneViewCamera);
-			RemoveCommandBuffersByName(sceneViewCamera, CameraEvent.AfterEverything, SceneViewDirectCommandBufferName);
 			DrawDirectParticles(sceneViewCamera);
 			DrawVectorField(sceneViewCamera);
 		}
 #endif
-
-		void RemoveCommandBuffer()
-		{
-			metaballRenderer?.RemoveCommandBuffer();
-			jumpFloodRenderer?.RemoveCommandBuffer();
-		}
-
-		static void RemoveCommandBuffersByName(Camera cam, CameraEvent evt, string commandBufferName)
-		{
-			if (RenderPipelineManager.currentPipeline != null)
-			{
-				return;
-			}
-
-			CommandBuffer[] commandBuffers = cam.GetCommandBuffers(evt);
-			for (int i = 0; i < commandBuffers.Length; i++)
-			{
-				CommandBuffer commandBuffer = commandBuffers[i];
-				if (commandBuffer != null && commandBuffer.name == commandBufferName)
-				{
-					cam.RemoveCommandBuffer(evt, commandBuffer);
-				}
-			}
-		}
 
 		internal static Camera GetSceneViewCamera()
 		{
@@ -666,12 +632,10 @@ namespace Seb.Fluid2D.Rendering
 			#if UNITY_EDITOR
 			Camera.onPreCull -= DrawSceneViewDirect;
 			#endif
-			RemoveCommandBuffer();
 		}
 
 		void OnDestroy()
 		{
-			RemoveCommandBuffer();
 			ComputeHelper.Release(argsBuffer);
 			ComputeHelper.Release(vectorArgsBuffer);
 			metaballRenderer?.Release();

@@ -147,6 +147,10 @@ namespace Seb.Fluid2D.Rendering
 			{
 				SetDebugMode(ParticleDisplay2D.DebugVisualization.None, ParticleFluidLighting2D.LightingDebugVisualization.SoftLight);
 			}
+			else if (Input.GetKeyDown(KeyCode.U))
+			{
+				SetDebugMode(ParticleDisplay2D.DebugVisualization.None, ParticleFluidLighting2D.LightingDebugVisualization.RadianceCascade);
+			}
 			else if (Input.GetKeyDown(KeyCode.Alpha9) || Input.GetKeyDown(KeyCode.Keypad9))
 			{
 				SetDebugMode(ParticleDisplay2D.DebugVisualization.None, ParticleFluidLighting2D.LightingDebugVisualization.DirectionalLightField);
@@ -162,6 +166,14 @@ namespace Seb.Fluid2D.Rendering
 			else if (Input.GetKeyDown(KeyCode.R))
 			{
 				SetDebugMode(ParticleDisplay2D.DebugVisualization.None, ParticleFluidLighting2D.LightingDebugVisualization.TemporalClamp);
+			}
+			else if (Input.GetKeyDown(KeyCode.T))
+			{
+				SetDebugMode(ParticleDisplay2D.DebugVisualization.None, ParticleFluidLighting2D.LightingDebugVisualization.ProjectedShadow);
+			}
+			else if (Input.GetKeyDown(KeyCode.Y))
+			{
+				SetDebugMode(ParticleDisplay2D.DebugVisualization.None, ParticleFluidLighting2D.LightingDebugVisualization.ProjectedShadowMotion);
 			}
 			else if (Input.GetKeyDown(KeyCode.W))
 			{

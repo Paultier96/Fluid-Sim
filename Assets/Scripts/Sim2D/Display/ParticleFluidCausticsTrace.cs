@@ -39,11 +39,13 @@ namespace Seb.Fluid2D.Rendering
 			void SetInt(ComputeShader compute, string name, int value);
 			void SetFloat(ComputeShader compute, string name, float value);
 			void SetVector(ComputeShader compute, string name, Vector4 value);
+			void SetBuffer(ComputeShader compute, int kernel, string name, ComputeBuffer buffer);
+			void Dispatch(ComputeShader compute, int kernel, int x, int y, int z);
 		}
 
 		readonly struct ComputeCommandBufferParamWriter : ICausticsComputeParamWriter
 		{
-			readonly IComputeCommandBuffer commandBuffer;
+			public readonly IComputeCommandBuffer commandBuffer;
 
 			public ComputeCommandBufferParamWriter(IComputeCommandBuffer commandBuffer)
 			{
@@ -53,11 +55,13 @@ namespace Seb.Fluid2D.Rendering
 			public void SetInt(ComputeShader compute, string name, int value) => commandBuffer.SetComputeIntParam(compute, name, value);
 			public void SetFloat(ComputeShader compute, string name, float value) => commandBuffer.SetComputeFloatParam(compute, name, value);
 			public void SetVector(ComputeShader compute, string name, Vector4 value) => commandBuffer.SetComputeVectorParam(compute, name, value);
+			public void SetBuffer(ComputeShader compute, int kernel, string name, ComputeBuffer buffer) => commandBuffer.SetComputeBufferParam(compute, kernel, name, buffer);
+			public void Dispatch(ComputeShader compute, int kernel, int x, int y, int z) => commandBuffer.DispatchCompute(compute, kernel, x, y, z);
 		}
 
 		readonly struct ClassicCommandBufferParamWriter : ICausticsComputeParamWriter
 		{
-			readonly CommandBuffer commandBuffer;
+			public readonly CommandBuffer commandBuffer;
 
 			public ClassicCommandBufferParamWriter(CommandBuffer commandBuffer)
 			{
@@ -67,6 +71,8 @@ namespace Seb.Fluid2D.Rendering
 			public void SetInt(ComputeShader compute, string name, int value) => commandBuffer.SetComputeIntParam(compute, name, value);
 			public void SetFloat(ComputeShader compute, string name, float value) => commandBuffer.SetComputeFloatParam(compute, name, value);
 			public void SetVector(ComputeShader compute, string name, Vector4 value) => commandBuffer.SetComputeVectorParam(compute, name, value);
+			public void SetBuffer(ComputeShader compute, int kernel, string name, ComputeBuffer buffer) => commandBuffer.SetComputeBufferParam(compute, kernel, name, buffer);
+			public void Dispatch(ComputeShader compute, int kernel, int x, int y, int z) => commandBuffer.DispatchCompute(compute, kernel, x, y, z);
 		}
 
 		public ParticleFluidCausticsTrace(ParticleFluidCausticsView caustics)
@@ -76,90 +82,38 @@ namespace Seb.Fluid2D.Rendering
 
 		public void RecordComputeClear(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex, TextureHandle causticResolvedHandle, TextureHandle causticMotionHandle, TextureHandle lightDirectionHandle)
 		{
-			CausticsComputePassState state = ApplyComputeCommonParams(context, targetCommandBuffer, combinedAccumulationTexture, frameIndex);
-			caustics.BindCausticAccumulationTextures(targetCommandBuffer, state.compute, state.clearKernel);
-			caustics.BindCausticMotionTextures(targetCommandBuffer, state.compute, state.clearKernel);
-			caustics.BindLightDirectionTextures(targetCommandBuffer, state.compute, state.clearKernel, state.renderDirectionalLightField);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.clearKernel, "CausticResult", causticResolvedHandle);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.clearKernel, "CausticMotionResult", causticMotionHandle);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.clearKernel, "LightDirectionResult", lightDirectionHandle);
-			DispatchCompute(targetCommandBuffer, state.compute, state.clearKernel, state.width, state.height);
+			ComputeCommandBufferParamWriter writer = new(targetCommandBuffer);
+			RecordComputeClear(context, ref writer, combinedAccumulationTexture, frameIndex, causticResolvedHandle, causticMotionHandle, lightDirectionHandle);
 		}
 
 		public void RecordComputeTrace(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex, TextureHandle combinedHandle, TextureHandle velocityPhase0Handle, TextureHandle velocityPhase1Handle, TextureHandle gradientHandle, TextureHandle gradient2Handle)
 		{
-			CausticsComputePassState state = ApplyComputeCommonParams(context, targetCommandBuffer, combinedAccumulationTexture, frameIndex);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "CombinedTex", combinedHandle);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "VelocityTex0", velocityPhase0Handle);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "VelocityTex1", velocityPhase1Handle);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "ColourMap", gradientHandle);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "ColourMap2", gradient2Handle);
-			caustics.BindCausticAccumulationTextures(targetCommandBuffer, state.compute, state.traceKernel);
-			caustics.BindCausticMotionTextures(targetCommandBuffer, state.compute, state.traceKernel);
-			caustics.BindLightDirectionTextures(targetCommandBuffer, state.compute, state.traceKernel, state.renderDirectionalLightField);
-			DispatchTrace(targetCommandBuffer, state.compute, state.traceKernel, state.totalRayBudget, state.raysPerPixel);
+			ComputeCommandBufferParamWriter writer = new(targetCommandBuffer);
+			RecordComputeTrace(context, ref writer, combinedAccumulationTexture, frameIndex, combinedHandle, velocityPhase0Handle, velocityPhase1Handle, gradientHandle, gradient2Handle);
 		}
 
 		public void RecordComputeResolve(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex, TextureHandle causticResolvedHandle, TextureHandle causticMotionHandle, TextureHandle lightDirectionHandle)
 		{
-			CausticsComputePassState state = ApplyComputeCommonParams(context, targetCommandBuffer, combinedAccumulationTexture, frameIndex);
-			caustics.BindCausticAccumulationTextures(targetCommandBuffer, state.compute, state.resolveKernel);
-			caustics.BindCausticMotionTextures(targetCommandBuffer, state.compute, state.resolveKernel);
-			caustics.BindLightDirectionTextures(targetCommandBuffer, state.compute, state.resolveKernel, state.renderDirectionalLightField);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.resolveKernel, "CausticResult", causticResolvedHandle);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.resolveKernel, "CausticMotionResult", causticMotionHandle);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.resolveKernel, "LightDirectionResult", lightDirectionHandle);
-			DispatchCompute(targetCommandBuffer, state.compute, state.resolveKernel, state.width, state.height);
+			ComputeCommandBufferParamWriter writer = new(targetCommandBuffer);
+			RecordComputeResolve(context, ref writer, combinedAccumulationTexture, frameIndex, causticResolvedHandle, causticMotionHandle, lightDirectionHandle);
 		}
 
 		public void RecordComputeClear(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex, RenderTexture causticResolvedTarget, RenderTexture causticMotionTarget, RenderTexture lightDirectionTarget)
 		{
-			CausticsComputePassState state = ApplyComputeCommonParams(context, targetCommandBuffer, combinedAccumulationTexture, frameIndex);
-			caustics.BindCausticAccumulationTextures(targetCommandBuffer, state.compute, state.clearKernel);
-			caustics.BindCausticMotionTextures(targetCommandBuffer, state.compute, state.clearKernel);
-			caustics.BindLightDirectionTextures(targetCommandBuffer, state.compute, state.clearKernel, state.renderDirectionalLightField);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.clearKernel, "CausticResult", causticResolvedTarget);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.clearKernel, "CausticMotionResult", causticMotionTarget);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.clearKernel, "LightDirectionResult", lightDirectionTarget);
-			DispatchCompute(targetCommandBuffer, state.compute, state.clearKernel, state.width, state.height);
+			ClassicCommandBufferParamWriter writer = new(targetCommandBuffer);
+			RecordComputeClear(context, ref writer, combinedAccumulationTexture, frameIndex, causticResolvedTarget, causticMotionTarget, lightDirectionTarget);
 		}
 
 		public void RecordComputeTrace(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex, RenderTexture combinedTarget, RenderTexture velocityPhase0Target, RenderTexture velocityPhase1Target, Texture gradientTarget, Texture gradient2Target)
 		{
-			CausticsComputePassState state = ApplyComputeCommonParams(context, targetCommandBuffer, combinedAccumulationTexture, frameIndex);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "CombinedTex", combinedTarget);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "VelocityTex0", velocityPhase0Target);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "VelocityTex1", velocityPhase1Target);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "ColourMap", gradientTarget);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "ColourMap2", gradient2Target);
-			caustics.BindCausticAccumulationTextures(targetCommandBuffer, state.compute, state.traceKernel);
-			caustics.BindCausticMotionTextures(targetCommandBuffer, state.compute, state.traceKernel);
-			caustics.BindLightDirectionTextures(targetCommandBuffer, state.compute, state.traceKernel, state.renderDirectionalLightField);
-			DispatchTrace(targetCommandBuffer, state.compute, state.traceKernel, state.totalRayBudget, state.raysPerPixel);
+			ClassicCommandBufferParamWriter writer = new(targetCommandBuffer);
+			RecordComputeTrace(context, ref writer, combinedAccumulationTexture, frameIndex, combinedTarget, velocityPhase0Target, velocityPhase1Target, gradientTarget, gradient2Target);
 		}
 
 		public void RecordComputeResolve(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex, RenderTexture causticResolvedTarget, RenderTexture causticMotionTarget, RenderTexture lightDirectionTarget)
 		{
-			CausticsComputePassState state = ApplyComputeCommonParams(context, targetCommandBuffer, combinedAccumulationTexture, frameIndex);
-			caustics.BindCausticAccumulationTextures(targetCommandBuffer, state.compute, state.resolveKernel);
-			caustics.BindCausticMotionTextures(targetCommandBuffer, state.compute, state.resolveKernel);
-			caustics.BindLightDirectionTextures(targetCommandBuffer, state.compute, state.resolveKernel, state.renderDirectionalLightField);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.resolveKernel, "CausticResult", causticResolvedTarget);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.resolveKernel, "CausticMotionResult", causticMotionTarget);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.resolveKernel, "LightDirectionResult", lightDirectionTarget);
-			DispatchCompute(targetCommandBuffer, state.compute, state.resolveKernel, state.width, state.height);
-		}
-
-		CausticsComputePassState ApplyComputeCommonParams(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex)
-		{
-			ComputeCommandBufferParamWriter writer = new ComputeCommandBufferParamWriter(targetCommandBuffer);
-			return ApplyComputeCommonParams(context, ref writer, combinedAccumulationTexture, frameIndex);
-		}
-
-		CausticsComputePassState ApplyComputeCommonParams(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex)
-		{
-			ClassicCommandBufferParamWriter writer = new ClassicCommandBufferParamWriter(targetCommandBuffer);
-			return ApplyComputeCommonParams(context, ref writer, combinedAccumulationTexture, frameIndex);
+			ClassicCommandBufferParamWriter writer = new(targetCommandBuffer);
+			RecordComputeResolve(context, ref writer, combinedAccumulationTexture, frameIndex, causticResolvedTarget, causticMotionTarget, lightDirectionTarget);
 		}
 
 		CausticsComputePassState ApplyComputeCommonParams<TWriter>(ParticleFluidLighting2D.FrameContext context, ref TWriter targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex)
@@ -290,6 +244,7 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetFloat(compute, "causticsRayBrightness", caustics.RayBrightness);
 			targetCommandBuffer.SetFloat(compute, "causticsTemporalJitterPixels", caustics.TemporalJitterPixels);
 			targetCommandBuffer.SetFloat(compute, "causticsSurfaceNormalJitterPixels", caustics.SurfaceNormalJitterPixels);
+			targetCommandBuffer.SetFloat(compute, "causticsMotionVelocityThreshold", caustics.MotionVelocityThreshold);
 			targetCommandBuffer.SetFloat(compute, "causticsDeltaTime", display.sim.CurrentSimulationDeltaTime);
 			targetCommandBuffer.SetInt(compute, "causticsFrameIndex", frameIndex);
 			targetCommandBuffer.SetInt(compute, "causticsLightType", (int)caustics.PrimaryLight.type);
@@ -333,31 +288,91 @@ namespace Seb.Fluid2D.Rendering
 			return new CausticsComputePassState(compute, clearKernel, traceKernel, resolveKernel, width, height, totalRayBudget, raysPerPixel, renderDirectionalLightField);
 		}
 
-		static void DispatchCompute(CommandBuffer targetCommandBuffer, ComputeShader compute, int kernel, int width, int height)
+		void RecordComputeClear(ParticleFluidLighting2D.FrameContext context, ref ComputeCommandBufferParamWriter targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex, TextureHandle causticResolvedTarget, TextureHandle causticMotionTarget, TextureHandle lightDirectionTarget)
 		{
-			targetCommandBuffer.DispatchCompute(compute, kernel, Mathf.CeilToInt(width / 16f), Mathf.CeilToInt(height / 16f), 1);
+			CausticsComputePassState state = ApplyComputeCommonParams(context, ref targetCommandBuffer, combinedAccumulationTexture, frameIndex);
+			BindComputeBuffers(ref targetCommandBuffer, state.compute, state.clearKernel, state.renderDirectionalLightField);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.clearKernel, "CausticResult", causticResolvedTarget);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.clearKernel, "CausticMotionResult", causticMotionTarget);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.clearKernel, "LightDirectionResult", lightDirectionTarget);
+			DispatchCompute(ref targetCommandBuffer, state.compute, state.clearKernel, state.width, state.height);
 		}
 
-		static void DispatchCompute(IComputeCommandBuffer targetCommandBuffer, ComputeShader compute, int kernel, int width, int height)
+		void RecordComputeClear(ParticleFluidLighting2D.FrameContext context, ref ClassicCommandBufferParamWriter targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex, RenderTexture causticResolvedTarget, RenderTexture causticMotionTarget, RenderTexture lightDirectionTarget)
 		{
-			targetCommandBuffer.DispatchCompute(compute, kernel, Mathf.CeilToInt(width / 16f), Mathf.CeilToInt(height / 16f), 1);
+			CausticsComputePassState state = ApplyComputeCommonParams(context, ref targetCommandBuffer, combinedAccumulationTexture, frameIndex);
+			BindComputeBuffers(ref targetCommandBuffer, state.compute, state.clearKernel, state.renderDirectionalLightField);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.clearKernel, "CausticResult", causticResolvedTarget);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.clearKernel, "CausticMotionResult", causticMotionTarget);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.clearKernel, "LightDirectionResult", lightDirectionTarget);
+			DispatchCompute(ref targetCommandBuffer, state.compute, state.clearKernel, state.width, state.height);
 		}
 
-		void DispatchTrace(CommandBuffer targetCommandBuffer, ComputeShader compute, int kernel, int rayCount, int raysPerPixel)
+		void RecordComputeTrace(ParticleFluidLighting2D.FrameContext context, ref ComputeCommandBufferParamWriter targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex, TextureHandle combinedTarget, TextureHandle velocityPhase0Target, TextureHandle velocityPhase1Target, TextureHandle gradientTarget, TextureHandle gradient2Target)
+		{
+			CausticsComputePassState state = ApplyComputeCommonParams(context, ref targetCommandBuffer, combinedAccumulationTexture, frameIndex);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "CombinedTex", combinedTarget);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "VelocityTex0", velocityPhase0Target);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "VelocityTex1", velocityPhase1Target);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "ColourMap", gradientTarget);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "ColourMap2", gradient2Target);
+			BindComputeBuffers(ref targetCommandBuffer, state.compute, state.traceKernel, state.renderDirectionalLightField);
+			DispatchTrace(ref targetCommandBuffer, state.compute, state.traceKernel, state.totalRayBudget, state.raysPerPixel);
+		}
+
+		void RecordComputeTrace(ParticleFluidLighting2D.FrameContext context, ref ClassicCommandBufferParamWriter targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex, RenderTexture combinedTarget, RenderTexture velocityPhase0Target, RenderTexture velocityPhase1Target, Texture gradientTarget, Texture gradient2Target)
+		{
+			CausticsComputePassState state = ApplyComputeCommonParams(context, ref targetCommandBuffer, combinedAccumulationTexture, frameIndex);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "CombinedTex", combinedTarget);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "VelocityTex0", velocityPhase0Target);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "VelocityTex1", velocityPhase1Target);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "ColourMap", gradientTarget);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "ColourMap2", gradient2Target);
+			BindComputeBuffers(ref targetCommandBuffer, state.compute, state.traceKernel, state.renderDirectionalLightField);
+			DispatchTrace(ref targetCommandBuffer, state.compute, state.traceKernel, state.totalRayBudget, state.raysPerPixel);
+		}
+
+		void RecordComputeResolve(ParticleFluidLighting2D.FrameContext context, ref ComputeCommandBufferParamWriter targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex, TextureHandle causticResolvedTarget, TextureHandle causticMotionTarget, TextureHandle lightDirectionTarget)
+		{
+			CausticsComputePassState state = ApplyComputeCommonParams(context, ref targetCommandBuffer, combinedAccumulationTexture, frameIndex);
+			BindComputeBuffers(ref targetCommandBuffer, state.compute, state.resolveKernel, state.renderDirectionalLightField);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.resolveKernel, "CausticResult", causticResolvedTarget);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.resolveKernel, "CausticMotionResult", causticMotionTarget);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.resolveKernel, "LightDirectionResult", lightDirectionTarget);
+			DispatchCompute(ref targetCommandBuffer, state.compute, state.resolveKernel, state.width, state.height);
+		}
+
+		void RecordComputeResolve(ParticleFluidLighting2D.FrameContext context, ref ClassicCommandBufferParamWriter targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex, RenderTexture causticResolvedTarget, RenderTexture causticMotionTarget, RenderTexture lightDirectionTarget)
+		{
+			CausticsComputePassState state = ApplyComputeCommonParams(context, ref targetCommandBuffer, combinedAccumulationTexture, frameIndex);
+			BindComputeBuffers(ref targetCommandBuffer, state.compute, state.resolveKernel, state.renderDirectionalLightField);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.resolveKernel, "CausticResult", causticResolvedTarget);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.resolveKernel, "CausticMotionResult", causticMotionTarget);
+			targetCommandBuffer.commandBuffer.SetComputeTextureParam(state.compute, state.resolveKernel, "LightDirectionResult", lightDirectionTarget);
+			DispatchCompute(ref targetCommandBuffer, state.compute, state.resolveKernel, state.width, state.height);
+		}
+
+		void BindComputeBuffers<TWriter>(ref TWriter targetCommandBuffer, ComputeShader compute, int kernel, bool renderDirectionalLightField)
+			where TWriter : struct, ICausticsComputeParamWriter
+		{
+			targetCommandBuffer.SetBuffer(compute, kernel, "CausticAccum", caustics.CausticAccumulationBuffer);
+			targetCommandBuffer.SetBuffer(compute, kernel, "CausticMotionAccum", caustics.CausticMotionAccumulationBuffer);
+			targetCommandBuffer.SetBuffer(compute, kernel, "LightDirectionAccum", renderDirectionalLightField ? caustics.LightDirectionAccumulationBuffer : caustics.LightDirectionAccumulationFallbackBuffer);
+		}
+
+		static void DispatchCompute<TWriter>(ref TWriter targetCommandBuffer, ComputeShader compute, int kernel, int width, int height)
+			where TWriter : struct, ICausticsComputeParamWriter
+		{
+			targetCommandBuffer.Dispatch(compute, kernel, Mathf.CeilToInt(width / 16f), Mathf.CeilToInt(height / 16f), 1);
+		}
+
+		void DispatchTrace<TWriter>(ref TWriter targetCommandBuffer, ComputeShader compute, int kernel, int rayCount, int raysPerPixel)
+			where TWriter : struct, ICausticsComputeParamWriter
 		{
 			int totalWidth = Mathf.Min(Mathf.Max(rayCount, 0) * Mathf.Max(raysPerPixel, 1), caustics.MaxCausticTraceThreadCount);
 			if (totalWidth > 0)
 			{
-				targetCommandBuffer.DispatchCompute(compute, kernel, Mathf.CeilToInt(totalWidth / (float)caustics.CausticTraceThreadGroupWidth), 1, 1);
-			}
-		}
-
-		void DispatchTrace(IComputeCommandBuffer targetCommandBuffer, ComputeShader compute, int kernel, int rayCount, int raysPerPixel)
-		{
-			int totalWidth = Mathf.Min(Mathf.Max(rayCount, 0) * Mathf.Max(raysPerPixel, 1), caustics.MaxCausticTraceThreadCount);
-			if (totalWidth > 0)
-			{
-				targetCommandBuffer.DispatchCompute(compute, kernel, Mathf.CeilToInt(totalWidth / (float)caustics.CausticTraceThreadGroupWidth), 1, 1);
+				targetCommandBuffer.Dispatch(compute, kernel, Mathf.CeilToInt(totalWidth / (float)caustics.CausticTraceThreadGroupWidth), 1, 1);
 			}
 		}
 	}

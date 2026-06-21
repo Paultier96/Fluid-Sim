@@ -1,6 +1,9 @@
 #pragma kernel Clear
 #pragma kernel Trace
 #pragma kernel Resolve
+#pragma kernel ClearReactiveShadowMap
+#pragma kernel BuildReactiveShadowMap
+#pragma kernel ResolveReactiveShadowMap
 
 Texture2D<float4> CombinedTex;
 Texture2D<float4> VelocityTex0;
@@ -10,9 +13,11 @@ Texture2D<float4> ColourMap2;
 RWStructuredBuffer<uint> CausticAccum;
 RWStructuredBuffer<int> CausticMotionAccum;
 RWStructuredBuffer<uint> LightDirectionAccum;
+RWStructuredBuffer<uint> ReactiveShadowMapAccum;
 RWTexture2D<float4> CausticResult;
 RWTexture2D<float4> CausticMotionResult;
 RWTexture2D<float4> LightDirectionResult;
+RWTexture2D<float4> ReactiveShadowMapResult;
 
 static const float CausticMotionWeightScale = 1048576.0;
 static const float CausticMotionValueScale = 1048576.0;
@@ -68,6 +73,7 @@ float causticsAbsorptionAlbedoSaturationInfluence;
 float causticsRayBrightness;
 float causticsTemporalJitterPixels;
 float causticsSurfaceNormalJitterPixels;
+float causticsMotionVelocityThreshold;
 float causticsDeltaTime;
 int causticsLightType;
 float causticsLightTemperatureKelvin;
@@ -106,6 +112,12 @@ float analyticBoundaryExpansion;
 float2 causticsWorldCenter;
 float2 causticsWorldSize;
 float4 causticsSourceUvRect;
+int reactiveShadowMapBinCount;
+float2 reactiveShadowMapDirection;
+float2 reactiveShadowSourceWorldCenter;
+float2 reactiveShadowSourceWorldSize;
+float2 reactiveShadowWorldCenter;
+float2 reactiveShadowWorldSize;
 
 float2 SourceUvFromCausticUv(float2 uv)
 {
@@ -225,7 +237,13 @@ float2 SamplePhaseVelocity(float2 uv, int phase)
 		packedVelocity = SamplePhaseVelocityPackedNeighborhood(pixel, phase, 3);
 	}
 
-	return packedVelocity.b > 0.0001 ? packedVelocity.rg / packedVelocity.b : 0.0;
+	if (packedVelocity.b <= 0.0001)
+	{
+		return 0.0;
+	}
+
+	float2 velocity = packedVelocity.rg / packedVelocity.b;
+	return dot(velocity, velocity) >= causticsMotionVelocityThreshold * causticsMotionVelocityThreshold ? velocity : 0.0;
 }
 
 int PhaseAt(float2 uv)
@@ -331,6 +349,20 @@ float2 UvToWorld(float2 uv)
 float2 WorldToUv(float2 worldPos)
 {
 	return (worldPos - causticsWorldCenter) / max(causticsWorldSize, 0.0001) + 0.5;
+}
+
+float ReactiveShadowHalfExtent(float2 axis, float2 worldSize)
+{
+	return max(0.5 * (abs(axis.x) * worldSize.x + abs(axis.y) * worldSize.y), 0.0001);
+}
+
+float2 ReactiveShadowSourceWorldFromPixel(int2 pixel)
+{
+	float2 uv = float2(
+		combinedWidth > 1 ? (float)pixel.x / (combinedWidth - 1.0) : 0.5,
+		combinedHeight > 1 ? (float)pixel.y / (combinedHeight - 1.0) : 0.5
+	);
+	return reactiveShadowSourceWorldCenter + (uv - 0.5) * reactiveShadowSourceWorldSize;
 }
 
 float PointLightAttenuation(float2 worldPos, float4 pointLight, float falloff)
@@ -1211,4 +1243,69 @@ void Resolve(uint3 id : SV_DispatchThreadID)
 		direction = directionLength > 0.0001 ? direction / directionLength : float2(0.0, 0.0);
 		LightDirectionResult[int2(id.xy)] = float4(direction, directionLength > 0.0001 ? 1.0 : 0.0, 1.0);
 	}
+}
+
+[numthreads(64, 1, 1)]
+void ClearReactiveShadowMap(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= reactiveShadowMapBinCount)
+	{
+		return;
+	}
+
+	ReactiveShadowMapAccum[id.x] = 0xffffffffu;
+}
+
+[numthreads(16, 16, 1)]
+void BuildReactiveShadowMap(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= combinedWidth || id.y >= combinedHeight)
+	{
+		return;
+	}
+
+	float4 combined = LoadCombinedPixel(int2(id.xy));
+	if (MaxPhaseDensity(combined) < densityThreshold)
+	{
+		return;
+	}
+
+	float phaseBoundary = PhaseBoundary();
+	float phaseRatio = PhaseRatio(combined);
+	bool phase0CastsShadow = phaseRatio < phaseBoundary;
+	if (!phase0CastsShadow)
+	{
+		return;
+	}
+
+	float2 forward = length(reactiveShadowMapDirection) > 0.0001 ? normalize(reactiveShadowMapDirection) : float2(0.0, -1.0);
+	float2 perp = float2(-forward.y, forward.x);
+	float2 worldPos = ReactiveShadowSourceWorldFromPixel(int2(id.xy));
+	float2 rel = worldPos - reactiveShadowWorldCenter;
+	float halfPerp = ReactiveShadowHalfExtent(perp, reactiveShadowWorldSize);
+	float halfForward = ReactiveShadowHalfExtent(forward, reactiveShadowWorldSize);
+	float binT = dot(rel, perp) / halfPerp * 0.5 + 0.5;
+	if (binT < 0.0 || binT > 1.0)
+	{
+		return;
+	}
+
+	float depthT = saturate(dot(rel, forward) / halfForward * 0.5 + 0.5);
+	uint bin = (uint)clamp((int)round(binT * max(reactiveShadowMapBinCount - 1, 0)), 0, max(reactiveShadowMapBinCount - 1, 0));
+	uint encodedDepth = (uint)round(depthT * 4294967294.0);
+	InterlockedMin(ReactiveShadowMapAccum[bin], encodedDepth);
+}
+
+[numthreads(64, 1, 1)]
+void ResolveReactiveShadowMap(uint3 id : SV_DispatchThreadID)
+{
+	if (id.x >= reactiveShadowMapBinCount)
+	{
+		return;
+	}
+
+	uint encodedDepth = ReactiveShadowMapAccum[id.x];
+	float valid = encodedDepth != 0xffffffffu ? 1.0 : 0.0;
+	float depthT = valid > 0.0 ? ((float)encodedDepth / 4294967294.0) : 0.0;
+	ReactiveShadowMapResult[int2(id.x, 0)] = float4(depthT, valid, 0.0, 1.0);
 }

@@ -27,6 +27,8 @@ sampler2D VelocityTex0;
 sampler2D VelocityTex1;
 sampler2D CausticHistoryTex;
 sampler2D CausticMotionTex;
+sampler2D CausticReactiveShadowMapTex;
+sampler2D CausticReactiveShadowHistoryTex;
 float4 _MainTex_TexelSize;
 float causticMotionDilationRadius;
 float densityThreshold;
@@ -34,15 +36,21 @@ float phaseBlendWidth;
 float phase0RenderBias;
 int debugMode;
 float motionDebugDeltaTime;
+float causticTemporalMotionVelocityThreshold;
 float causticTemporalHistoryWeight;
 float causticTemporalHistoryClampStrength;
 float causticTemporalClampRejection;
 float causticTemporalRejectedSpatialFilter;
 int causticTemporalMotionSource;
+int causticReactiveShadowMapEnabled;
 float2 causticCurrentWorldCenter;
 float2 causticCurrentWorldSize;
 float2 causticHistoryWorldCenter;
 float2 causticHistoryWorldSize;
+float2 causticReactiveShadowDirection;
+float2 causticReactiveShadowHistoryDirection;
+float causticReactiveShadowOffset;
+float causticReactiveShadowExpansion;
 
 v2f vert(appdata v)
 {
@@ -112,6 +120,81 @@ float3 CurrentSpatialFallback(float2 uv)
 	return sum / max(weight, 0.0001);
 }
 
+float ProjectedShadowHalfPerp(float2 direction, float2 regionSize)
+{
+	float2 dirLengthSafe = length(direction) > 0.0001 ? normalize(direction) : float2(0.0, -1.0);
+	float2 perp = float2(-dirLengthSafe.y, dirLengthSafe.x);
+	return max(0.5 * (abs(perp.x) * regionSize.x + abs(perp.y) * regionSize.y), 0.0001);
+}
+
+float ProjectedShadowHalfForward(float2 direction, float2 regionSize)
+{
+	float2 forward = length(direction) > 0.0001 ? normalize(direction) : float2(0.0, -1.0);
+	return max(0.5 * (abs(forward.x) * regionSize.x + abs(forward.y) * regionSize.y), 0.0001);
+}
+
+float4 SampleProjectedShadow(float2 worldPos, float2 regionCenter, float2 regionSize, float2 direction, sampler2D shadowMap)
+{
+	float dirLength = length(direction);
+	if (dirLength <= 0.0001)
+	{
+		return 0.0;
+	}
+
+	float2 forward = direction / dirLength;
+	float2 perp = float2(-forward.y, forward.x);
+	worldPos -= forward * causticReactiveShadowOffset;
+	float halfPerp = ProjectedShadowHalfPerp(direction, regionSize);
+	float halfForward = ProjectedShadowHalfForward(direction, regionSize);
+	float2 rel = worldPos - regionCenter;
+	float binT = dot(rel, perp) / halfPerp * 0.5 + 0.5;
+	float depthT = dot(rel, forward) / halfForward * 0.5 + 0.5;
+	float perpExpansionT = max(causticReactiveShadowExpansion, 0.0) / halfPerp * 0.5;
+	float forwardExpansionT = max(causticReactiveShadowExpansion, 0.0) / halfForward * 0.5;
+	float4 bestSample = 0.0;
+	float bestDepth = 2.0;
+	float hasSample = 0.0;
+	float centerOccupied = 0.0;
+	int occupiedTapCount = 0;
+	float binOffsets[5] = { -1.0, -0.5, 0.0, 0.5, 1.0 };
+
+	[unroll]
+	for (int tap = 0; tap < 5; tap++)
+	{
+		float tapBinT = binT + binOffsets[tap] * perpExpansionT;
+		float tapInRange = step(0.0, tapBinT) * step(tapBinT, 1.0) * step(0.0, depthT) * step(depthT, 1.0);
+		float4 tapSample = tex2D(shadowMap, float2(tapBinT, 0.5));
+		float tapOccupied = tapInRange * tapSample.y * step(tapSample.x + 0.01 - forwardExpansionT, depthT);
+		if (tap == 2)
+		{
+			centerOccupied = tapOccupied;
+		}
+		if (tapOccupied > 0.0)
+		{
+			occupiedTapCount++;
+		}
+		if (tapOccupied > 0.0 && tapSample.x < bestDepth)
+		{
+			bestDepth = tapSample.x;
+			bestSample = float4(tapSample.x, tapSample.y, depthT, tapInRange);
+			hasSample = 1.0;
+		}
+	}
+
+	if (centerOccupied <= 0.0 && occupiedTapCount < 2)
+	{
+		return float4(0.0, 0.0, depthT, 0.0);
+	}
+
+	return hasSample > 0.0 ? bestSample : float4(0.0, 0.0, depthT, 0.0);
+}
+
+float ProjectedShadowOccupancy(float2 worldPos, float2 regionCenter, float2 regionSize, float2 direction, sampler2D shadowMap)
+{
+	float4 sample = SampleProjectedShadow(worldPos, regionCenter, regionSize, direction, shadowMap);
+	return sample.w * sample.y * step(sample.x + 0.01, sample.z);
+}
+
 float4 fragCausticTemporal(v2f i) : SV_Target
 {
 	float3 current = tex2D(_MainTex, i.uv).rgb;
@@ -128,7 +211,10 @@ float4 fragCausticTemporal(v2f i) : SV_Target
 		float4 packedVelocity1 = tex2D(VelocityTex1, i.uv);
 		float2 weightedVelocity = lerp(packedVelocity0.rg, packedVelocity1.rg, phaseT);
 		float weight = lerp(packedVelocity0.b, packedVelocity1.b, phaseT);
-		float2 motionWorld = weight > 0.0001 ? weightedVelocity / weight * max(motionDebugDeltaTime, 0.0) : 0.0;
+		float2 velocityWorld = weight > 0.0001 ? weightedVelocity / weight : 0.0;
+		float velocityThresholdSq = causticTemporalMotionVelocityThreshold * causticTemporalMotionVelocityThreshold;
+		velocityWorld = dot(velocityWorld, velocityWorld) >= velocityThresholdSq ? velocityWorld : 0.0;
+		float2 motionWorld = velocityWorld * max(motionDebugDeltaTime, 0.0);
 		float2 motionHistoryUv = stationaryHistoryUv - motionWorld / max(causticHistoryWorldSize, float2(0.0001, 0.0001));
 		historyUv = lerp(stationaryHistoryUv, motionHistoryUv, step(0.0001, weight));
 	}
@@ -140,8 +226,30 @@ float4 fragCausticTemporal(v2f i) : SV_Target
 		float causticMotionConfidence = smoothstep(0.05, 0.35, saturate(motion.z));
 		historyUv = lerp(stationaryHistoryUv, motionHistoryUv, causticMotionConfidence);
 	}
+	else if (causticTemporalMotionSource == 3 && causticReactiveShadowMapEnabled != 0)
+	{
+		float4 currentShadowSample = SampleProjectedShadow(worldPos, causticCurrentWorldCenter, causticCurrentWorldSize, causticReactiveShadowDirection, CausticReactiveShadowMapTex);
+		float4 previousShadowSample = SampleProjectedShadow(worldPos, causticHistoryWorldCenter, causticHistoryWorldSize, causticReactiveShadowHistoryDirection, CausticReactiveShadowHistoryTex);
+		float currentShadowOccupied = currentShadowSample.w * currentShadowSample.y * step(currentShadowSample.x + 0.01, currentShadowSample.z);
+		float previousShadowOccupied = previousShadowSample.w * previousShadowSample.y * step(previousShadowSample.x + 0.01, previousShadowSample.z);
+		float currentShadowValid = currentShadowOccupied;
+		float previousShadowValid = previousShadowOccupied;
+		float shadowMotionConfidence = currentShadowValid * previousShadowValid;
+		if (shadowMotionConfidence > 0.0)
+		{
+			float currentDepthWorld = (currentShadowSample.x * 2.0 - 1.0) * ProjectedShadowHalfForward(causticReactiveShadowDirection, causticCurrentWorldSize);
+			float previousDepthWorld = (previousShadowSample.x * 2.0 - 1.0) * ProjectedShadowHalfForward(causticReactiveShadowHistoryDirection, causticHistoryWorldSize);
+			float2 currentForward = normalize(causticReactiveShadowDirection);
+			float2 shadowMotionWorld = currentForward * (currentDepthWorld - previousDepthWorld);
+			float2 motionHistoryUv = stationaryHistoryUv - shadowMotionWorld / max(causticHistoryWorldSize, float2(0.0001, 0.0001));
+			historyUv = lerp(stationaryHistoryUv, motionHistoryUv, shadowMotionConfidence);
+		}
+	}
 	float historyInFrame = step(0.0, historyUv.x) * step(historyUv.x, 1.0) * step(0.0, historyUv.y) * step(historyUv.y, 1.0);
-	float3 history = tex2D(CausticHistoryTex, historyUv).rgb;
+	float4 historySample = tex2D(CausticHistoryTex, historyUv);
+	float historyValidity = step(0.5, historySample.a);
+	historyInFrame *= historyValidity;
+	float3 history = historySample.rgb;
 
 	float3 minColour;
 	float3 maxColour;
@@ -157,14 +265,22 @@ float4 fragCausticTemporal(v2f i) : SV_Target
 	float clampDelta = length(history - clampedHistory) / max(length(history), 0.01);
 	float clampAmount = saturate(clampDelta * clampStrength);
 	float clampValidity = rcp(1.0 + clampDelta * max(causticTemporalClampRejection, 0.0) * clampStrength);
+	float currentShadow = 0.0;
+	float previousShadow = 0.0;
 
 	float historyWeight = saturate(causticTemporalHistoryWeight) * historyInFrame * clampValidity;
 	float baseHistoryWeight = saturate(causticTemporalHistoryWeight) * historyInFrame;
 	float rejectedT = baseHistoryWeight > 0.0001 ? saturate(1.0 - historyWeight / baseHistoryWeight) : 1.0;
-	float3 spatialCurrent = CurrentSpatialFallback(i.uv);
-	float3 filteredCurrent = lerp(current, spatialCurrent, rejectedT * saturate(causticTemporalRejectedSpatialFilter));
-	float temporalDebug = debugMode == 13 ? clampAmount : historyWeight;
-	return float4(lerp(filteredCurrent, validatedHistory, historyWeight), temporalDebug);
+	float reactiveMask = max(1.0 - historyInFrame, saturate((rejectedT - 0.2) / 0.6) * saturate((clampAmount - 0.15) / 0.5));
+	if (causticReactiveShadowMapEnabled != 0)
+	{
+		currentShadow = ProjectedShadowOccupancy(worldPos, causticCurrentWorldCenter, causticCurrentWorldSize, causticReactiveShadowDirection, CausticReactiveShadowMapTex);
+		previousShadow = ProjectedShadowOccupancy(worldPos, causticHistoryWorldCenter, causticHistoryWorldSize, causticReactiveShadowHistoryDirection, CausticReactiveShadowHistoryTex);
+		reactiveMask = max(reactiveMask, saturate(previousShadow - currentShadow));
+	}
+	float effectiveHistoryWeight = historyWeight * (1.0 - reactiveMask);
+	float temporalDebug = debugMode == 13 ? clampAmount : debugMode == 14 ? currentShadow : reactiveMask;
+	return float4(lerp(current, validatedHistory, effectiveHistoryWeight), temporalDebug);
 }
 
 float MotionDilationScore(float4 motion)
@@ -178,53 +294,83 @@ float MotionDilationScore(float4 motion)
 	return saturate(motion.z);
 }
 
-void ConsiderDilatedMotion(float2 uv, float2 offset, inout float4 bestMotion, inout float bestScore)
+void AccumulateDilatedMotion(float2 uv, float2 offset, float distanceWeight, inout float2 motionSum, inout float confidenceSum, inout float weightSum, inout float bestNeighborScore)
 {
 	float4 candidate = tex2D(_MainTex, uv + offset);
 	float candidateScore = MotionDilationScore(candidate);
-	if (candidateScore <= bestScore)
+	if (candidateScore <= 0.05)
 	{
 		return;
 	}
 
-	bestMotion = float4(candidate.xy, saturate(candidate.z), candidate.w);
-	bestScore = candidateScore;
+	float weight = candidateScore * distanceWeight;
+	motionSum += candidate.xy * weight;
+	confidenceSum += saturate(candidate.z) * distanceWeight;
+	weightSum += weight;
+	bestNeighborScore = max(bestNeighborScore, candidateScore);
 }
 
 float4 fragCausticMotionDilate(v2f i) : SV_Target
 {
-	float4 bestMotion = tex2D(_MainTex, i.uv);
-	float bestScore = MotionDilationScore(bestMotion);
-	if (bestScore <= 0.0)
+	float4 currentMotion = tex2D(_MainTex, i.uv);
+	float currentScore = MotionDilationScore(currentMotion);
+	if (currentScore >= 0.35)
 	{
-		bestMotion = 0.0;
+		return currentMotion;
 	}
 
 	float radius = max(causticMotionDilationRadius, 0.0);
 	if (radius <= 0.001)
 	{
-		return bestMotion;
+		return currentMotion;
 	}
 
+	float2 motionSum = currentMotion.xy * currentScore;
+	float confidenceSum = saturate(currentMotion.z);
+	float weightSum = currentScore;
+	float bestNeighborScore = 0.0;
 	float2 texelOffset = _MainTex_TexelSize.xy * radius;
-	ConsiderDilatedMotion(i.uv, texelOffset * float2(1, 0), bestMotion, bestScore);
-	ConsiderDilatedMotion(i.uv, texelOffset * float2(-1, 0), bestMotion, bestScore);
-	ConsiderDilatedMotion(i.uv, texelOffset * float2(0, 1), bestMotion, bestScore);
-	ConsiderDilatedMotion(i.uv, texelOffset * float2(0, -1), bestMotion, bestScore);
-	ConsiderDilatedMotion(i.uv, texelOffset * float2(1, 1), bestMotion, bestScore);
-	ConsiderDilatedMotion(i.uv, texelOffset * float2(-1, 1), bestMotion, bestScore);
-	ConsiderDilatedMotion(i.uv, texelOffset * float2(1, -1), bestMotion, bestScore);
-	ConsiderDilatedMotion(i.uv, texelOffset * float2(-1, -1), bestMotion, bestScore);
-	ConsiderDilatedMotion(i.uv, texelOffset * float2(0.5, 0), bestMotion, bestScore);
-	ConsiderDilatedMotion(i.uv, texelOffset * float2(-0.5, 0), bestMotion, bestScore);
-	ConsiderDilatedMotion(i.uv, texelOffset * float2(0, 0.5), bestMotion, bestScore);
-	ConsiderDilatedMotion(i.uv, texelOffset * float2(0, -0.5), bestMotion, bestScore);
-	ConsiderDilatedMotion(i.uv, texelOffset * float2(0.5, 0.5), bestMotion, bestScore);
-	ConsiderDilatedMotion(i.uv, texelOffset * float2(-0.5, 0.5), bestMotion, bestScore);
-	ConsiderDilatedMotion(i.uv, texelOffset * float2(0.5, -0.5), bestMotion, bestScore);
-	ConsiderDilatedMotion(i.uv, texelOffset * float2(-0.5, -0.5), bestMotion, bestScore);
+	AccumulateDilatedMotion(i.uv, texelOffset * float2(1, 0), 1.0, motionSum, confidenceSum, weightSum, bestNeighborScore);
+	AccumulateDilatedMotion(i.uv, texelOffset * float2(-1, 0), 1.0, motionSum, confidenceSum, weightSum, bestNeighborScore);
+	AccumulateDilatedMotion(i.uv, texelOffset * float2(0, 1), 1.0, motionSum, confidenceSum, weightSum, bestNeighborScore);
+	AccumulateDilatedMotion(i.uv, texelOffset * float2(0, -1), 1.0, motionSum, confidenceSum, weightSum, bestNeighborScore);
+	AccumulateDilatedMotion(i.uv, texelOffset * float2(1, 1), 0.7, motionSum, confidenceSum, weightSum, bestNeighborScore);
+	AccumulateDilatedMotion(i.uv, texelOffset * float2(-1, 1), 0.7, motionSum, confidenceSum, weightSum, bestNeighborScore);
+	AccumulateDilatedMotion(i.uv, texelOffset * float2(1, -1), 0.7, motionSum, confidenceSum, weightSum, bestNeighborScore);
+	AccumulateDilatedMotion(i.uv, texelOffset * float2(-1, -1), 0.7, motionSum, confidenceSum, weightSum, bestNeighborScore);
+	AccumulateDilatedMotion(i.uv, texelOffset * float2(0.5, 0), 1.3, motionSum, confidenceSum, weightSum, bestNeighborScore);
+	AccumulateDilatedMotion(i.uv, texelOffset * float2(-0.5, 0), 1.3, motionSum, confidenceSum, weightSum, bestNeighborScore);
+	AccumulateDilatedMotion(i.uv, texelOffset * float2(0, 0.5), 1.3, motionSum, confidenceSum, weightSum, bestNeighborScore);
+	AccumulateDilatedMotion(i.uv, texelOffset * float2(0, -0.5), 1.3, motionSum, confidenceSum, weightSum, bestNeighborScore);
+	AccumulateDilatedMotion(i.uv, texelOffset * float2(0.5, 0.5), 1.0, motionSum, confidenceSum, weightSum, bestNeighborScore);
+	AccumulateDilatedMotion(i.uv, texelOffset * float2(-0.5, 0.5), 1.0, motionSum, confidenceSum, weightSum, bestNeighborScore);
+	AccumulateDilatedMotion(i.uv, texelOffset * float2(0.5, -0.5), 1.0, motionSum, confidenceSum, weightSum, bestNeighborScore);
+	AccumulateDilatedMotion(i.uv, texelOffset * float2(-0.5, -0.5), 1.0, motionSum, confidenceSum, weightSum, bestNeighborScore);
 
-	return bestMotion;
+	if (bestNeighborScore <= currentScore || weightSum <= 0.0001)
+	{
+		return currentMotion;
+	}
+
+	float2 filledMotion = motionSum / weightSum;
+	float filledConfidence = saturate(confidenceSum / max(weightSum, 0.0001));
+	float holeFill = saturate((0.35 - currentScore) / 0.35);
+	float4 filled = float4(filledMotion, max(currentMotion.z, filledConfidence), 1.0);
+	return lerp(currentMotion, filled, holeFill);
+}
+
+float4 fragReprojectHistory(v2f i) : SV_Target
+{
+	float2 worldPos = causticCurrentWorldCenter + (i.uv - 0.5) * max(causticCurrentWorldSize, float2(0.0001, 0.0001));
+	float2 historyUv = (worldPos - causticHistoryWorldCenter) / max(causticHistoryWorldSize, float2(0.0001, 0.0001)) + 0.5;
+	float inBounds = step(0.0, historyUv.x) * step(historyUv.x, 1.0) * step(0.0, historyUv.y) * step(historyUv.y, 1.0);
+	return inBounds > 0.0 ? tex2D(_MainTex, historyUv) : 0.0;
+}
+
+float4 fragCopyWithValidAlpha(v2f i) : SV_Target
+{
+	float4 sample = tex2D(_MainTex, i.uv);
+	return float4(sample.rgb, 1.0);
 }
 		ENDCG
 
@@ -241,6 +387,22 @@ float4 fragCausticMotionDilate(v2f i) : SV_Target
 			CGPROGRAM
 			#pragma vertex vert
 			#pragma fragment fragCausticMotionDilate
+			ENDCG
+		}
+
+		Pass {
+			Blend One Zero
+			CGPROGRAM
+			#pragma vertex vert
+			#pragma fragment fragReprojectHistory
+			ENDCG
+		}
+
+		Pass {
+			Blend One Zero
+			CGPROGRAM
+			#pragma vertex vert
+			#pragma fragment fragCopyWithValidAlpha
 			ENDCG
 		}
 	}

@@ -2,7 +2,6 @@ using System;
 using Seb.Helpers;
 using UnityEngine;
 using UnityEngine.Rendering;
-using UnityEngine.Rendering.RenderGraphModule;
 
 namespace Seb.Fluid2D.Rendering
 {
@@ -11,36 +10,6 @@ namespace Seb.Fluid2D.Rendering
 		public void ClearCausticHistory()
 		{
 			TemporalCaustics.ClearHistory();
-		}
-		
-		public void BindCausticAccumulationTextures(CommandBuffer targetCommandBuffer, ComputeShader compute, int kernel)
-		{
-			targetCommandBuffer.SetComputeBufferParam(compute, kernel, "CausticAccum", causticAccumulationBuffer);
-		}
-
-		public void BindCausticAccumulationTextures(IComputeCommandBuffer targetCommandBuffer, ComputeShader compute, int kernel)
-		{
-			targetCommandBuffer.SetComputeBufferParam(compute, kernel, "CausticAccum", causticAccumulationBuffer);
-		}
-
-		public void BindCausticMotionTextures(CommandBuffer targetCommandBuffer, ComputeShader compute, int kernel)
-		{
-			targetCommandBuffer.SetComputeBufferParam(compute, kernel, "CausticMotionAccum", causticMotionAccumulationBuffer);
-		}
-
-		public void BindCausticMotionTextures(IComputeCommandBuffer targetCommandBuffer, ComputeShader compute, int kernel)
-		{
-			targetCommandBuffer.SetComputeBufferParam(compute, kernel, "CausticMotionAccum", causticMotionAccumulationBuffer);
-		}
-
-		public void BindLightDirectionTextures(CommandBuffer targetCommandBuffer, ComputeShader compute, int kernel, bool renderDirectionalLightField)
-		{
-			targetCommandBuffer.SetComputeBufferParam(compute, kernel, "LightDirectionAccum", renderDirectionalLightField ? lightDirectionAccumulationBuffer : lightDirectionAccumulationFallbackBuffer);
-		}
-
-		public void BindLightDirectionTextures(IComputeCommandBuffer targetCommandBuffer, ComputeShader compute, int kernel, bool renderDirectionalLightField)
-		{
-			targetCommandBuffer.SetComputeBufferParam(compute, kernel, "LightDirectionAccum", renderDirectionalLightField ? lightDirectionAccumulationBuffer : lightDirectionAccumulationFallbackBuffer);
 		}
 		
 		internal float GetRayTextureBlurScale(ParticleDisplay2D.MetaballSettings surface)
@@ -195,6 +164,7 @@ namespace Seb.Fluid2D.Rendering
 			temporalMaterial.SetFloat("phase0RenderBias", settings.phase0RenderBias);
 			temporalMaterial.SetInt("debugMode", MetaballRenderer2D.GetDebugShaderMode(display, this));
 			temporalMaterial.SetFloat("motionDebugDeltaTime", display.sim.CurrentSimulationDeltaTime);
+			temporalMaterial.SetFloat("causticTemporalMotionVelocityThreshold", motionVelocityThreshold);
 			temporalMaterial.SetFloat("causticTemporalHistoryWeight", display.sim.IsPaused ? 0.99f : temporalHistoryWeight);
 			temporalMaterial.SetFloat("causticTemporalHistoryClampStrength", temporalHistoryClampStrength);
 			temporalMaterial.SetFloat("causticTemporalClampRejection", temporalClampRejection);
@@ -410,10 +380,14 @@ namespace Seb.Fluid2D.Rendering
 				lightDirectionBlurMaterial = null;
 			}
 			
-			ComputeHelper.Release(causticAccumulationBuffer, causticMotionAccumulationBuffer);
+			ComputeHelper.Release(causticAccumulationBuffer, causticMotionAccumulationBuffer, reactiveShadowMapBuffer);
 			causticAccumulationBuffer = null;
 			causticMotionAccumulationBuffer = null;
-			ComputeHelper.Release(causticResolvedTexture, causticBlurTexture, causticMotionTexture, causticMotionDilatedTexture, causticMotionDilationScratchTexture, causticHistoryTexture, causticTemporalTexture);
+			reactiveShadowMapBuffer = null;
+			ComputeHelper.Release(causticResolvedTexture, causticBlurTexture, causticMotionTexture, causticMotionDilatedTexture, causticMotionDilationScratchTexture, causticHistoryTexture, causticTemporalTexture, reactiveShadowMapTexture, reactiveShadowMapHistoryTexture);
+			reactiveShadowMapTexture = null;
+			reactiveShadowMapHistoryTexture = null;
+			previousReactiveShadowDirection = Vector2.zero;
 			ReleaseOptionalCausticFallbackTextures();
 			ReleaseLightDirectionTextures();
 			ReleasePhaseDiffuseLightTextures();
@@ -421,9 +395,10 @@ namespace Seb.Fluid2D.Rendering
 		
 		void ReleasePhaseDiffuseLightTextures()
 		{
-			ComputeHelper.Release(softLightTexture0, softLightTexture1);
+			ComputeHelper.Release(softLightTexture0, softLightTexture1, softLightTexture2);
 			softLightTexture0 = null;
 			softLightTexture1 = null;
+			softLightTexture2 = null;
 		}
 
 		void ReleaseLightDirectionTextures()
