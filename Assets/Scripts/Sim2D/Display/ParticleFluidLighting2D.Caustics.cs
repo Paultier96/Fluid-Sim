@@ -45,7 +45,13 @@ namespace Seb.Fluid2D.Rendering
 
 		public Texture GetSharpCausticsTexture()
 		{
-			return denoisingEnabled ? (Texture)causticTemporalTexture : causticResolvedTexture;
+			if (!ShouldRenderCaustics())
+			{
+				return Texture2D.blackTexture;
+			}
+
+			Texture texture = denoisingEnabled ? (Texture)causticTemporalTexture : causticResolvedTexture;
+			return texture != null ? texture : Texture2D.blackTexture;
 		}
 
 		internal void GetCausticPointRaySpan(FrameContext context, DirectionalLightSettings light, out float angleStart, out float angleRange)
@@ -347,15 +353,15 @@ namespace Seb.Fluid2D.Rendering
 				lightingMaterial = null;
 			}
 
-			if (colorBleedMaterial != null)
-			{
-				DestroyImmediate(colorBleedMaterial);
-				colorBleedMaterial = null;
-			}
 			if (radianceCascadeMaterial != null)
 			{
 				DestroyImmediate(radianceCascadeMaterial);
 				radianceCascadeMaterial = null;
+			}
+			if (radianceCascadeSdfMaterial != null)
+			{
+				DestroyImmediate(radianceCascadeSdfMaterial);
+				radianceCascadeSdfMaterial = null;
 			}
 			if (temporalMaterial != null)
 			{
@@ -395,10 +401,15 @@ namespace Seb.Fluid2D.Rendering
 		
 		void ReleasePhaseDiffuseLightTextures()
 		{
-			ComputeHelper.Release(softLightTexture0, softLightTexture1, softLightTexture2);
+			ComputeHelper.Release(softLightTexture0, softLightTexture1, radianceCascadeSdfSeedA, radianceCascadeSdfSeedB, radianceCascadeSdfPayloadA, radianceCascadeSdfPayloadB, radianceCascadeSdfNormalA, radianceCascadeSdfNormalB);
 			softLightTexture0 = null;
 			softLightTexture1 = null;
-			softLightTexture2 = null;
+			radianceCascadeSdfSeedA = null;
+			radianceCascadeSdfSeedB = null;
+			radianceCascadeSdfPayloadA = null;
+			radianceCascadeSdfPayloadB = null;
+			radianceCascadeSdfNormalA = null;
+			radianceCascadeSdfNormalB = null;
 		}
 
 		void ReleaseLightDirectionTextures()

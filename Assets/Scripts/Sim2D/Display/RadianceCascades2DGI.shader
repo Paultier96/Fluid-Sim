@@ -16,6 +16,7 @@ Shader "Hidden/Particle2DMetaballRadianceCascades"
 			CGPROGRAM
 			#pragma vertex vert
 			#pragma fragment frag
+			#pragma target 3.0
 
 			#include "UnityCG.cginc"
 
@@ -37,6 +38,7 @@ Shader "Hidden/Particle2DMetaballRadianceCascades"
 			sampler2D _UpperCascadeTex;
 			sampler2D _CausticTex;
 			sampler2D CombinedTex;
+			sampler2D _ResultTex;
 			sampler2D ColourMap;
 			sampler2D ColourMap2;
 			float _RayRange;
@@ -48,9 +50,13 @@ Shader "Hidden/Particle2DMetaballRadianceCascades"
 			float _BlobEmissionStrength;
 			int _DirectionalLightEnabled;
 			float _DirectionalLightStrength;
+			float _DirectionalLightCascadeStart;
+			int _DirectionalLightSdfVisibility;
+			float _SdfBoundaryThicknessPixels;
 			float3 _DirectionalLightDirection;
 			float3 _DirectionalLightColor;
 			float _DirectionalLightIntensity;
+			int _UseSdfSkipping;
 			int radianceCascadeAbsorption;
 
 			float densityThreshold;
@@ -111,6 +117,31 @@ Shader "Hidden/Particle2DMetaballRadianceCascades"
 				return uvLengthSq > 0.0000001 ? uvDirection / sqrt(uvLengthSq) : float2(0.0, 0.0);
 			}
 
+			float DistanceToUvBounds(float2 rayOrigin, float2 rayDirection)
+			{
+				float tx = 1e20;
+				float ty = 1e20;
+				if (rayDirection.x > 0.000001)
+				{
+					tx = (1.0 - rayOrigin.x) / rayDirection.x;
+				}
+				else if (rayDirection.x < -0.000001)
+				{
+					tx = -rayOrigin.x / rayDirection.x;
+				}
+
+				if (rayDirection.y > 0.000001)
+				{
+					ty = (1.0 - rayOrigin.y) / rayDirection.y;
+				}
+				else if (rayDirection.y < -0.000001)
+				{
+					ty = -rayOrigin.y / rayDirection.y;
+				}
+
+				return max(min(tx, ty), 0.0);
+			}
+
 			float2 BoundaryDistances(float2 worldPos)
 			{
 				float2 radii = max(abs(ellipseBoundsSize), 0.0001);
@@ -151,12 +182,12 @@ Shader "Hidden/Particle2DMetaballRadianceCascades"
 				if (phase == 0)
 				{
 					float data = combined.r / max(combined.g, 0.0001);
-					colour = tex2D(ColourMap, float2(saturate(data), 0.5)).rgb;
+					colour = tex2Dlod(ColourMap, float4(saturate(data), 0.5, 0.0, 0.0)).rgb;
 				}
 				else if (phase == 1)
 				{
 					float data = combined.b / max(combined.a, 0.0001);
-					colour = tex2D(ColourMap2, float2(saturate(data), 0.5)).rgb;
+					colour = tex2Dlod(ColourMap2, float4(saturate(data), 0.5, 0.0, 0.0)).rgb;
 				}
 
 				float maxChannel = max(max(colour.r, colour.g), colour.b);
@@ -223,7 +254,7 @@ Shader "Hidden/Particle2DMetaballRadianceCascades"
 
 			float Phase0Mask(float2 uv)
 			{
-				return Phase0MaskFromCombined(uv, tex2D(CombinedTex, SourceUvFromLocalUv(uv)));
+				return Phase0MaskFromCombined(uv, tex2Dlod(CombinedTex, float4(SourceUvFromLocalUv(uv), 0.0, 0.0)));
 			}
 
 			float Phase1MaskFromCombined(float2 uv, float4 combined)
@@ -243,14 +274,28 @@ Shader "Hidden/Particle2DMetaballRadianceCascades"
 				return mask * phaseT;
 			}
 
-			float3 SampleCausticSource(float2 uv, float phase0Mask)
+			float3 SampleCausticSource(float2 uv, float phase0Mask, float phase1Mask)
 			{
-				return tex2D(_CausticTex, uv).rgb * phase0Mask * max(scatterStrengthA, 0.0) * max(lightIntensity, 0.0) * max(_BlobEmissionStrength, 0.0);
+				float scatterStrength = phase0Mask * max(scatterStrengthA, 0.0) + phase1Mask * max(scatterStrengthB, 0.0);
+				return tex2Dlod(_CausticTex, float4(uv, 0.0, 0.0)).rgb * scatterStrength * max(lightIntensity, 0.0) * max(_BlobEmissionStrength, 0.0);
+			}
+
+			int DirectionalLightCascadeLevel()
+			{
+				return (int)round(saturate(_DirectionalLightCascadeStart) * max(_CascadeCount - 1, 0));
+			}
+
+			bool ShouldInjectDirectionalLight()
+			{
+				return _DirectionalLightEnabled != 0
+					&& _DirectionalLightStrength > 0.000001
+					&& _DirectionalLightIntensity > 0.000001
+					&& _CascadeLevel == DirectionalLightCascadeLevel();
 			}
 
 			float3 SampleDirectionalLightSource(float2 rayDirection)
 			{
-				if (_DirectionalLightEnabled == 0 || _DirectionalLightStrength <= 0.000001 || _DirectionalLightIntensity <= 0.000001)
+				if (!ShouldInjectDirectionalLight())
 				{
 					return 0.0;
 				}
@@ -259,40 +304,123 @@ Shader "Hidden/Particle2DMetaballRadianceCascades"
 				float2 lightDirection = _DirectionalLightDirection.xy;
 				float lightDirectionLengthSq = dot(lightDirection, lightDirection);
 				lightDirection = lightDirectionLengthSq > 0.0000001 ? lightDirection / sqrt(lightDirectionLengthSq) : float2(0.0, -1.0);
-				float alignment = saturate(dot(worldRayDirection, lightDirection));
-				float lobe = pow(alignment, 16.0);
-				return _DirectionalLightColor * (_DirectionalLightIntensity * _DirectionalLightStrength * lobe);
+				float angularStep = TAU / max(4.0 * pow(2.0, (float)_CascadeLevel * 2.0), 1.0);
+				float halfStep = angularStep * 0.5;
+
+				float sinStep;
+				float cosStep;
+				sincos(halfStep, sinStep, cosStep);
+				float2 rayDirectionMinus = float2(
+					worldRayDirection.x * cosStep + worldRayDirection.y * sinStep,
+					-worldRayDirection.x * sinStep + worldRayDirection.y * cosStep
+				);
+				float2 rayDirectionPlus = float2(
+					worldRayDirection.x * cosStep - worldRayDirection.y * sinStep,
+					worldRayDirection.x * sinStep + worldRayDirection.y * cosStep
+				);
+
+				float alignmentCenter = saturate(dot(worldRayDirection, lightDirection));
+				float alignmentMinus = saturate(dot(rayDirectionMinus, lightDirection));
+				float alignmentPlus = saturate(dot(rayDirectionPlus, lightDirection));
+				float lobeCenter = pow(alignmentCenter, 16.0);
+				float lobeMinus = pow(alignmentMinus, 16.0);
+				float lobePlus = pow(alignmentPlus, 16.0);
+				float directionalRadiance = (lobeCenter * 0.5) + (lobeMinus * 0.25) + (lobePlus * 0.25);
+				return _DirectionalLightColor * (_DirectionalLightIntensity * _DirectionalLightStrength * directionalRadiance);
 			}
 
-			float3 ApplyDirectionalLightContinuation(float2 rayOrigin, float2 rayDirection, float startDistance, float stepLength, float stepWorldDistance, float3 transmittance, float visibility)
+			float SdfHitThresholdWorld()
 			{
-				if (visibility <= 0.0 || _DirectionalLightEnabled == 0)
+				float2 worldTexel = max(metaballWorldSize / max(_CascadeResolution, float2(1.0, 1.0)), float2(0.0001, 0.0001));
+				return max(max(worldTexel.x, worldTexel.y) * max(_SdfBoundaryThicknessPixels, 0.0), 0.0005);
+			}
+
+			bool HasSdfBoundaryHit(float2 rayOrigin, float2 rayDirection, float startT, float endT)
+			{
+				if (_UseSdfSkipping == 0)
+				{
+					return false;
+				}
+
+				float worldStepScale = max(length(rayDirection * max(metaballWorldSize, float2(0.0001, 0.0001))), 0.0001);
+				float hitThresholdWorld = SdfHitThresholdWorld();
+				float t = startT;
+				[loop]
+				for (int i = 0; i < 128; i++)
+				{
+					if (t >= endT)
+					{
+						break;
+					}
+
+					float2 currentPosition = rayOrigin + t * rayDirection;
+					if (currentPosition.x < 0.0 || currentPosition.y < 0.0 || currentPosition.x > 1.0 || currentPosition.y > 1.0)
+					{
+						break;
+					}
+
+					float4 sdfSample = tex2Dlod(_ResultTex, float4(currentPosition, 0.0, 0.0));
+					if (sdfSample.w < 0.0)
+					{
+						break;
+					}
+
+					float distanceToBoundary = abs(sdfSample.r);
+					if (distanceToBoundary <= hitThresholdWorld)
+					{
+						return true;
+					}
+
+					t += max(distanceToBoundary, hitThresholdWorld) / worldStepScale;
+				}
+
+				return false;
+			}
+
+			float3 TraceVisibleDirectionalLight(float2 rayOrigin, float2 rayDirection)
+			{
+				if (!ShouldInjectDirectionalLight())
 				{
 					return 0.0;
 				}
 
-				float continuationStepLength = max(stepLength * 2.0, 0.0005);
-				float continuationWorldDistance = max(stepWorldDistance * 2.0, 0.0005);
-				float t = startDistance;
-				for (int i = 0; i < 64; i++)
+				float endT = DistanceToUvBounds(rayOrigin, rayDirection);
+				if (_DirectionalLightSdfVisibility != 0 && _UseSdfSkipping != 0 && HasSdfBoundaryHit(rayOrigin, rayDirection, 0.0, endT))
 				{
-					t += continuationStepLength;
-					float2 currentPosition = rayOrigin + t * rayDirection;
-					if (currentPosition.x < 0.0 || currentPosition.y < 0.0 || currentPosition.x > 1.0 || currentPosition.y > 1.0)
+					return 0.0;
+				}
+
+				float3 transmittance = 1.0;
+				int steps = min(max(_RaySteps * max(_CascadeCount, 1), 16), 128);
+				float stepLength = endT / max((float)steps, 1.0);
+				if (stepLength <= 0.000001)
+				{
+					return SampleDirectionalLightSource(rayDirection);
+				}
+
+				[loop]
+				for (int i = 0; i < 128; i++)
+				{
+					if (i >= steps)
 					{
-						return SampleDirectionalLightSource(rayDirection) * transmittance;
+						break;
 					}
 
-					float4 combined = tex2D(CombinedTex, SourceUvFromLocalUv(currentPosition));
+					float sampleDistance = (i + 0.5) * stepLength;
+					float2 currentPosition = rayOrigin + sampleDistance * rayDirection;
+					if (currentPosition.x < 0.0 || currentPosition.y < 0.0 || currentPosition.x > 1.0 || currentPosition.y > 1.0)
+					{
+						break;
+					}
+
+					float4 combined = tex2Dlod(CombinedTex, float4(SourceUvFromLocalUv(currentPosition), 0.0, 0.0));
 					float phase0Mask = Phase0MaskFromCombined(currentPosition, combined);
 					float phase1Mask = Phase1MaskFromCombined(currentPosition, combined);
-					if (phase0Mask <= 0.0001 && phase1Mask <= 0.0001)
-					{
-						return SampleDirectionalLightSource(rayDirection) * transmittance;
-					}
+					float outsideMask = phase0Mask <= 0.0001 && phase1Mask <= 0.0001 ? 1.0 : 0.0;
 
 					if (radianceCascadeAbsorption != 0)
 					{
+						float stepWorldDistance = length(rayDirection * stepLength * metaballWorldSize);
 						float3 spectralAbsorption = 0.0;
 						if (phase0Mask > 0.0001)
 						{
@@ -302,11 +430,41 @@ Shader "Hidden/Particle2DMetaballRadianceCascades"
 						{
 							spectralAbsorption += SpectralAbsorptionFromCombined(combined, 1) * phase1Mask;
 						}
-						transmittance *= exp(-spectralAbsorption * continuationWorldDistance);
+						if (outsideMask > 0.5)
+						{
+							spectralAbsorption += SpectralAbsorptionFromCombined(combined, 1);
+						}
+						transmittance *= exp(-spectralAbsorption * stepWorldDistance);
 					}
 				}
 
-				return 0.0;
+				return SampleDirectionalLightSource(rayDirection) * transmittance;
+			}
+
+			float SdfAcceleratedStepLength(float2 rayOrigin, float2 rayDirection, float t, float baseStepLength, float remainingDistance)
+			{
+				if (_UseSdfSkipping == 0)
+				{
+					return baseStepLength;
+				}
+
+				float2 probePosition = rayOrigin + (t + baseStepLength * 0.5) * rayDirection;
+				if (probePosition.x < 0.0 || probePosition.y < 0.0 || probePosition.x > 1.0 || probePosition.y > 1.0)
+				{
+					return baseStepLength;
+				}
+
+				float4 sdfSample = tex2Dlod(_ResultTex, float4(probePosition, 0.0, 0.0));
+				if (sdfSample.w < 0.0 || sdfSample.r <= 0.0)
+				{
+					return baseStepLength;
+				}
+
+				float worldStepScale = max(length(rayDirection * max(metaballWorldSize, float2(0.0001, 0.0001))), 0.0001);
+				float2 worldTexel = max(metaballWorldSize / max(_CascadeResolution, float2(1.0, 1.0)), float2(0.0001, 0.0001));
+				float boundarySafetyWorld = max(max(worldTexel.x, worldTexel.y) * 2.0, 0.0005);
+				float skipDistance = max(sdfSample.r - boundarySafetyWorld, 0.0) / worldStepScale;
+				return min(max(baseStepLength, skipDistance), remainingDistance);
 			}
 
 			float4 SampleRadianceField(float2 rayOrigin, float2 rayDirection, float2 rayRange)
@@ -314,47 +472,38 @@ Shader "Hidden/Particle2DMetaballRadianceCascades"
 				int steps = max(_RaySteps, 1);
 				float segmentLength = max(rayRange.y - rayRange.x, 0.0);
 				float stepLength = segmentLength / steps;
-				float stepWorldDistance = length(rayDirection * stepLength * metaballWorldSize);
-				float3 radiance = 0.0;
+				float3 radiance = TraceVisibleDirectionalLight(rayOrigin, rayDirection);
 				float3 transmittance = 1.0;
 				float visibility = 1.0;
-				float4 originCombined = tex2D(CombinedTex, SourceUvFromLocalUv(rayOrigin));
-				float originPhase0Mask = Phase0MaskFromCombined(rayOrigin, originCombined);
-				float originPhase1Mask = Phase1MaskFromCombined(rayOrigin, originCombined);
-				if (originPhase0Mask <= 0.0001 && originPhase1Mask <= 0.0001)
-				{
-					return 0.0;
-				}
+				float t = rayRange.x;
 
+				[loop]
 				for (int i = 0; i < 64; i++)
 				{
-					if (i >= steps)
+					if (i >= steps || t >= rayRange.y)
 					{
 						break;
 					}
 
-					float t = rayRange.x + (i + 0.5) * stepLength;
-					float2 currentPosition = rayOrigin + t * rayDirection;
+					float remainingDistance = rayRange.y - t;
+					float advanceLength = SdfAcceleratedStepLength(rayOrigin, rayDirection, t, min(stepLength, remainingDistance), remainingDistance);
+					float sampleDistance = t + advanceLength * 0.5;
+					float2 currentPosition = rayOrigin + sampleDistance * rayDirection;
 					if (currentPosition.x < 0.0 || currentPosition.y < 0.0 || currentPosition.x > 1.0 || currentPosition.y > 1.0)
 					{
-						radiance += SampleDirectionalLightSource(rayDirection) * transmittance;
 						visibility = 0.0;
 						break;
 					}
 
-					float4 combined = tex2D(CombinedTex, SourceUvFromLocalUv(currentPosition));
+					float4 combined = tex2Dlod(CombinedTex, float4(SourceUvFromLocalUv(currentPosition), 0.0, 0.0));
 					float phase0Mask = Phase0MaskFromCombined(currentPosition, combined);
 					float phase1Mask = Phase1MaskFromCombined(currentPosition, combined);
-					if (phase0Mask <= 0.0001 && phase1Mask <= 0.0001)
-					{
-						radiance += SampleDirectionalLightSource(rayDirection) * transmittance;
-						visibility = 0.0;
-						break;
-					}
+					float outsideMask = phase0Mask <= 0.0001 && phase1Mask <= 0.0001 ? 1.0 : 0.0;
+					float advanceWorldDistance = length(rayDirection * advanceLength * metaballWorldSize);
 
-					if (phase0Mask > 0.0001)
+					if (phase0Mask > 0.0001 || phase1Mask > 0.0001)
 					{
-						radiance += SampleCausticSource(currentPosition, phase0Mask) * transmittance * stepLength;
+						radiance += SampleCausticSource(currentPosition, phase0Mask, phase1Mask) * transmittance * advanceLength;
 					}
 
 					if (radianceCascadeAbsorption != 0)
@@ -368,13 +517,28 @@ Shader "Hidden/Particle2DMetaballRadianceCascades"
 						{
 							spectralAbsorption += SpectralAbsorptionFromCombined(combined, 1) * phase1Mask;
 						}
-						transmittance *= exp(-spectralAbsorption * stepWorldDistance);
+						if (outsideMask > 0.5)
+						{
+							spectralAbsorption += SpectralAbsorptionFromCombined(combined, 1);
+						}
+						transmittance *= exp(-spectralAbsorption * advanceWorldDistance);
 					}
+
+					t += advanceLength;
 				}
 
-				radiance += ApplyDirectionalLightContinuation(rayOrigin, rayDirection, rayRange.y, stepLength, stepWorldDistance, transmittance, visibility);
-
 				return float4(radiance * max(_RadianceIntensity, 0.0), visibility);
+			}
+
+			float RayBoxExitDistance(float2 origin, float2 dir)
+			{
+			    float2 invDir = 1.0 / max(abs(dir), 1e-6) * sign(dir);
+
+			    float2 t0 = (float2(0.0, 0.0) - origin) * invDir;
+			    float2 t1 = (float2(1.0, 1.0) - origin) * invDir;
+
+			    float2 tMax = max(t0, t1);
+			    return min(tMax.x, tMax.y);
 			}
 
 			float4 frag(v2f input) : SV_Target

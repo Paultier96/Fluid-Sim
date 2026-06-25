@@ -30,14 +30,8 @@ sampler2D ColourMap2;
 sampler2D DebugHeatMap;
 sampler2D DebugSignedHeatMap;
 sampler2D _MainTex;
-sampler2D CausticTex;
-sampler2D CausticMotionTex;
-sampler2D CausticReactiveShadowMapTex;
-sampler2D CausticReactiveShadowHistoryTex;
-sampler2D LightDirectionTex;
-sampler2D SoftLightTex;
-sampler2D SoftLightTexPhase1;
-sampler2D CausticHistoryTex;
+sampler2D DebugTex0;
+sampler2D DebugTex1;
 float4 _MainTex_TexelSize;
 int particleCausticRegionEnabled;
 int particleCausticTemporalDebugEnabled;
@@ -66,20 +60,14 @@ int metaballDirectionalLightFieldEnabled;
 int metaballPhaseDiffuseLightEnabled;
 float4 metaballPhase0DiffuseLightTint;
 float4 metaballPhase1DiffuseLightTint;
-float metaballPhase0DiffuseAlbedoTintBlend;
-float metaballPhase1DiffuseAlbedoTintBlend;
+float metaballPhase0DiffuseAdditiveBlend;
+float metaballPhase1DiffuseAdditiveBlend;
 float metaballRadianceCascadePhase0Visibility;
 float metaballRadianceCascadePhase1Visibility;
 float causticTemporalHistoryWeight;
 int causticTemporalMotionSource;
 float2 causticCurrentWorldCenter;
 float2 causticCurrentWorldSize;
-float2 causticHistoryWorldCenter;
-float2 causticHistoryWorldSize;
-float2 causticReactiveShadowDirection;
-float2 causticReactiveShadowHistoryDirection;
-float causticReactiveShadowOffset;
-float causticReactiveShadowExpansion;
 float particleCausticDebugExposure;
 float particleNormalStrength;
 v2f vert(appdata v)
@@ -306,53 +294,6 @@ float3 GetBlendedPhaseNormal(float4 normalPacked, float density0, float density1
 	return normalize(lerp(normal0, normal1, phaseT));
 }
 
-float ProjectedShadowHalfForward(float2 direction, float2 regionSize)
-{
-	float2 forward = length(direction) > 0.0001 ? normalize(direction) : float2(0.0, -1.0);
-	return max(0.5 * (abs(forward.x) * regionSize.x + abs(forward.y) * regionSize.y), 0.0001);
-}
-
-float4 SampleProjectedShadowDebug(float2 worldPos, float2 regionCenter, float2 regionSize, float2 direction, sampler2D shadowMap)
-{
-	float dirLength = length(direction);
-	if (dirLength <= 0.0001)
-	{
-		return 0.0;
-	}
-
-	float2 forward = direction / dirLength;
-	float2 perp = float2(-forward.y, forward.x);
-	worldPos -= forward * causticReactiveShadowOffset;
-	float halfPerp = max(0.5 * (abs(perp.x) * regionSize.x + abs(perp.y) * regionSize.y), 0.0001);
-	float halfForward = ProjectedShadowHalfForward(direction, regionSize);
-	float2 rel = worldPos - regionCenter;
-	float binT = dot(rel, perp) / halfPerp * 0.5 + 0.5;
-	float depthT = dot(rel, forward) / halfForward * 0.5 + 0.5;
-	float perpExpansionT = max(causticReactiveShadowExpansion, 0.0) / halfPerp * 0.5;
-	float forwardExpansionT = max(causticReactiveShadowExpansion, 0.0) / halfForward * 0.5;
-	float4 bestSample = 0.0;
-	float bestDepth = 2.0;
-	float hasSample = 0.0;
-	float binOffsets[5] = { -1.0, -0.5, 0.0, 0.5, 1.0 };
-
-	[unroll]
-	for (int tap = 0; tap < 5; tap++)
-	{
-		float tapBinT = binT + binOffsets[tap] * perpExpansionT;
-		float tapInRange = step(0.0, tapBinT) * step(tapBinT, 1.0) * step(0.0, depthT) * step(depthT, 1.0);
-		float4 tapSample = tex2D(shadowMap, float2(tapBinT, 0.5));
-		float tapOccupied = tapInRange * tapSample.y * step(tapSample.x + 0.01 - forwardExpansionT, depthT);
-		if (tapOccupied > 0.0 && tapSample.x < bestDepth)
-		{
-			bestDepth = tapSample.x;
-			bestSample = float4(tapSample.x, tapSample.y, depthT, tapInRange);
-			hasSample = 1.0;
-		}
-	}
-
-	return hasSample > 0.0 ? bestSample : float4(0.0, 0.0, depthT, 0.0);
-}
-
 float NormalizedData(float weightedData, float weight, float fallback)
 {
 	return weight > 0.0001 ? weightedData / weight : fallback;
@@ -519,7 +460,7 @@ float4 frag(v2f i) : SV_Target
 	bool insideCausticRegion = particleCausticRegionEnabled == 0 || all(causticUv >= 0.0) && all(causticUv <= 1.0);
 	if (debugMode == 7)
 	{
-		return insideCausticRegion ? float4(tex2D(CausticTex, causticUv).rgb / max(particleCausticDebugExposure, 0.0001), 1.0) : float4(0.0, 0.0, 0.0, 1.0);
+		return insideCausticRegion ? float4(tex2D(DebugTex0, causticUv).rgb / max(particleCausticDebugExposure, 0.0001), 1.0) : float4(0.0, 0.0, 0.0, 1.0);
 	}
 	if (debugMode == 8)
 	{
@@ -535,34 +476,27 @@ float4 frag(v2f i) : SV_Target
 			float noise = InterleavedGradientNoise(i.vertex.xy);
 			float3 diffuseAlbedo0 = SamplePhaseGradientColour(data0, false, noise);
 			float3 diffuseAlbedo1 = SamplePhaseGradientColour(data1, true, noise);
-			float3 diffuseTint0 = lerp(metaballPhase0DiffuseLightTint.rgb, diffuseAlbedo0, saturate(metaballPhase0DiffuseAlbedoTintBlend));
-			float3 diffuseTint1 = lerp(metaballPhase1DiffuseLightTint.rgb, diffuseAlbedo1, saturate(metaballPhase1DiffuseAlbedoTintBlend));
-			float3 packedSoftLight0 = tex2D(SoftLightTex, causticUv).rgb;
-			float3 packedSoftLight1 = tex2D(SoftLightTexPhase1, causticUv).rgb;
-			softLight += packedSoftLight0 * (1.0 - phaseT) * diffuseTint0;
-			softLight += packedSoftLight1 * max(metaballRadianceCascadePhase0Visibility, 0.0) * diffuseTint1 * (1.0 - phaseT);
-			softLight += packedSoftLight1 * max(metaballRadianceCascadePhase1Visibility, 0.0) * diffuseTint1 * phaseT;
+			float4 packedGaussianSoftLight = tex2D(DebugTex0, causticUv);
+			float3 packedSoftLight0 = packedGaussianSoftLight.rgb;
+			float3 packedSoftLight1 = tex2D(DebugTex1, causticUv).rgb;
+			float gaussianPhaseT = saturate(packedGaussianSoftLight.a);
+			float3 radianceCascadeSurfaceColour = lerp(diffuseAlbedo0, diffuseAlbedo1, phaseT);
+			float additiveBlend0 = saturate(metaballPhase0DiffuseAdditiveBlend);
+			float additiveBlend1 = saturate(metaballPhase1DiffuseAdditiveBlend);
+			float3 gaussianDiffuse0 = lerp(diffuseAlbedo0, 1.0, additiveBlend0) * metaballPhase0DiffuseLightTint.rgb;
+			float3 gaussianDiffuse1 = lerp(diffuseAlbedo1, 1.0, additiveBlend1) * metaballPhase1DiffuseLightTint.rgb;
+			float3 radianceDiffuse0 = lerp(radianceCascadeSurfaceColour, 1.0, additiveBlend0);
+			float3 radianceDiffuse1 = lerp(radianceCascadeSurfaceColour, 1.0, additiveBlend1);
+			softLight += packedSoftLight0 * (1.0 - gaussianPhaseT) * gaussianDiffuse0;
+			softLight += packedSoftLight0 * gaussianPhaseT * gaussianDiffuse1;
+			softLight += packedSoftLight1 * radianceDiffuse0 * max(metaballRadianceCascadePhase0Visibility, 0.0) * (1.0 - phaseT);
+			softLight += packedSoftLight1 * radianceDiffuse1 * max(metaballRadianceCascadePhase1Visibility, 0.0) * phaseT;
 		}
 		return float4(softLight, 1.0);
 	}
-	if (debugMode == 16)
+	if (debugMode == 17)
 	{
-		float3 radianceCascade = 0.0;
-		if (insideCausticRegion && metaballPhaseDiffuseLightEnabled != 0)
-		{
-			float4 combined = tex2D(CombinedTex, causticLocalUv);
-			float density0 = Phase0Density(combined);
-			float density1 = combined.a;
-			float phaseT = ShiftedPhaseT(density0, density1);
-			float data1 = combined.b / max(density1, 0.0001);
-			float noise = InterleavedGradientNoise(i.vertex.xy);
-			float3 diffuseAlbedo1 = SamplePhaseGradientColour(data1, true, noise);
-			float3 diffuseTint1 = lerp(metaballPhase1DiffuseLightTint.rgb, diffuseAlbedo1, saturate(metaballPhase1DiffuseAlbedoTintBlend));
-			float3 packedSoftLight1 = tex2D(SoftLightTexPhase1, causticUv).rgb;
-			radianceCascade += packedSoftLight1 * max(metaballRadianceCascadePhase0Visibility, 0.0) * diffuseTint1 * (1.0 - phaseT);
-			radianceCascade += packedSoftLight1 * max(metaballRadianceCascadePhase1Visibility, 0.0) * diffuseTint1 * phaseT;
-		}
-		return float4(radianceCascade, 1.0);
+		return insideCausticRegion ? float4(tex2D(DebugTex0, causticUv).rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
 	}
 	if (debugMode == 9)
 	{
@@ -571,14 +505,14 @@ float4 frag(v2f i) : SV_Target
 			return float4(0.0, 0.0, 0.0, 1.0);
 		}
 
-		float4 directionDebug = insideCausticRegion ? tex2D(LightDirectionTex, causticUv) : 0.0;
+		float4 directionDebug = insideCausticRegion ? tex2D(DebugTex0, causticUv) : 0.0;
 		float validDirection = saturate(directionDebug.z);
 		float3 encodedDirection = float3(directionDebug.xy * 0.5 + 0.5, validDirection);
 		return float4(encodedDirection * validDirection, 1.0);
 	}
 	if (debugMode == 10)
 	{
-		float4 motionDebug = insideCausticRegion ? tex2D(CausticMotionTex, causticUv) : 0.0;
+		float4 motionDebug = insideCausticRegion ? tex2D(DebugTex0, causticUv) : 0.0;
 		float2 debugMotion = motionDebug.xy * max(causticCurrentWorldSize, float2(0.0001, 0.0001));
 		float motionConfidence = saturate(motionDebug.z);
 		float motionScale = max(debugGradientMax, 0.0001);
@@ -598,7 +532,7 @@ float4 frag(v2f i) : SV_Target
 			return float4(0.0, 0.1, 0.35, 1.0);
 		}
 
-		float historyWeight = insideCausticRegion ? saturate(tex2D(CausticTex, causticUv).a) : 0.0;
+		float historyWeight = insideCausticRegion ? saturate(tex2D(DebugTex0, causticUv).a) : 0.0;
 		float3 rejected = float3(1.0, 0.05, 0.0);
 		float3 accepted = float3(0.0, 1.0, 0.15);
 		return float4(lerp(rejected, accepted, historyWeight), 1.0);
@@ -610,7 +544,7 @@ float4 frag(v2f i) : SV_Target
 			return float4(0.0, 0.1, 0.35, 1.0);
 		}
 
-		float clampAmount = insideCausticRegion ? saturate(tex2D(CausticTex, causticUv).a) : 0.0;
+		float clampAmount = insideCausticRegion ? saturate(tex2D(DebugTex0, causticUv).a) : 0.0;
 		float3 unclamped = float3(0.0, 0.0, 0.0);
 		float3 clamped = float3(0.0, 0.35, 1.0);
 		return float4(lerp(unclamped, clamped, clampAmount), 1.0);
@@ -622,38 +556,10 @@ float4 frag(v2f i) : SV_Target
 			return float4(0.0, 0.1, 0.35, 1.0);
 		}
 
-		float projectedShadow = insideCausticRegion ? saturate(tex2D(CausticTex, causticUv).a) : 0.0;
+		float projectedShadow = insideCausticRegion ? saturate(tex2D(DebugTex0, causticUv).a) : 0.0;
 		float3 unshadowed = float3(0.0, 0.0, 0.0);
 		float3 shadowed = float3(1.0, 0.6, 0.0);
 		return float4(lerp(unshadowed, shadowed, projectedShadow), 1.0);
-	}
-	if (debugMode == 15)
-	{
-		if (particleCausticTemporalDebugEnabled == 0)
-		{
-			return float4(0.0, 0.1, 0.35, 1.0);
-		}
-
-		float2 worldPos = causticCurrentWorldCenter + (causticUv - 0.5) * max(causticCurrentWorldSize, float2(0.0001, 0.0001));
-		float4 currentShadowSample = SampleProjectedShadowDebug(worldPos, causticCurrentWorldCenter, causticCurrentWorldSize, causticReactiveShadowDirection, CausticReactiveShadowMapTex);
-		float4 previousShadowSample = SampleProjectedShadowDebug(worldPos, causticHistoryWorldCenter, causticHistoryWorldSize, causticReactiveShadowHistoryDirection, CausticReactiveShadowHistoryTex);
-		float currentShadowValid = currentShadowSample.w * currentShadowSample.y * step(currentShadowSample.x + 0.01, currentShadowSample.z);
-		float previousShadowValid = previousShadowSample.w * previousShadowSample.y * step(previousShadowSample.x + 0.01, previousShadowSample.z);
-		float shadowMotionConfidence = currentShadowValid * previousShadowValid;
-		if (shadowMotionConfidence <= 0.0)
-		{
-			return float4(0.0, 0.0, 0.0, 1.0);
-		}
-
-		float currentDepthWorld = (currentShadowSample.x * 2.0 - 1.0) * ProjectedShadowHalfForward(causticReactiveShadowDirection, causticCurrentWorldSize);
-		float previousDepthWorld = (previousShadowSample.x * 2.0 - 1.0) * ProjectedShadowHalfForward(causticReactiveShadowHistoryDirection, causticHistoryWorldSize);
-		float2 currentForward = normalize(causticReactiveShadowDirection);
-		float2 shadowMotionWorld = currentForward * (currentDepthWorld - previousDepthWorld);
-		float2 shadowMotionUv = shadowMotionWorld / max(causticHistoryWorldSize, float2(0.0001, 0.0001));
-		float motionMagnitude = saturate(length(shadowMotionUv) * max(debugGradientMax, 0.0001));
-		float2 motionDirection = length(shadowMotionUv) > 0.0000001 ? normalize(shadowMotionUv) : 0.0;
-		float2 motionColour = saturate(0.5 + motionDirection * 0.5);
-		return float4(float3(motionColour * motionMagnitude, motionMagnitude) * shadowMotionConfidence, 1.0);
 	}
 	if (debugMode == 11)
 	{

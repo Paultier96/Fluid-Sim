@@ -22,15 +22,18 @@ namespace Seb.Fluid2D.Rendering
 			if (renderPhaseDiffuse)
 			{
 				phase0SoftLightTexture = RenderPhaseDiffuseLight(context, targetCommandBuffer, surface, sharpCaustics, combinedAccumulationTexture);
-				if (renderRadianceCascade && phase0SoftLightTexture is RenderTexture phase0Texture && caustics.SoftLightTexture2 != null)
-				{
-					targetCommandBuffer.Blit(phase0Texture, caustics.SoftLightTexture2);
-					phase0SoftLightTexture = caustics.SoftLightTexture2;
-				}
 			}
-			if (renderRadianceCascade)
+			else if (renderRadianceCascade)
 			{
-				phase1SoftLightTexture = RenderRadianceCascadeLight(context, targetCommandBuffer, surface, sharpCaustics, combinedAccumulationTexture);
+				switch (caustics.RadianceCascadeTraceMode)
+				{
+					case ParticleFluidLighting2D.RadianceCascadeTraceMode.PhaseBoundarySdf:
+						phase1SoftLightTexture = RenderRadianceCascadeSdfLight(context, targetCommandBuffer, surface, sharpCaustics);
+						break;
+					default:
+						phase1SoftLightTexture = RenderRadianceCascadeVolumetricLight(context, targetCommandBuffer, surface, sharpCaustics, combinedAccumulationTexture);
+						break;
+				}
 			}
 			caustics.SetSoftLightTextures(phase0SoftLightTexture, phase1SoftLightTexture);
 		}
@@ -111,9 +114,9 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeVectorParam(compute, "softLightSourceUvRect", new Vector4(0f, 0f, 1f, 1f));
 		}
 
-		Texture RenderRadianceCascadeLight(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings surface, Texture sharpCaustics, RenderTexture combinedAccumulationTexture)
+		Texture RenderRadianceCascadeLight(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings surface, Texture sharpCaustics, RenderTexture combinedAccumulationTexture, RenderTexture sdfResult, string sampleName)
 		{
-			targetCommandBuffer.BeginSample("Metaballs/Radiance Cascades");
+			targetCommandBuffer.BeginSample(sampleName);
 			int width = caustics.SoftLightTexture0.width;
 			int height = caustics.SoftLightTexture0.height;
 			int cascadeCount = Mathf.Clamp(caustics.RadianceCascadeCount, 1, 6);
@@ -121,7 +124,7 @@ namespace Seb.Fluid2D.Rendering
 			RenderTexture target = caustics.SoftLightTexture1;
 			targetCommandBuffer.Blit(Texture2D.blackTexture, source);
 
-			SetRadianceCascadeCommonParams(context, targetCommandBuffer, surface, sharpCaustics, width, height, combinedAccumulationTexture);
+			SetRadianceCascadeCommonParams(context, targetCommandBuffer, surface, sharpCaustics, width, height, combinedAccumulationTexture, sdfResult);
 			for (int level = cascadeCount - 1; level >= 0; level--)
 			{
 				targetCommandBuffer.SetGlobalInt("_CascadeLevel", level);
@@ -133,11 +136,146 @@ namespace Seb.Fluid2D.Rendering
 				target = previousSource;
 			}
 
-			targetCommandBuffer.EndSample("Metaballs/Radiance Cascades");
+			targetCommandBuffer.EndSample(sampleName);
 			return source;
 		}
 
-		void SetRadianceCascadeCommonParams(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings surface, Texture sharpCaustics, int width, int height, RenderTexture combinedAccumulationTexture)
+		Texture RenderRadianceCascadeVolumetricLight(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings surface, Texture sharpCaustics, RenderTexture combinedAccumulationTexture)
+		{
+			if (!BuildRadianceCascadeSdfField(context, targetCommandBuffer, surface, out RenderTexture sdfResult, out _))
+			{
+				return RenderRadianceCascadeLight(context, targetCommandBuffer, surface, sharpCaustics, combinedAccumulationTexture, null, "Metaballs/Radiance Cascades");
+			}
+
+			return RenderRadianceCascadeLight(context, targetCommandBuffer, surface, sharpCaustics, combinedAccumulationTexture, sdfResult, "Metaballs/Radiance Cascades SDF Accelerated");
+		}
+
+		Texture RenderRadianceCascadeSdfLight(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings surface, Texture sharpCaustics)
+		{
+			if (caustics.RadianceCascadeSdfMaterial == null
+			    || !BuildRadianceCascadeSdfField(context, targetCommandBuffer, surface, out RenderTexture sdfResult, out RenderTexture sdfPayload))
+			{
+				return Texture2D.blackTexture;
+			}
+
+			targetCommandBuffer.BeginSample("Metaballs/Radiance Cascades SDF");
+			int width = caustics.SoftLightTexture0.width;
+			int height = caustics.SoftLightTexture0.height;
+			int cascadeCount = Mathf.Clamp(caustics.RadianceCascadeCount, 1, 6);
+			RenderTexture source = caustics.SoftLightTexture0;
+			RenderTexture target = caustics.SoftLightTexture1;
+			targetCommandBuffer.Blit(Texture2D.blackTexture, source);
+
+			SetRadianceCascadeSdfCommonParams(context, targetCommandBuffer, surface, width, height, sdfResult, sdfPayload, sharpCaustics);
+			for (int level = cascadeCount - 1; level >= 0; level--)
+			{
+				targetCommandBuffer.SetGlobalInt("_CascadeLevel", level);
+				targetCommandBuffer.SetGlobalTexture("_UpperCascadeTex", source);
+				targetCommandBuffer.Blit(source, target, caustics.RadianceCascadeSdfMaterial, 0);
+
+				RenderTexture previousSource = source;
+				source = target;
+				target = previousSource;
+			}
+
+			targetCommandBuffer.EndSample("Metaballs/Radiance Cascades SDF");
+			return source;
+		}
+
+		bool BuildRadianceCascadeSdfField(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings surface, out RenderTexture resultTexture, out RenderTexture payloadTexture)
+		{
+			resultTexture = null;
+			payloadTexture = null;
+			ParticleDisplay2D display = context.display;
+			ComputeShader compute = caustics.RadianceCascadeSdfCompute;
+			if (compute == null
+			    || caustics.RadianceCascadeSdfSeedA == null
+			    || caustics.RadianceCascadeSdfSeedB == null
+			    || caustics.RadianceCascadeSdfPayloadA == null
+			    || caustics.RadianceCascadeSdfPayloadB == null
+			    || caustics.CombinedSourceTexture == null)
+			{
+				return false;
+			}
+
+			int width = caustics.RadianceCascadeSdfSeedA.width;
+			int height = caustics.RadianceCascadeSdfSeedA.height;
+			int clearKernel = compute.FindKernel("Clear");
+			int seedKernel = compute.FindKernel("SeedBoundary");
+			int jumpFloodKernel = compute.FindKernel("JumpFlood");
+			int resolveDistanceKernel = compute.FindKernel("ResolveDistance");
+
+			targetCommandBuffer.SetComputeIntParam(compute, "_Width", width);
+			targetCommandBuffer.SetComputeIntParam(compute, "_Height", height);
+			targetCommandBuffer.SetComputeIntParam(compute, "combinedWidth", caustics.CombinedSourceTexture.width);
+			targetCommandBuffer.SetComputeIntParam(compute, "combinedHeight", caustics.CombinedSourceTexture.height);
+			targetCommandBuffer.SetComputeFloatParam(compute, "densityThreshold", surface.densityThreshold);
+			targetCommandBuffer.SetComputeFloatParam(compute, "edgeSoftness", surface.edgeSoftness);
+			targetCommandBuffer.SetComputeFloatParam(compute, "phase0RenderBias", surface.phase0RenderBias);
+			targetCommandBuffer.SetComputeIntParam(compute, "useEllipticalBounds", display.sim.useEllipticalBounds ? 1 : 0);
+			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsCenter", new Vector4(display.sim.ellipseBoundsCenter.x, display.sim.ellipseBoundsCenter.y, 0f, 0f));
+			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsSize", new Vector4(display.sim.ellipseBoundsSize.x, display.sim.ellipseBoundsSize.y, 0f, 0f));
+			targetCommandBuffer.SetComputeFloatParam(compute, "obstacleY", display.sim.obstacleY);
+			targetCommandBuffer.SetComputeFloatParam(compute, "analyticBoundaryExpansion", context.analyticBoundaryExpansion);
+			targetCommandBuffer.SetComputeVectorParam(compute, "metaballWorldCenter", new Vector4(context.causticRenderRegion.WorldCenter.x, context.causticRenderRegion.WorldCenter.y, 0f, 0f));
+			targetCommandBuffer.SetComputeVectorParam(compute, "metaballWorldSize", new Vector4(context.causticRenderRegion.WorldSize.x, context.causticRenderRegion.WorldSize.y, 0f, 0f));
+
+			targetCommandBuffer.SetComputeTextureParam(compute, clearKernel, "Result", caustics.RadianceCascadeSdfSeedA);
+			targetCommandBuffer.SetComputeTextureParam(compute, clearKernel, "ResultPayload", caustics.RadianceCascadeSdfPayloadA);
+			int gx = (width + 15) / 16;
+			int gy = (height + 15) / 16;
+			targetCommandBuffer.DispatchCompute(compute, clearKernel, gx, gy, 1);
+
+			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "CombinedTex", caustics.CombinedSourceTexture);
+			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "Result", caustics.RadianceCascadeSdfSeedA);
+			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "ResultPayload", caustics.RadianceCascadeSdfPayloadA);
+			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "ColourMap", display.gradientTexture);
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "CombinedTex", caustics.CombinedSourceTexture);
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "ColourMap", display.gradientTexture);
+			targetCommandBuffer.DispatchCompute(compute, seedKernel, gx, gy, 1);
+
+			RenderTexture src = caustics.RadianceCascadeSdfSeedA;
+			RenderTexture dst = caustics.RadianceCascadeSdfSeedB;
+			RenderTexture payloadSrc = caustics.RadianceCascadeSdfPayloadA;
+			RenderTexture payloadDst = caustics.RadianceCascadeSdfPayloadB;
+			int maxDim = Mathf.Max(width, height);
+			int step = 1;
+			while ((step << 1) < maxDim)
+			{
+				step <<= 1;
+			}
+
+			for (int s = step; s >= 1; s >>= 1)
+			{
+				targetCommandBuffer.SetComputeIntParam(compute, "_Step", s);
+				targetCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, "_SrcTex", src);
+				targetCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, "_SrcPayloadTex", payloadSrc);
+				targetCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, "_DstTex", dst);
+				targetCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, "_DstPayloadTex", payloadDst);
+				targetCommandBuffer.DispatchCompute(compute, jumpFloodKernel, gx, gy, 1);
+
+				RenderTexture tmp = src;
+				src = dst;
+				dst = tmp;
+				tmp = payloadSrc;
+				payloadSrc = payloadDst;
+				payloadDst = tmp;
+			}
+
+			RenderTexture resolvedSdf = caustics.RadianceCascadeSdfNormalA;
+			RenderTexture resolvedPayload = caustics.RadianceCascadeSdfNormalB;
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "_SrcTex", src);
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "_SrcPayloadTex", payloadSrc);
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "Result", resolvedSdf);
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "ResultPayload", resolvedPayload);
+			targetCommandBuffer.DispatchCompute(compute, resolveDistanceKernel, gx, gy, 1);
+
+			resultTexture = resolvedSdf;
+			payloadTexture = resolvedPayload;
+			return true;
+		}
+
+		void SetRadianceCascadeCommonParams(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings surface, Texture sharpCaustics, int width, int height, RenderTexture combinedAccumulationTexture, RenderTexture sdfResult)
 		{
 			ParticleDisplay2D display = context.display;
 			Camera cam = context.cam;
@@ -151,8 +289,10 @@ namespace Seb.Fluid2D.Rendering
 				&& caustics.PrimaryLight.intensity > 0f;
 			targetCommandBuffer.SetGlobalTexture("_CausticTex", sharpCaustics);
 			targetCommandBuffer.SetGlobalTexture("CombinedTex", combinedAccumulationTexture);
+			targetCommandBuffer.SetGlobalTexture("_ResultTex", sdfResult != null ? sdfResult : Texture2D.blackTexture);
 			targetCommandBuffer.SetGlobalTexture("ColourMap", display.gradientTexture);
 			targetCommandBuffer.SetGlobalTexture("ColourMap2", display.gradientTexture2);
+			targetCommandBuffer.SetGlobalInt("_UseSdfSkipping", sdfResult != null ? 1 : 0);
 			targetCommandBuffer.SetGlobalVector("_CascadeResolution", new Vector4(width, height, 0f, 0f));
 			targetCommandBuffer.SetGlobalFloat("_RayRange", Mathf.Max(caustics.RadianceCascadeRayRange * display.GetZoomScale(cam), 0.001f));
 			targetCommandBuffer.SetGlobalInt("_CascadeCount", Mathf.Clamp(caustics.RadianceCascadeCount, 1, 6));
@@ -161,6 +301,9 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetGlobalFloat("_BlobEmissionStrength", caustics.RadianceCascadeBlobEmissionStrength);
 			targetCommandBuffer.SetGlobalInt("_DirectionalLightEnabled", useDirectionalLight ? 1 : 0);
 			targetCommandBuffer.SetGlobalFloat("_DirectionalLightStrength", caustics.RadianceCascadeDirectionalLightStrength);
+			targetCommandBuffer.SetGlobalFloat("_DirectionalLightCascadeStart", caustics.RadianceCascadeDirectionalLightCascadeStart);
+			targetCommandBuffer.SetGlobalInt("_DirectionalLightSdfVisibility", caustics.RadianceCascadeDirectionalLightSdfVisibility ? 1 : 0);
+			targetCommandBuffer.SetGlobalFloat("_SdfBoundaryThicknessPixels", Mathf.Max(caustics.RadianceCascadeSdfBoundaryThicknessPixels, 0f));
 			targetCommandBuffer.SetGlobalVector("_DirectionalLightDirection", new Vector4(primaryDirectLightingDirection.x, primaryDirectLightingDirection.y, primaryDirectLightingDirection.z, 0f));
 			targetCommandBuffer.SetGlobalVector("_DirectionalLightColor", useDirectionalLight ? (Vector4)caustics.PrimaryLight.EffectiveColor : Vector4.zero);
 			targetCommandBuffer.SetGlobalFloat("_DirectionalLightIntensity", useDirectionalLight ? caustics.PrimaryLight.intensity : 0f);
@@ -187,6 +330,39 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetGlobalVector("metaballWorldCenter", new Vector4(currentWorldCenter.x, currentWorldCenter.y, 0f, 0f));
 			targetCommandBuffer.SetGlobalVector("metaballWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
 			targetCommandBuffer.SetGlobalVector("metaballSourceUvRect", new Vector4(0f, 0f, 1f, 1f));
+		}
+
+		void SetRadianceCascadeSdfCommonParams(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings surface, int width, int height, RenderTexture sdfResult, RenderTexture sdfPayload, Texture sharpCaustics)
+		{
+			ParticleDisplay2D display = context.display;
+			Camera cam = context.cam;
+			Vector2 currentWorldCenter = context.causticRenderRegion.WorldCenter;
+			Vector2 currentWorldSize = context.causticRenderRegion.WorldSize;
+			Vector3 primaryDirectLightingDirection = caustics.GetDirectLightingDirection(display, caustics.PrimaryLight.Direction);
+			bool useDirectionalLight =
+				caustics.RadianceCascadeDirectionalLightEnabled
+				&& caustics.PrimaryLight.enabled
+				&& caustics.PrimaryLight.type == ParticleFluidLighting2D.DirectionalLightSettings.LightType.Directional
+				&& caustics.PrimaryLight.intensity > 0f;
+			targetCommandBuffer.SetGlobalTexture("_ResultTex", sdfResult);
+			targetCommandBuffer.SetGlobalTexture("_PayloadTex", sdfPayload);
+			targetCommandBuffer.SetGlobalTexture("_CausticTex", sharpCaustics != null ? sharpCaustics : Texture2D.blackTexture);
+			targetCommandBuffer.SetGlobalVector("_CascadeResolution", new Vector4(width, height, 0f, 0f));
+			targetCommandBuffer.SetGlobalFloat("_RayRange", Mathf.Max(caustics.RadianceCascadeRayRange * display.GetZoomScale(cam), 0.001f));
+			targetCommandBuffer.SetGlobalInt("_CascadeCount", Mathf.Clamp(caustics.RadianceCascadeCount, 1, 6));
+			targetCommandBuffer.SetGlobalInt("_RaySteps", Mathf.Max(caustics.RadianceCascadeRaySteps, 1));
+			targetCommandBuffer.SetGlobalFloat("_RadianceIntensity", caustics.RadianceCascadeIntensity);
+			targetCommandBuffer.SetGlobalFloat("_BlobEmissionStrength", caustics.RadianceCascadeBlobEmissionStrength);
+			targetCommandBuffer.SetGlobalInt("_DirectionalLightEnabled", useDirectionalLight ? 1 : 0);
+			targetCommandBuffer.SetGlobalFloat("_DirectionalLightStrength", caustics.RadianceCascadeDirectionalLightStrength);
+			targetCommandBuffer.SetGlobalFloat("_DirectionalLightCascadeStart", caustics.RadianceCascadeDirectionalLightCascadeStart);
+			targetCommandBuffer.SetGlobalFloat("_SdfBoundaryThicknessPixels", Mathf.Max(caustics.RadianceCascadeSdfBoundaryThicknessPixels, 0f));
+			targetCommandBuffer.SetGlobalInt("_SdfBoundarySource", (int)caustics.RadianceCascadeSdfBoundarySource);
+			targetCommandBuffer.SetGlobalVector("_DirectionalLightDirection", new Vector4(primaryDirectLightingDirection.x, primaryDirectLightingDirection.y, primaryDirectLightingDirection.z, 0f));
+			targetCommandBuffer.SetGlobalVector("_DirectionalLightColor", useDirectionalLight ? (Vector4)caustics.PrimaryLight.EffectiveColor : Vector4.zero);
+			targetCommandBuffer.SetGlobalFloat("_DirectionalLightIntensity", useDirectionalLight ? caustics.PrimaryLight.intensity : 0f);
+			targetCommandBuffer.SetGlobalVector("metaballWorldCenter", new Vector4(currentWorldCenter.x, currentWorldCenter.y, 0f, 0f));
+			targetCommandBuffer.SetGlobalVector("metaballWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
 		}
 
 		static void DispatchCompute(CommandBuffer targetCommandBuffer, ComputeShader compute, int kernel, int width, int height)

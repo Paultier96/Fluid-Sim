@@ -487,7 +487,9 @@ MonoBehaviour:
   temporalShader: {fileID: 4800000, guid: 73c5a11f4158468ab8fbd99b9bd1e938, type: 3}
   computeShader: {fileID: 7200000, guid: 8f4e77c1b8284da4ca6c929de309e7a1, type: 3}
   phaseDiffuseLightCompute: {fileID: 7200000, guid: 6bbf221f0ffb42e4a93f4b9e0a63a64d, type: 3}
+  radianceCascadeSdfCompute: {fileID: 7200000, guid: 69252249d2a3f704b85a0ec12b63e07e, type: 3}
   radianceCascadeShader: {fileID: 4800000, guid: cf6b063e0da6b9d499eea03eed03b4ef, type: 3}
+  radianceCascadeSdfShader: {fileID: 4800000, guid: 8521f648322323d4fbdfe9824745de1a, type: 3}
   debugMode: 0
   primaryLight:
     enabled: 1
@@ -545,12 +547,6 @@ MonoBehaviour:
   transmissionPower: 4.5
   ambientOcclusion: 0.5
   ambientOcclusionPower: 0.5
-  diffuseColorBleedEnabled: 1
-  diffuseColorBleedStrength: 0.3
-  diffuseColorBleedTextureScale: 0.33
-  diffuseColorBleedRadius: 5
-  diffuseColorBleedSelfSubtract: 1
-  diffuseColorBleedNormalWeight: 1
   iridescenceIntensity: 74.65
   iridescenceScale: 2.5
   lightingMode: 2
@@ -567,10 +563,11 @@ MonoBehaviour:
     roughness: 0.25
     metallic: 0
     screenSpaceReflectionStrength: 1
-    diffuseScatterStrength: 0.25
-    diffuseGaussianRadius: 52.5
+    diffuseScatterStrength: 0.82
+    diffuseGaussianRadius: 52.7
     diffuseLightTint: {r: 0.09803921, g: 1, b: 0.980392, a: 1}
-    diffuseAlbedoTintBlend: 0
+    causticAdditiveBlend: 0
+    diffuseAdditiveBlend: 0.5
   phase1Material:
     indexOfRefraction: 1.333
     absorption: 0.05
@@ -578,11 +575,12 @@ MonoBehaviour:
     reflectance: 0.5
     roughness: 0.3
     metallic: 0
-    screenSpaceReflectionStrength: 0.2
+    screenSpaceReflectionStrength: 0
     diffuseScatterStrength: 0
-    diffuseGaussianRadius: 24
+    diffuseGaussianRadius: 50.3
     diffuseLightTint: {r: 0, g: 0.44119108, b: 1, a: 1}
-    diffuseAlbedoTintBlend: 0
+    causticAdditiveBlend: 0
+    diffuseAdditiveBlend: 0.5
   boundaryMaterial:
     indexOfRefraction: 1.516
     absorption: 0
@@ -594,7 +592,8 @@ MonoBehaviour:
     diffuseScatterStrength: 0
     diffuseGaussianRadius: 24
     diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
-    diffuseAlbedoTintBlend: 0
+    causticAdditiveBlend: 0
+    diffuseAdditiveBlend: 0
   stochasticReflection: 1
   dispersionStrength: 0.33
   dispersionRotation: 0.1
@@ -611,18 +610,27 @@ MonoBehaviour:
   blur: 2
   directionalLightingMode: 1
   directionalLightFieldBlur: 10
-  phaseDiffuseLightEnabled: 1
-  phaseDiffuseLightTextureScale: 1
-  phaseDiffuseLightBoundarySharpness: 6.96
-  radianceCascadeEnabled: 1
-  radianceCascadeCount: 5
-  radianceCascadeRayRange: 0.25
+  softLightMode: 2
+  phaseDiffuseLightTextureScale: 0.5
+  diffuseColorBleedStrength: 0.3
+  diffuseColorBleedTextureScale: 0.33
+  diffuseColorBleedRadius: 5
+  diffuseColorBleedSelfSubtract: 1
+  diffuseColorBleedNormalWeight: 1
+  phaseDiffuseLightBoundarySharpness: 7
+  radianceCascadeCount: 6
+  radianceCascadeTraceMode: 2
+  radianceCascadeRayRange: 0.75
   radianceCascadeRaySteps: 16
-  radianceCascadeIntensity: 3
-  radianceCascadeBlobEmissionStrength: 1.66
+  radianceCascadeIntensity: 1
+  radianceCascadeBlobEmissionStrength: 1
   radianceCascadeDirectionalLightEnabled: 1
-  radianceCascadeDirectionalLightStrength: 0.01
-  radianceCascadePhase0Visibility: 0.2
+  radianceCascadeDirectionalLightStrength: 0.05
+  radianceCascadeDirectionalLightCascadeStart: 0.644
+  radianceCascadeDirectionalLightSdfVisibility: 0
+  radianceCascadeSdfBoundaryThicknessPixels: 1.5
+  radianceCascadeSdfBoundarySource: 0
+  radianceCascadePhase0Visibility: 2
   radianceCascadePhase1Visibility: 1
   radianceCascadeDirectCausticStrength: 1
   radianceCascadeAbsorption: 1

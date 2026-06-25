@@ -20,6 +20,8 @@ namespace Seb.Fluid2D.Rendering
 		public Material CausticMotionBlurMaterial => owner.causticMotionBlurMaterial;
 		public Material LightDirectionBlurMaterial => owner.lightDirectionBlurMaterial;
 		public Material RadianceCascadeMaterial => owner.radianceCascadeMaterial;
+		public Material RadianceCascadeSdfMaterial => owner.radianceCascadeSdfMaterial;
+		public ComputeShader RadianceCascadeSdfCompute => owner.radianceCascadeSdfCompute;
 		public ComputeBuffer CausticAccumulationBuffer => owner.causticAccumulationBuffer;
 		public ComputeBuffer CausticMotionAccumulationBuffer => owner.causticMotionAccumulationBuffer;
 		public ComputeBuffer LightDirectionAccumulationBuffer => owner.lightDirectionAccumulationBuffer;
@@ -34,7 +36,12 @@ namespace Seb.Fluid2D.Rendering
 		public RenderTexture LightDirectionBlurTexture => owner.lightDirectionBlurTexture;
 		public RenderTexture SoftLightTexture0 => owner.softLightTexture0;
 		public RenderTexture SoftLightTexture1 => owner.softLightTexture1;
-		public RenderTexture SoftLightTexture2 => owner.softLightTexture2;
+		public RenderTexture RadianceCascadeSdfSeedA => owner.radianceCascadeSdfSeedA;
+		public RenderTexture RadianceCascadeSdfSeedB => owner.radianceCascadeSdfSeedB;
+		public RenderTexture RadianceCascadeSdfPayloadA => owner.radianceCascadeSdfPayloadA;
+		public RenderTexture RadianceCascadeSdfPayloadB => owner.radianceCascadeSdfPayloadB;
+		public RenderTexture RadianceCascadeSdfNormalA => owner.radianceCascadeSdfNormalA;
+		public RenderTexture RadianceCascadeSdfNormalB => owner.radianceCascadeSdfNormalB;
 		public RenderTexture CausticHistoryTexture => owner.causticHistoryTexture;
 		public RenderTexture CausticTemporalTexture => owner.causticTemporalTexture;
 		public RenderTexture LightDirectionHistoryTexture => owner.lightDirectionHistoryTexture;
@@ -94,12 +101,17 @@ namespace Seb.Fluid2D.Rendering
 		public float PhaseDiffuseLightBoundarySharpness => owner.phaseDiffuseLightBoundarySharpness;
 		public float PhaseDiffuseLightTextureScale => owner.phaseDiffuseLightTextureScale;
 		public int RadianceCascadeCount => owner.radianceCascadeCount;
+		public ParticleFluidLighting2D.RadianceCascadeTraceMode RadianceCascadeTraceMode => owner.radianceCascadeTraceMode;
 		public float RadianceCascadeRayRange => owner.radianceCascadeRayRange;
 		public int RadianceCascadeRaySteps => owner.radianceCascadeRaySteps;
 		public float RadianceCascadeIntensity => owner.radianceCascadeIntensity;
 		public float RadianceCascadeBlobEmissionStrength => owner.radianceCascadeBlobEmissionStrength;
 		public bool RadianceCascadeDirectionalLightEnabled => owner.radianceCascadeDirectionalLightEnabled;
 		public float RadianceCascadeDirectionalLightStrength => owner.radianceCascadeDirectionalLightStrength;
+		public float RadianceCascadeDirectionalLightCascadeStart => owner.radianceCascadeDirectionalLightCascadeStart;
+		public bool RadianceCascadeDirectionalLightSdfVisibility => owner.radianceCascadeDirectionalLightSdfVisibility;
+		public float RadianceCascadeSdfBoundaryThicknessPixels => owner.radianceCascadeSdfBoundaryThicknessPixels;
+		public ParticleFluidLighting2D.RadianceCascadeSdfBoundarySource RadianceCascadeSdfBoundarySource => owner.radianceCascadeSdfBoundarySource;
 		public float RadianceCascadePhase0Visibility => owner.radianceCascadePhase0Visibility;
 		public float RadianceCascadePhase1Visibility => owner.radianceCascadePhase1Visibility;
 		public bool RadianceCascadeAbsorption => owner.radianceCascadeAbsorption;
@@ -130,6 +142,7 @@ namespace Seb.Fluid2D.Rendering
 		public bool ShouldRenderDirectionalLightField() => owner.ShouldRenderDirectionalLightField();
 		public bool ShouldRenderPhaseDiffuseLight() => owner.ShouldRenderPhaseDiffuseLight();
 		public bool ShouldRenderRadianceCascadeLight() => owner.ShouldRenderRadianceCascadeLight();
+		public bool UsesRadianceCascadeSdfField() => owner.UsesRadianceCascadeSdfField();
 		public float GetRayTextureBlurScale(ParticleDisplay2D.MetaballSettings surface) => owner.GetRayTextureBlurScale(surface);
 		public Vector3 GetDirectLightingDirection(ParticleDisplay2D display, Vector3 lightDirection) => owner.GetDirectLightingDirection(display, lightDirection);
 		public void SetSoftLightTextures(Texture phase0Texture, Texture phase1Texture)
@@ -139,6 +152,7 @@ namespace Seb.Fluid2D.Rendering
 			owner.lightingMaterial.SetTexture("SoftLightTex", phase0Texture);
 			owner.lightingMaterial.SetTexture("SoftLightTexPhase1", phase1Texture);
 		}
+
 		public void GetCausticRayRange(ParticleFluidLighting2D.FrameContext context, int width, int height, Vector3 lightDirection, out float startOffset, out int rayCount) => owner.GetCausticRayRange(context, width, height, lightDirection, out startOffset, out rayCount);
 		public void GetCausticPointRaySpan(ParticleFluidLighting2D.FrameContext context, ParticleFluidLighting2D.DirectionalLightSettings light, out float angleStart, out float angleRange) => owner.GetCausticPointRaySpan(context, light, out angleStart, out angleRange);
 		public bool AnyEnabledCausticPointLight() => owner.AnyEnabledCausticPointLight();

@@ -3,7 +3,9 @@ using Seb.Helpers;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
-using UnityEngine.Serialization;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 namespace Seb.Fluid2D.Rendering
 {
@@ -24,8 +26,10 @@ namespace Seb.Fluid2D.Rendering
 			[Min(0f)] public float diffuseScatterStrength = 0f;
 			[Min(0f)] public float diffuseGaussianRadius = 24f;
 			[ColorUsage(false, true)] public Color diffuseLightTint = Color.white;
-			[Tooltip("Blends phase-aware diffuse lighting tint from Diffuse Light Tint toward the local phase albedo gradient. 0 uses Diffuse Light Tint; 1 uses albedo.")]
-			[Range(0f, 1f)] public float diffuseAlbedoTintBlend = 0f;
+			[Tooltip("Blends sharp caustic diffuse/transmission lighting from physical albedo-filtered light toward additive/emissive light.")]
+			[Range(0f, 1f)] public float causticAdditiveBlend = 0f;
+			[Tooltip("Blends soft diffuse lighting from physical albedo-filtered light toward additive/emissive light. Use higher values for a stronger SSS glow.")]
+			[Range(0f, 1f)] public float diffuseAdditiveBlend = 0f;
 			
 			public PhaseMaterialSettings(float indexOfRefraction)
 			{
@@ -153,28 +157,48 @@ namespace Seb.Fluid2D.Rendering
 			FullCaustics
 		}
 
+		public enum SoftLightMode
+		{
+			Off,
+			GaussianDiffuse,
+			RadianceCascade
+		}
+
+		public enum RadianceCascadeTraceMode
+		{
+			Volumetric = 2,
+			PhaseBoundarySdf = 1
+		}
+
+		public enum RadianceCascadeSdfBoundarySource
+		{
+			AlbedoEmission,
+			SkyLitAlbedo,
+			CausticAlbedo
+		}
+
 		public enum LightingDebugVisualization
 		{
 			None,
 			Caustics,
 			SoftLight,
-			RadianceCascade,
+			RadianceCascadeRaw,
 			DirectionalLightField,
 			CausticMotion,
 			TemporalRejection,
 			TemporalClamp,
-			ProjectedShadow,
-			ProjectedShadowMotion
+			ProjectedShadow
 		}
 
 		[Header("Shaders")]
 		public Shader lightingShader;
-		public Shader colorBleedShader;
 		public Shader blurShader;
 		public Shader temporalShader;
 		public ComputeShader computeShader;
 		public ComputeShader phaseDiffuseLightCompute;
+		public ComputeShader radianceCascadeSdfCompute;
 		public Shader radianceCascadeShader;
+		public Shader radianceCascadeSdfShader;
 
 		[Header("Debug")]
 		public LightingDebugVisualization debugMode = LightingDebugVisualization.None;
@@ -208,14 +232,6 @@ namespace Seb.Fluid2D.Rendering
 		[Header("Ambient Occlusion")]
 		[Range(0f, 1f)] public float ambientOcclusion = 0.2f;
 		[Min(0.1f)] public float ambientOcclusionPower = 2f;
-
-		[Header("Diffuse Color Bleed")]
-		public bool diffuseColorBleedEnabled = false;
-		[Min(0f)] public float diffuseColorBleedStrength = 0.15f;
-		[Range(0.125f, 1f)] public float diffuseColorBleedTextureScale = 0.35f;
-		[Min(0f)] public float diffuseColorBleedRadius = 48f;
-		[Range(0f, 1f)] public float diffuseColorBleedSelfSubtract = 0.5f;
-		[Range(0f, 1f)] public float diffuseColorBleedNormalWeight = 0.5f;
 
 		[Header("Iridescence")]
 		[Min(0f)] public float iridescenceIntensity = 0f;
@@ -264,13 +280,13 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0f)] public float directionalLightFieldBlur = 1.5f;
 
 		[Header("Soft Subsurface Lighting")]
-		public bool phaseDiffuseLightEnabled = false;
+		public SoftLightMode softLightMode = SoftLightMode.Off;
 		[Range(0.25f, 1f)] public float phaseDiffuseLightTextureScale = 0.5f;
 		[Tooltip("How strongly phase boundaries block phase-aware diffuse lighting. Higher values keep light inside each phase.")]
 		[Min(0f)] public float phaseDiffuseLightBoundarySharpness = 5f; //delete?
-		public bool radianceCascadeEnabled = false;
 		[Tooltip("Number of cascade levels. Higher values spread soft light farther but cost one fullscreen pass per level.")]
 		[Range(1, 6)] public int radianceCascadeCount = 4;
+		public RadianceCascadeTraceMode radianceCascadeTraceMode = RadianceCascadeTraceMode.Volumetric;
 		[Tooltip("Maximum ray range in normalized lighting-texture UV space at the reference zoom.")]
 		[Min(0.0001f)] public float radianceCascadeRayRange = 1.25f;
 		[Tooltip("Raymarch samples per cascade ray segment.")]
@@ -283,6 +299,14 @@ namespace Seb.Fluid2D.Rendering
 		public bool radianceCascadeDirectionalLightEnabled = true;
 		[Tooltip("Scales the primary directional light contribution in the radiance cascades relative to blob emission.")]
 		[Min(0f)] public float radianceCascadeDirectionalLightStrength = 1f;
+		[Tooltip("Normalized cascade level where directional light starts contributing. 0 lets it affect all cascades; 1 restricts it to the highest cascade only.")]
+		[Range(0f, 1f)] public float radianceCascadeDirectionalLightCascadeStart = 1f;
+		[Tooltip("Uses the phase-boundary SDF as a high-resolution visibility test for the volumetric RC directional light. Blob/caustic emission still uses volumetric tracing.")]
+		public bool radianceCascadeDirectionalLightSdfVisibility = false;
+		[Tooltip("Phase-boundary SDF mode hit thickness in soft-light texture pixels. Higher values make thin boundaries catch more rays but can thicken/brighten boundary emission.")]
+		[Min(0f)] public float radianceCascadeSdfBoundaryThicknessPixels = 1.5f;
+		[Tooltip("How phase-boundary SDF hits create radiance: direct albedo emission, directional sky-lit albedo, or caustic texture tinted by albedo.")]
+		public RadianceCascadeSdfBoundarySource radianceCascadeSdfBoundarySource = RadianceCascadeSdfBoundarySource.AlbedoEmission;
 		[Tooltip("How much radiance-cascade lighting is visible on phase 0 in the final composite.")]
 		[Min(0f)] public float radianceCascadePhase0Visibility = 0f;
 		[Tooltip("How much radiance-cascade lighting is visible on phase 1 in the final composite.")]
@@ -324,17 +348,14 @@ namespace Seb.Fluid2D.Rendering
 		
 		internal void EnsureMaterial(Shader shader)
 		{
-			Shader bleedShader = colorBleedShader != null
-				? colorBleedShader
-				: Shader.Find("Hidden/Particle2DParticleFluidColorBleed");
-			EnsureMaterials(shader, bleedShader);
+			EnsureMaterials(shader);
 		}
 
 		const int LightingPass = 0;
 
 		internal Material lightingMaterial;
-		internal Material colorBleedMaterial;
 		internal Material radianceCascadeMaterial;
+		internal Material radianceCascadeSdfMaterial;
 		internal Material causticBlurMaterial;
 		internal Material lightDirectionBlurMaterial;
 		internal Material temporalMaterial;
@@ -351,7 +372,6 @@ namespace Seb.Fluid2D.Rendering
 		ParticleFluidCausticsTemporal temporalCaustics;
 		ParticleFluidCausticsSoftLight softLightCaustics;
 		ParticleFluidProjectedShadow projectedShadow;
-		ParticleFluidDiffuseColorBleed diffuseColorBleed;
 		internal Texture materialAlbedoTexture;
 		internal Texture materialNormal0Texture;
 		internal Texture materialNormal1Texture;
@@ -375,7 +395,12 @@ namespace Seb.Fluid2D.Rendering
 		internal RenderTexture lightDirectionBlurTexture;
 		internal RenderTexture softLightTexture0;
 		internal RenderTexture softLightTexture1;
-		internal RenderTexture softLightTexture2;
+		internal RenderTexture radianceCascadeSdfSeedA;
+		internal RenderTexture radianceCascadeSdfSeedB;
+		internal RenderTexture radianceCascadeSdfPayloadA;
+		internal RenderTexture radianceCascadeSdfPayloadB;
+		internal RenderTexture radianceCascadeSdfNormalA;
+		internal RenderTexture radianceCascadeSdfNormalB;
 		internal Texture currentSoftLightPhase0Texture;
 		internal Texture currentSoftLightPhase1Texture;
 		internal RenderTexture causticHistoryTexture;
@@ -471,19 +496,31 @@ namespace Seb.Fluid2D.Rendering
 			destination.diffuseScatterStrength = source.diffuseScatterStrength;
 			destination.diffuseGaussianRadius = source.diffuseGaussianRadius;
 			destination.diffuseLightTint = source.diffuseLightTint;
-			destination.diffuseAlbedoTintBlend = source.diffuseAlbedoTintBlend;
+			destination.causticAdditiveBlend = source.causticAdditiveBlend;
+			destination.diffuseAdditiveBlend = source.diffuseAdditiveBlend;
 		}
 
-		public void EnsureMaterials(Shader shader, Shader colorBleedShader)
+		public void EnsureMaterials(Shader shader)
 		{
+			EnsureRadianceCascadeSdfCompute();
 			Shader temporalShader = this.temporalShader != null ? this.temporalShader : Shader.Find("Hidden/Particle2DMetaballTemporal");
 			EnsureMaterial(ref lightingMaterial, shader);
-			EnsureMaterial(ref colorBleedMaterial, colorBleedShader);
 			EnsureMaterial(ref radianceCascadeMaterial, radianceCascadeShader);
+			EnsureMaterial(ref radianceCascadeSdfMaterial, radianceCascadeSdfShader != null ? radianceCascadeSdfShader : Shader.Find("Hidden/Particle2DMetaballRadianceCascadesSdf"));
 			EnsureMaterial(ref temporalMaterial, temporalShader);
 			EnsureMaterial(ref causticBlurMaterial, blurShader);
 			EnsureMaterial(ref causticMotionBlurMaterial, blurShader);
 			EnsureMaterial(ref lightDirectionBlurMaterial, blurShader);
+		}
+
+		void EnsureRadianceCascadeSdfCompute()
+		{
+#if UNITY_EDITOR
+			if (radianceCascadeSdfCompute == null)
+			{
+				radianceCascadeSdfCompute = AssetDatabase.LoadAssetAtPath<ComputeShader>("Assets/Scripts/Sim2D/Display/RadianceCascadeSdf.compute");
+			}
+#endif
 		}
 
 		static void EnsureMaterial(ref Material material, Shader shader)
@@ -512,12 +549,16 @@ namespace Seb.Fluid2D.Rendering
 
 		public void BindMaterialTextures()
 		{
+			ParticleDisplay2D display = GetComponent<ParticleDisplay2D>();
 			Texture albedoTexture = materialAlbedoTexture != null ? materialAlbedoTexture : Texture2D.blackTexture;
 			Texture normal0Texture = materialNormal0Texture != null ? materialNormal0Texture : Texture2D.blackTexture;
 			Texture normal1Texture = materialNormal1Texture != null ? materialNormal1Texture : Texture2D.blackTexture;
 			lightingMaterial.SetTexture("MaterialAlbedoTex", albedoTexture);
 			lightingMaterial.SetTexture("MaterialNormalTex", normal0Texture);
 			lightingMaterial.SetTexture("MaterialNormalTex1", normal1Texture);
+			lightingMaterial.SetTexture("CombinedTex", combinedSourceTexture != null ? combinedSourceTexture : Texture2D.blackTexture);
+			lightingMaterial.SetTexture("ColourMap", display != null && display.gradientTexture != null ? display.gradientTexture : Texture2D.blackTexture);
+			lightingMaterial.SetTexture("ColourMap2", display != null && display.gradientTexture2 != null ? display.gradientTexture2 : Texture2D.blackTexture);
 			lightingMaterial.SetInt("particleFluidCompositeRegionEnabled", materialRenderRegion.IsCropped ? 1 : 0);
 			lightingMaterial.SetVector("particleFluidCompositeUvRect", materialRenderRegion.SourceUvRect);
 			lightingMaterial.SetVector("particleFluidCameraUvRect", materialRenderRegion.SourceUvRect);
@@ -762,6 +803,11 @@ namespace Seb.Fluid2D.Rendering
 			currentSoftLightPhase1Texture = Texture2D.blackTexture;
 			lightingMaterial.SetColor("particleFluidPhase0DiffuseLightTint", phase0Material.diffuseLightTint);
 			lightingMaterial.SetColor("particleFluidPhase1DiffuseLightTint", phase1Material.diffuseLightTint);
+			lightingMaterial.SetFloat("particleFluidPhase0CausticAdditiveBlend", phase0Material.causticAdditiveBlend);
+			lightingMaterial.SetFloat("particleFluidPhase1CausticAdditiveBlend", phase1Material.causticAdditiveBlend);
+			lightingMaterial.SetFloat("particleFluidPhase0DiffuseAdditiveBlend", phase0Material.diffuseAdditiveBlend);
+			lightingMaterial.SetFloat("particleFluidPhase1DiffuseAdditiveBlend", phase1Material.diffuseAdditiveBlend);
+			lightingMaterial.SetFloat("densityThreshold", display.metaballs.densityThreshold);
 			lightingMaterial.SetFloat("particleFluidIridescenceIntensity", iridescenceIntensity);
 			lightingMaterial.SetFloat("particleFluidIridescenceScale", iridescenceScale);
 			lightingMaterial.SetVector("particleBaseLightDirection", primaryLight.Direction);
@@ -838,15 +884,8 @@ namespace Seb.Fluid2D.Rendering
 		{
 			BindMaterialTextures();
 			commandBuffer.BeginSample("Particle Fluid/Final Lighting");
-			if (!(diffuseColorBleedEnabled && diffuseColorBleedStrength > 0f && diffuseColorBleedRadius > 0f))
-			{
-				ConfigureLightingCompositeToCamera();
-				commandBuffer.Blit(null, finalTarget, lightingMaterial, LightingPass);
-			}
-			else
-			{
-				(diffuseColorBleed ??= new ParticleFluidDiffuseColorBleed(this)).Render(commandBuffer, finalTarget, cam);
-			}
+			ConfigureLightingCompositeToCamera();
+			commandBuffer.Blit(null, finalTarget, lightingMaterial, LightingPass);
 			commandBuffer.EndSample("Particle Fluid/Final Lighting");
 		}
 
@@ -884,7 +923,7 @@ namespace Seb.Fluid2D.Rendering
 		public bool ShouldRenderPhaseDiffuseLight()
 		{
 			return ShouldRenderCaustics()
-			       && phaseDiffuseLightEnabled
+			       && softLightMode == SoftLightMode.GaussianDiffuse
 			       && phaseDiffuseLightCompute != null
 			       && (
 				       phase0Material.diffuseScatterStrength > 0f
@@ -894,10 +933,16 @@ namespace Seb.Fluid2D.Rendering
 
 		public bool ShouldRenderRadianceCascadeLight()
 		{
-			return ShouldRenderCaustics()
-			       && radianceCascadeEnabled
-			       && radianceCascadeShader != null
-			       && phase0Material.diffuseScatterStrength > 0f;
+			bool hasShader = radianceCascadeTraceMode == RadianceCascadeTraceMode.PhaseBoundarySdf
+				? (radianceCascadeSdfShader != null || Shader.Find("Hidden/Particle2DMetaballRadianceCascadesSdf") != null)
+				: radianceCascadeShader != null;
+			return softLightMode == SoftLightMode.RadianceCascade
+			       && hasShader;
+		}
+
+		internal bool UsesRadianceCascadeSdfField()
+		{
+			return true;
 		}
 
 		public bool ShouldRenderDirectionalLightField()
@@ -939,6 +984,45 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			currentCausticRenderRegion = renderLayout.Caustic;
+			bool renderDirectionalLightField = ShouldRenderDirectionalLightField();
+			bool renderPhaseDiffuseLight = ShouldRenderPhaseDiffuseLight();
+			bool renderRadianceCascadeLight = ShouldRenderRadianceCascadeLight();
+			bool renderSoftLight = renderPhaseDiffuseLight || renderRadianceCascadeLight;
+			int causticWidth = currentCausticRenderRegion.PixelWidth;
+			int causticHeight = currentCausticRenderRegion.PixelHeight;
+
+			if (renderSoftLight)
+			{
+				float softLightScale = phaseDiffuseLightTextureScale;
+				int softLightWidth = Mathf.Max(1, Mathf.RoundToInt(causticWidth * softLightScale));
+				int softLightHeight = Mathf.Max(1, Mathf.RoundToInt(causticHeight * softLightScale));
+				ComputeHelper.CreateRenderTexture(ref softLightTexture0, softLightWidth, softLightHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Diffuse Light 0");
+				ComputeHelper.CreateRenderTexture(ref softLightTexture1, softLightWidth, softLightHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Diffuse Light 1");
+				if (renderRadianceCascadeLight && UsesRadianceCascadeSdfField())
+				{
+					ComputeHelper.CreateRenderTexture(ref radianceCascadeSdfSeedA, softLightWidth, softLightHeight, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D RC SDF Seed A");
+					ComputeHelper.CreateRenderTexture(ref radianceCascadeSdfSeedB, softLightWidth, softLightHeight, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D RC SDF Seed B");
+					ComputeHelper.CreateRenderTexture(ref radianceCascadeSdfPayloadA, softLightWidth, softLightHeight, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D RC SDF Payload A");
+					ComputeHelper.CreateRenderTexture(ref radianceCascadeSdfPayloadB, softLightWidth, softLightHeight, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D RC SDF Payload B");
+					ComputeHelper.CreateRenderTexture(ref radianceCascadeSdfNormalA, softLightWidth, softLightHeight, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D RC SDF Normal A");
+					ComputeHelper.CreateRenderTexture(ref radianceCascadeSdfNormalB, softLightWidth, softLightHeight, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D RC SDF Normal B");
+				}
+				else
+				{
+					ComputeHelper.Release(radianceCascadeSdfSeedA, radianceCascadeSdfSeedB, radianceCascadeSdfPayloadA, radianceCascadeSdfPayloadB, radianceCascadeSdfNormalA, radianceCascadeSdfNormalB);
+					radianceCascadeSdfSeedA = null;
+					radianceCascadeSdfSeedB = null;
+					radianceCascadeSdfPayloadA = null;
+					radianceCascadeSdfPayloadB = null;
+					radianceCascadeSdfNormalA = null;
+					radianceCascadeSdfNormalB = null;
+				}
+			}
+			else
+			{
+				ReleasePhaseDiffuseLightTextures();
+			}
+
 			if (ShouldRenderCaustics())
 			{
 				RenderTexture CreateHistoryBackup(RenderTexture source, string name)
@@ -953,12 +1037,6 @@ namespace Seb.Fluid2D.Rendering
 					return backup;
 				}
 
-				bool renderDirectionalLightField = ShouldRenderDirectionalLightField();
-				bool renderPhaseDiffuseLight = ShouldRenderPhaseDiffuseLight();
-				bool renderRadianceCascadeLight = ShouldRenderRadianceCascadeLight();
-				bool renderSoftLight = renderPhaseDiffuseLight || renderRadianceCascadeLight;
-				int causticWidth = currentCausticRenderRegion.PixelWidth;
-				int causticHeight = currentCausticRenderRegion.PixelHeight;
 				int causticAccumulationCount = causticWidth * causticHeight * 4;
 				
 				ComputeHelper.CreateStructuredBuffer<uint>(ref causticAccumulationBuffer, causticAccumulationCount);
@@ -979,19 +1057,6 @@ namespace Seb.Fluid2D.Rendering
 				else
 				{
 					ReleaseLightDirectionTextures();
-				}
-				if (renderSoftLight)
-				{
-					float softLightScale = phaseDiffuseLightTextureScale;
-					int softLightWidth = Mathf.Max(1, Mathf.RoundToInt(causticWidth * softLightScale));
-					int softLightHeight = Mathf.Max(1, Mathf.RoundToInt(causticHeight * softLightScale));
-					ComputeHelper.CreateRenderTexture(ref softLightTexture0, softLightWidth, softLightHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Diffuse Light 0");
-					ComputeHelper.CreateRenderTexture(ref softLightTexture1, softLightWidth, softLightHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Diffuse Light 1");
-					ComputeHelper.CreateRenderTexture(ref softLightTexture2, softLightWidth, softLightHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Diffuse Light 2");
-				}
-				else
-				{
-					ReleasePhaseDiffuseLightTextures();
 				}
 				if (denoisingEnabled)
 				{
@@ -1088,7 +1153,6 @@ namespace Seb.Fluid2D.Rendering
 				ComputeHelper.Release(causticResolvedTexture, causticBlurTexture, causticMotionTexture, causticMotionDilatedTexture, causticMotionDilationScratchTexture, causticHistoryTexture, causticTemporalTexture);
 				ReleaseOptionalCausticFallbackTextures();
 				ReleaseLightDirectionTextures();
-				ReleasePhaseDiffuseLightTextures();
 				causticResolvedTexture = null;
 				causticBlurTexture = null;
 				causticMotionTexture = null;
