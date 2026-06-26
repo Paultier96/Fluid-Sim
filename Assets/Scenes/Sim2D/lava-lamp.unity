@@ -482,10 +482,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   lightingShader: {fileID: 4800000, guid: 91a045632aa048d79b79c913d29bdb3c, type: 3}
-  colorBleedShader: {fileID: 4800000, guid: 8e68536f2e6590d4e963ede85c509e0a, type: 3}
   blurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
   temporalShader: {fileID: 4800000, guid: 73c5a11f4158468ab8fbd99b9bd1e938, type: 3}
   computeShader: {fileID: 7200000, guid: 8f4e77c1b8284da4ca6c929de309e7a1, type: 3}
+  projectedShadowCompute: {fileID: 7200000, guid: 5b61f463d7b3490ea86cc45d7f3b3c8c, type: 3}
   phaseDiffuseLightCompute: {fileID: 7200000, guid: 6bbf221f0ffb42e4a93f4b9e0a63a64d, type: 3}
   radianceCascadeSdfCompute: {fileID: 7200000, guid: 69252249d2a3f704b85a0ec12b63e07e, type: 3}
   radianceCascadeShader: {fileID: 4800000, guid: cf6b063e0da6b9d499eea03eed03b4ef, type: 3}
@@ -494,45 +494,103 @@ MonoBehaviour:
   primaryLight:
     enabled: 1
     type: 0
-    azimuthDegrees: 130
-    elevationDegrees: 50
     temperatureKelvin: 4000
     color: {r: 1, g: 1, b: 1, a: 1}
     intensity: 7.5
     sampleBias: 1
-    pointPosition: {x: 0, y: 0}
-    pointFollowsMouse: 0
-    pointHeight: 8
-    pointRange: 20
-    pointFalloff: 2
+    directional:
+      azimuthDegrees: 130
+      elevationDegrees: 50
+      angularRadiusDegrees: 0
+    point:
+      position: {x: 0, y: 0}
+      followsMouse: 0
+      height: 8
+      range: 20
+      falloff: 2
   secondaryLight:
     enabled: 1
     type: 1
-    azimuthDegrees: -120
-    elevationDegrees: 20
     temperatureKelvin: 2700
     color: {r: 1, g: 1, b: 1, a: 1}
     intensity: 0.25
     sampleBias: 5
-    pointPosition: {x: 0, y: -13}
-    pointFollowsMouse: 0
-    pointHeight: 8
-    pointRange: 50
-    pointFalloff: 1
+    directional:
+      azimuthDegrees: -120
+      elevationDegrees: 20
+      angularRadiusDegrees: 0
+    point:
+      position: {x: 0, y: -13}
+      followsMouse: 0
+      height: 8
+      range: 50
+      falloff: 1
   tertiaryLight:
     enabled: 1
     type: 0
-    azimuthDegrees: 15
-    elevationDegrees: 35
     temperatureKelvin: 6500
     color: {r: 1, g: 1, b: 1, a: 1}
     intensity: 0.01
     sampleBias: 0
-    pointPosition: {x: 0, y: 0}
-    pointFollowsMouse: 0
-    pointHeight: 8
-    pointRange: 20
-    pointFalloff: 2
+    directional:
+      azimuthDegrees: 15
+      elevationDegrees: 35
+      angularRadiusDegrees: 0
+    point:
+      position: {x: 0, y: 0}
+      followsMouse: 0
+      height: 8
+      range: 20
+      falloff: 2
+  lights:
+  - enabled: 1
+    type: 0
+    temperatureKelvin: 4000
+    color: {r: 1, g: 1, b: 1, a: 1}
+    intensity: 7.5
+    sampleBias: 1
+    directional:
+      azimuthDegrees: 130
+      elevationDegrees: 50
+      angularRadiusDegrees: 0
+    point:
+      position: {x: 0, y: 0}
+      followsMouse: 0
+      height: 8
+      range: 20
+      falloff: 2
+  - enabled: 1
+    type: 1
+    temperatureKelvin: 2700
+    color: {r: 1, g: 1, b: 1, a: 1}
+    intensity: 0.25
+    sampleBias: 5
+    directional:
+      azimuthDegrees: -120
+      elevationDegrees: 20
+      angularRadiusDegrees: 0
+    point:
+      position: {x: 0, y: -13}
+      followsMouse: 0
+      height: 8
+      range: 50
+      falloff: 1
+  - enabled: 1
+    type: 0
+    temperatureKelvin: 6500
+    color: {r: 1, g: 1, b: 1, a: 1}
+    intensity: 0.01
+    sampleBias: 0
+    directional:
+      azimuthDegrees: 15
+      elevationDegrees: 35
+      angularRadiusDegrees: 0
+    point:
+      position: {x: 0, y: 0}
+      followsMouse: 0
+      height: 8
+      range: 20
+      falloff: 2
   ambientLight: 0
   fresnelColor: {r: 0.75, g: 0.9, b: 1, a: 1}
   fresnelIntensity: 0.01
@@ -568,6 +626,7 @@ MonoBehaviour:
     diffuseLightTint: {r: 0.09803921, g: 1, b: 0.980392, a: 1}
     causticAdditiveBlend: 0
     diffuseAdditiveBlend: 0.5
+    diffuseNormalInfluence: 0
   phase1Material:
     indexOfRefraction: 1.333
     absorption: 0.05
@@ -581,6 +640,7 @@ MonoBehaviour:
     diffuseLightTint: {r: 0, g: 0.44119108, b: 1, a: 1}
     causticAdditiveBlend: 0
     diffuseAdditiveBlend: 0.5
+    diffuseNormalInfluence: 0
   boundaryMaterial:
     indexOfRefraction: 1.516
     absorption: 0
@@ -594,29 +654,20 @@ MonoBehaviour:
     diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
     causticAdditiveBlend: 0
     diffuseAdditiveBlend: 0
+    diffuseNormalInfluence: 0
   stochasticReflection: 1
   dispersionStrength: 0.33
   dispersionRotation: 0.1
   absorptionAlbedoBrightnessInfluence: 0.7
   absorptionAlbedoSaturationInfluence: 0.7
-  lightAngularRadiusDegrees: 0
-  useAnalyticBoundary: 1
-  raySteps: 192
-  stepPixels: 1
+  extraRayTravelSteps: 192
   rayBrightness: 1.38
   rayStride: 1
   raysPerPixel: 10
   colourSampleStride: 5
   blur: 2
-  directionalLightingMode: 1
-  directionalLightFieldBlur: 10
   softLightMode: 2
   phaseDiffuseLightTextureScale: 0.5
-  diffuseColorBleedStrength: 0.3
-  diffuseColorBleedTextureScale: 0.33
-  diffuseColorBleedRadius: 5
-  diffuseColorBleedSelfSubtract: 1
-  diffuseColorBleedNormalWeight: 1
   phaseDiffuseLightBoundarySharpness: 7
   radianceCascadeCount: 6
   radianceCascadeTraceMode: 2
@@ -639,7 +690,7 @@ MonoBehaviour:
   temporalHistoryClampStrength: 0.6
   temporalClampRejection: 0.5
   temporalRejectedSpatialFilter: 0.5
-  temporalMotionSource: 2
+  temporalMotionSource: 0
   motionBlurRadius: 100
   motionVelocityThreshold: 0
   temporalMotionBlur: 25
@@ -650,7 +701,7 @@ MonoBehaviour:
   projectedShadowOffset: -0.5
   projectedShadowExpansion: 0.05
   projectedShadowHistoryRejection: 1
-  ReactiveShadowMapBins: 2048
+  projectedShadowMapBins: 2048
 --- !u!114 &271053324
 MonoBehaviour:
   m_ObjectHideFlags: 0

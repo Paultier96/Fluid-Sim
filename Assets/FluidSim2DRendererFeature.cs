@@ -25,7 +25,7 @@ namespace Seb.Fluid2D.Simulation
             if (renderingData.cameraData.cameraType != CameraType.Game)
                 return;
 
-            ParticleDisplay2D display = Object.FindAnyObjectByType<ParticleDisplay2D>();
+            ParticleDisplay2D display = FindAnyObjectByType<ParticleDisplay2D>();
             if (display == null || !display.isActiveAndEnabled)
                 return;
             if (display.sim == null || display.sim.positionBuffer == null)
@@ -58,8 +58,7 @@ namespace Seb.Fluid2D.Simulation
         readonly ImportedTexture velocityPhase1Accumulation = new();
         readonly ImportedTexture velocityPhase1Blur = new();
         readonly ImportedTexture materialAlbedo = new();
-        readonly ImportedTexture materialNormal0 = new();
-        readonly ImportedTexture materialNormal1 = new();
+        readonly ImportedTexture materialNormal = new();
         readonly ImportedTexture causticResolved = new();
         readonly ImportedTexture causticBlur = new();
         readonly ImportedTexture causticTemporal = new();
@@ -67,11 +66,6 @@ namespace Seb.Fluid2D.Simulation
         readonly ImportedTexture causticMotion = new();
         readonly ImportedTexture causticMotionDilated = new();
         readonly ImportedTexture causticMotionDilationScratch = new();
-        readonly ImportedTexture lightDirection = new();
-        readonly ImportedTexture lightDirectionBlur = new();
-        readonly ImportedTexture lightDirectionFallback = new();
-        readonly ImportedTexture lightDirectionHistory = new();
-        readonly ImportedTexture lightDirectionTemporal = new();
         readonly ImportedTexture gradient = new();
         readonly ImportedTexture gradient2 = new();
         readonly ImportedTexture softLight0 = new();
@@ -123,32 +117,40 @@ namespace Seb.Fluid2D.Simulation
             {
                 lighting = null;
             }
-            TextureHandle combinedHandle = combinedAccumulation.Import(renderGraph, metaballRenderer.CombinedAccumulationTexture, "FluidSim2D Combined Accumulation");
-            TextureHandle combinedBlurHandle = combinedBlur.Import(renderGraph, metaballRenderer.CombinedBlurTexture, "FluidSim2D Combined Blur");
-            TextureHandle normalHandle = normalAccumulation.Import(renderGraph, metaballRenderer.NormalAccumulationTexture, "FluidSim2D Normal Accumulation");
-            TextureHandle normalBlurHandle = normalBlur.Import(renderGraph, metaballRenderer.NormalBlurTexture, "FluidSim2D Normal Blur");
-            TextureHandle velocity0Handle = velocityPhase0Accumulation.Import(renderGraph, metaballRenderer.VelocityPhase0AccumulationTexture, "FluidSim2D Velocity Phase 0");
-            TextureHandle velocity0BlurHandle = velocityPhase0Blur.Import(renderGraph, metaballRenderer.VelocityPhase0BlurTexture, "FluidSim2D Velocity Phase 0 Blur");
-            TextureHandle velocity1Handle = velocityPhase1Accumulation.Import(renderGraph, metaballRenderer.VelocityPhase1AccumulationTexture, "FluidSim2D Velocity Phase 1");
-            TextureHandle velocity1BlurHandle = velocityPhase1Blur.Import(renderGraph, metaballRenderer.VelocityPhase1BlurTexture, "FluidSim2D Velocity Phase 1 Blur");
-            TextureHandle materialAlbedoHandle = materialAlbedo.Import(renderGraph, metaballRenderer.MaterialMaps.AlbedoRenderTexture, "FluidSim2D Material Albedo");
-            TextureHandle materialNormal0Handle = materialNormal0.Import(renderGraph, metaballRenderer.MaterialMaps.Normal0RenderTexture, "FluidSim2D Material Normal 0");
-            TextureHandle materialNormal1Handle = materialNormal1.Import(renderGraph, metaballRenderer.MaterialMaps.Normal1RenderTexture, "FluidSim2D Material Normal 1");
+            TextureHandle combinedHandle = combinedAccumulation.Import(renderGraph, metaballRenderer.combinedAccumulationTexture, "FluidSim2D Combined Accumulation");
+            TextureHandle combinedBlurHandle = combinedBlur.Import(renderGraph, metaballRenderer.combinedBlurTexture, "FluidSim2D Combined Blur");
+            TextureHandle normalHandle = normalAccumulation.Import(renderGraph, metaballRenderer.normalAccumulationTexture, "FluidSim2D Normal Accumulation");
+            TextureHandle normalBlurHandle = normalBlur.Import(renderGraph, metaballRenderer.normalBlurTexture, "FluidSim2D Normal Blur");
             bool renderCaustics = lighting != null && lighting.ShouldRenderCaustics();
-            bool useDirectionalLightField = renderCaustics && lighting.UsesDirectionalLightFieldResultTexture();
+            bool renderVelocityTextures = metaballRenderer.ShouldRenderVelocityTextures(display);
+            TextureHandle velocity0Handle = renderVelocityTextures ? velocityPhase0Accumulation.Import(renderGraph, metaballRenderer.velocityPhase0AccumulationTexture, "FluidSim2D Velocity Phase 0") : TextureHandle.nullHandle;
+            TextureHandle velocity0BlurHandle = renderVelocityTextures ? velocityPhase0Blur.Import(renderGraph, metaballRenderer.velocityPhase0BlurTexture, "FluidSim2D Velocity Phase 0 Blur") : TextureHandle.nullHandle;
+            TextureHandle velocity1Handle = renderVelocityTextures ? velocityPhase1Accumulation.Import(renderGraph, metaballRenderer.velocityPhase1AccumulationTexture, "FluidSim2D Velocity Phase 1") : TextureHandle.nullHandle;
+            TextureHandle velocity1BlurHandle = renderVelocityTextures ? velocityPhase1Blur.Import(renderGraph, metaballRenderer.velocityPhase1BlurTexture, "FluidSim2D Velocity Phase 1 Blur") : TextureHandle.nullHandle;
+            TextureHandle velocity0TraceHandle = renderCaustics
+                ? (renderVelocityTextures ? velocity0Handle : velocityPhase0Accumulation.Import(renderGraph, Texture2D.blackTexture, "FluidSim2D Velocity Phase 0 Fallback"))
+                : TextureHandle.nullHandle;
+            TextureHandle velocity1TraceHandle = renderCaustics
+                ? (renderVelocityTextures ? velocity1Handle : velocityPhase1Accumulation.Import(renderGraph, Texture2D.blackTexture, "FluidSim2D Velocity Phase 1 Fallback"))
+                : TextureHandle.nullHandle;
+            TextureHandle materialAlbedoHandle = materialAlbedo.Import(renderGraph, metaballRenderer.materialRenderer.MaterialMaps.AlbedoRenderTexture, "FluidSim2D Material Albedo");
+            TextureHandle materialNormalHandle = materialNormal.Import(renderGraph, metaballRenderer.materialRenderer.MaterialMaps.NormalRenderTexture, "FluidSim2D Material Normal");
 
             RecordMetaballAccumulationPass(renderGraph, "Fluid Sim 2D Combined Accumulation", display, metaballRenderer, combinedHandle, 0);
             RecordMetaballAccumulationPass(renderGraph, "Fluid Sim 2D Normal Accumulation", display, metaballRenderer, normalHandle, 1);
-            RecordMetaballAccumulationPass(renderGraph, "Fluid Sim 2D Velocity Phase 0 Accumulation", display, metaballRenderer, velocity0Handle, 2);
-            RecordMetaballAccumulationPass(renderGraph, "Fluid Sim 2D Velocity Phase 1 Accumulation", display, metaballRenderer, velocity1Handle, 3);
+            if (renderVelocityTextures)
+            {
+                RecordMetaballAccumulationPass(renderGraph, "Fluid Sim 2D Velocity Phase 0 Accumulation", display, metaballRenderer, velocity0Handle, 2);
+                RecordMetaballAccumulationPass(renderGraph, "Fluid Sim 2D Velocity Phase 1 Accumulation", display, metaballRenderer, velocity1Handle, 3);
+            }
 
-            RecordBlurPass(renderGraph, "Fluid Sim 2D Combined Blur Horizontal", combinedHandle, combinedBlurHandle, metaballRenderer.CombinedAccumulationTexture, metaballRenderer.CombinedBlurTexture, metaballRenderer.BlurMaterial, new Vector2(1f, 0f));
-            RecordBlurPass(renderGraph, "Fluid Sim 2D Combined Blur Vertical", combinedBlurHandle, combinedHandle, metaballRenderer.CombinedBlurTexture, metaballRenderer.CombinedAccumulationTexture, metaballRenderer.BlurMaterial, new Vector2(0f, 1f));
-            RecordBlurPass(renderGraph, "Fluid Sim 2D Normal Blur Horizontal", normalHandle, normalBlurHandle, metaballRenderer.NormalAccumulationTexture, metaballRenderer.NormalBlurTexture, metaballRenderer.BlurMaterial, new Vector2(1f, 0f));
-            RecordBlurPass(renderGraph, "Fluid Sim 2D Normal Blur Vertical", normalBlurHandle, normalHandle, metaballRenderer.NormalBlurTexture, metaballRenderer.NormalAccumulationTexture, metaballRenderer.BlurMaterial, new Vector2(0f, 1f));
+            RecordBlurPass(renderGraph, "Fluid Sim 2D Combined Blur Horizontal", combinedHandle, combinedBlurHandle, metaballRenderer.combinedAccumulationTexture, metaballRenderer.combinedBlurTexture, metaballRenderer.blurMaterial, new Vector2(1f, 0f));
+            RecordBlurPass(renderGraph, "Fluid Sim 2D Combined Blur Vertical", combinedBlurHandle, combinedHandle, metaballRenderer.combinedBlurTexture, metaballRenderer.combinedAccumulationTexture, metaballRenderer.blurMaterial, new Vector2(0f, 1f));
+            RecordBlurPass(renderGraph, "Fluid Sim 2D Normal Blur Horizontal", normalHandle, normalBlurHandle, metaballRenderer.normalAccumulationTexture, metaballRenderer.normalBlurTexture, metaballRenderer.blurMaterial, new Vector2(1f, 0f));
+            RecordBlurPass(renderGraph, "Fluid Sim 2D Normal Blur Vertical", normalBlurHandle, normalHandle, metaballRenderer.normalBlurTexture, metaballRenderer.normalAccumulationTexture, metaballRenderer.blurMaterial, new Vector2(0f, 1f));
 
             float effectiveMotionBlurRadius = metaballRenderer.GetEffectiveMotionBlurRadius(display, camera);
-            if (effectiveMotionBlurRadius > 0.001f && metaballRenderer.VelocityBlurMaterial != null)
+            if (renderVelocityTextures && effectiveMotionBlurRadius > 0.001f)
             {
                 using (var builder = renderGraph.AddUnsafePass<MotionPyramidPassData>("Fluid Sim 2D Velocity Motion Pyramid", out var passData))
                 {
@@ -178,11 +180,6 @@ namespace Seb.Fluid2D.Simulation
             TextureHandle causticMotionHandle = renderCaustics ? causticMotion.Import(renderGraph, lighting.causticMotionTexture, "FluidSim2D Caustic Motion") : TextureHandle.nullHandle;
             TextureHandle causticMotionDilatedHandle = renderCaustics ? causticMotionDilated.Import(renderGraph, lighting.causticMotionDilatedTexture, "FluidSim2D Caustic Motion Dilated") : TextureHandle.nullHandle;
             TextureHandle causticMotionDilationScratchHandle = renderCaustics ? causticMotionDilationScratch.Import(renderGraph, lighting.causticMotionDilationScratchTexture, "FluidSim2D Caustic Motion Dilation Scratch") : TextureHandle.nullHandle;
-            TextureHandle lightDirectionHandle = useDirectionalLightField ? lightDirection.Import(renderGraph, lighting.lightDirectionTexture, "FluidSim2D Light Direction") : TextureHandle.nullHandle;
-            TextureHandle lightDirectionBlurHandle = useDirectionalLightField ? lightDirectionBlur.Import(renderGraph, lighting.lightDirectionBlurTexture, "FluidSim2D Light Direction Blur") : TextureHandle.nullHandle;
-            TextureHandle lightDirectionFallbackHandle = renderCaustics && !useDirectionalLightField ? lightDirectionFallback.Import(renderGraph, lighting.lightDirectionResultFallbackTexture, "FluidSim2D Light Direction Fallback") : TextureHandle.nullHandle;
-            TextureHandle lightDirectionHistoryHandle = useDirectionalLightField && lighting.denoisingEnabled ? lightDirectionHistory.Import(renderGraph, lighting.lightDirectionHistoryTexture, "FluidSim2D Light Direction History") : TextureHandle.nullHandle;
-            TextureHandle lightDirectionTemporalHandle = useDirectionalLightField && lighting.denoisingEnabled ? lightDirectionTemporal.Import(renderGraph, lighting.lightDirectionTemporalTexture, "FluidSim2D Light Direction Temporal") : TextureHandle.nullHandle;
             TextureHandle gradientHandle = gradient.Import(renderGraph, display.gradientTexture != null ? display.gradientTexture : Texture2D.blackTexture, "FluidSim2D Gradient");
             TextureHandle gradient2Handle = gradient2.Import(renderGraph, display.gradientTexture2 != null ? display.gradientTexture2 : Texture2D.blackTexture, "FluidSim2D Gradient 2");
             bool renderSoftLight = lighting.ShouldRenderPhaseDiffuseLight() || lighting.ShouldRenderRadianceCascadeLight();
@@ -197,7 +194,7 @@ namespace Seb.Fluid2D.Simulation
             TextureHandle radianceCascadeSdfResolvedPayloadHandle = renderSdfRadianceCascade ? radianceCascadeSdfResolvedPayload.Import(renderGraph, lighting.radianceCascadeSdfNormalB, "FluidSim2D RC SDF Resolved Payload") : TextureHandle.nullHandle;
             ParticleFluidLighting2D.FrameContext lightingContext = metaballRenderer.CreateLightingContext(display, camera);
             int causticsFrameIndex = renderCaustics ? lighting.ReserveCausticsFrameIndex() : 0;
-            bool useMaterialPipeline = metaballRenderer.UsesMaterialPipeline(display) && metaballRenderer.IsMaterialPipelineReady;
+            bool useMaterialPipeline = metaballRenderer.UsesMaterialPipeline(display) && metaballRenderer.materialRenderer.IsReady;
 
             if (renderCaustics)
             {
@@ -205,18 +202,16 @@ namespace Seb.Fluid2D.Simulation
                 {
                     passData.lighting = lighting;
                     passData.context = lightingContext;
-                    passData.combinedTexture = metaballRenderer.CombinedAccumulationTexture;
+                    passData.combinedTexture = metaballRenderer.combinedAccumulationTexture;
                     passData.frameIndex = causticsFrameIndex;
                     passData.causticResolved = causticResolvedHandle;
                     passData.causticMotion = causticMotionHandle;
-                    passData.lightDirection = useDirectionalLightField ? lightDirectionHandle : lightDirectionFallbackHandle;
                     UseIfValid(builder, passData.causticResolved, AccessFlags.Write);
                     UseIfValid(builder, passData.causticMotion, AccessFlags.Write);
-                    UseIfValid(builder, passData.lightDirection, AccessFlags.Write);
                     builder.AllowPassCulling(false);
                     builder.SetRenderFunc(static (CausticsComputePassData data, ComputeGraphContext context) =>
                     {
-                        data.lighting.TraceCaustics.RecordComputeClear(data.context, context.cmd, data.combinedTexture, data.frameIndex, data.causticResolved, data.causticMotion, data.lightDirection);
+                        data.lighting.traceCaustics.RecordComputeClear(data.context, context.cmd, data.combinedTexture, data.frameIndex, data.causticResolved, data.causticMotion);
                     });
                 }
 
@@ -224,11 +219,11 @@ namespace Seb.Fluid2D.Simulation
                 {
                     passData.lighting = lighting;
                     passData.context = lightingContext;
-                    passData.combinedTexture = metaballRenderer.CombinedAccumulationTexture;
+                    passData.combinedTexture = metaballRenderer.combinedAccumulationTexture;
                     passData.frameIndex = causticsFrameIndex;
                     passData.combined = combinedHandle;
-                    passData.velocity0 = velocity0Handle;
-                    passData.velocity1 = velocity1Handle;
+                    passData.velocity0 = velocity0TraceHandle;
+                    passData.velocity1 = velocity1TraceHandle;
                     passData.gradient = gradientHandle;
                     passData.gradient2 = gradient2Handle;
                     UseIfValid(builder, passData.combined, AccessFlags.Read);
@@ -239,7 +234,7 @@ namespace Seb.Fluid2D.Simulation
                     builder.AllowPassCulling(false);
                     builder.SetRenderFunc(static (CausticsComputePassData data, ComputeGraphContext context) =>
                     {
-                        data.lighting.TraceCaustics.RecordComputeTrace(data.context, context.cmd, data.combinedTexture, data.frameIndex, data.combined, data.velocity0, data.velocity1, data.gradient, data.gradient2);
+                        data.lighting.traceCaustics.RecordComputeTrace(data.context, context.cmd, data.combinedTexture, data.frameIndex, data.combined, data.velocity0, data.velocity1, data.gradient, data.gradient2);
                     });
                 }
 
@@ -247,18 +242,16 @@ namespace Seb.Fluid2D.Simulation
                 {
                     passData.lighting = lighting;
                     passData.context = lightingContext;
-                    passData.combinedTexture = metaballRenderer.CombinedAccumulationTexture;
+                    passData.combinedTexture = metaballRenderer.combinedAccumulationTexture;
                     passData.frameIndex = causticsFrameIndex;
                     passData.causticResolved = causticResolvedHandle;
                     passData.causticMotion = causticMotionHandle;
-                    passData.lightDirection = useDirectionalLightField ? lightDirectionHandle : lightDirectionFallbackHandle;
                     UseIfValid(builder, passData.causticResolved, AccessFlags.Write);
                     UseIfValid(builder, passData.causticMotion, AccessFlags.Write);
-                    UseIfValid(builder, passData.lightDirection, AccessFlags.Write);
                     builder.AllowPassCulling(false);
                     builder.SetRenderFunc(static (CausticsComputePassData data, ComputeGraphContext context) =>
                     {
-                        data.lighting.TraceCaustics.RecordComputeResolve(data.context, context.cmd, data.combinedTexture, data.frameIndex, data.causticResolved, data.causticMotion, data.lightDirection);
+                        data.lighting.traceCaustics.RecordComputeResolve(data.context, context.cmd, data.combinedTexture, data.frameIndex, data.causticResolved, data.causticMotion);
                     });
                 }
 
@@ -271,20 +264,16 @@ namespace Seb.Fluid2D.Simulation
                     passData.causticMotion = causticMotionHandle;
                     passData.causticMotionDilated = causticMotionDilatedHandle;
                     passData.causticMotionDilationScratch = causticMotionDilationScratchHandle;
-                    passData.lightDirection = lightDirectionHandle;
-                    passData.lightDirectionBlur = lightDirectionBlurHandle;
                     UseIfValid(builder, passData.causticResolved, AccessFlags.ReadWrite);
                     UseIfValid(builder, passData.causticMotion, AccessFlags.ReadWrite);
                     UseIfValid(builder, passData.causticBlur, AccessFlags.Write);
                     UseIfValid(builder, passData.causticMotionDilated, AccessFlags.ReadWrite);
                     UseIfValid(builder, passData.causticMotionDilationScratch, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.lightDirection, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.lightDirectionBlur, AccessFlags.Write);
                     builder.AllowPassCulling(false);
                     builder.SetRenderFunc(static (CausticsBlurPassData data, UnsafeGraphContext context) =>
                     {
                         CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-                        data.lighting.TemporalCaustics.RecordBlurAndMotion(data.context, nativeCommandBuffer);
+                        data.lighting.temporalCaustics.RecordBlurAndMotion(data.context, nativeCommandBuffer);
                     });
                 }
 
@@ -298,23 +287,17 @@ namespace Seb.Fluid2D.Simulation
                     passData.causticMotion = causticMotionHandle;
                     passData.causticMotionDilated = causticMotionDilatedHandle;
                     passData.causticMotionDilationScratch = causticMotionDilationScratchHandle;
-                    passData.lightDirection = lightDirectionHandle;
-                    passData.lightDirectionHistory = lightDirectionHistoryHandle;
-                    passData.lightDirectionTemporal = lightDirectionTemporalHandle;
                     UseIfValid(builder, passData.causticResolved, AccessFlags.Read);
                     UseIfValid(builder, passData.causticTemporal, AccessFlags.ReadWrite);
                     UseIfValid(builder, passData.causticHistory, AccessFlags.ReadWrite);
                     UseIfValid(builder, passData.causticMotion, AccessFlags.Read);
                     UseIfValid(builder, passData.causticMotionDilated, AccessFlags.Read);
                     UseIfValid(builder, passData.causticMotionDilationScratch, AccessFlags.Read);
-                    UseIfValid(builder, passData.lightDirection, AccessFlags.Read);
-                    UseIfValid(builder, passData.lightDirectionHistory, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.lightDirectionTemporal, AccessFlags.ReadWrite);
                     builder.AllowPassCulling(false);
                     builder.SetRenderFunc(static (CausticsTemporalPassData data, UnsafeGraphContext context) =>
                     {
                         CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-                        data.lighting.TemporalCaustics.RecordTemporal(data.context, nativeCommandBuffer, data.lighting.TemporalCaustics.GetTemporalMotionTextureAfterBlur());
+                        data.lighting.temporalCaustics.RecordTemporal(data.context, nativeCommandBuffer, data.lighting.temporalCaustics.GetTemporalMotionTextureAfterBlur());
                     });
                 }
 
@@ -326,7 +309,7 @@ namespace Seb.Fluid2D.Simulation
                 {
                     passData.lighting = lighting;
                     passData.context = lightingContext;
-                    passData.combinedTexture = metaballRenderer.CombinedAccumulationTexture;
+                    passData.combinedTexture = metaballRenderer.combinedAccumulationTexture;
                     passData.combined = combinedHandle;
                     passData.causticResolved = causticResolvedHandle;
                     passData.causticTemporal = causticTemporalHandle;
@@ -353,12 +336,12 @@ namespace Seb.Fluid2D.Simulation
                     builder.SetRenderFunc(static (CausticsSoftLightPassData data, UnsafeGraphContext context) =>
                     {
                         CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-                        data.lighting.SoftLightCaustics.RecordSoftLight(data.context, nativeCommandBuffer, data.lighting.GetSharpCausticsTexture(), data.combinedTexture);
+                        data.lighting.softLightCaustics.RecordSoftLight(data.context, nativeCommandBuffer, data.lighting.GetSharpCausticsTexture(), data.combinedTexture);
                     });
                 }
             }
 
-            if (useMaterialPipeline && materialAlbedoHandle.IsValid() && materialNormal0Handle.IsValid() && materialNormal1Handle.IsValid())
+            if (useMaterialPipeline && materialAlbedoHandle.IsValid() && materialNormalHandle.IsValid())
             {
                 using (var builder = renderGraph.AddUnsafePass<MaterialMapPassData>("Fluid Sim 2D Material Maps", out var passData))
                 {
@@ -368,15 +351,13 @@ namespace Seb.Fluid2D.Simulation
                     passData.gradient = gradientHandle;
                     passData.gradient2 = gradient2Handle;
                     passData.albedo = materialAlbedoHandle;
-                    passData.normal0 = materialNormal0Handle;
-                    passData.normal1 = materialNormal1Handle;
+                    passData.materialNormal = materialNormalHandle;
                     UseIfValid(builder, passData.combined, AccessFlags.Read);
                     UseIfValid(builder, passData.normal, AccessFlags.Read);
                     UseIfValid(builder, passData.gradient, AccessFlags.Read);
                     UseIfValid(builder, passData.gradient2, AccessFlags.Read);
                     UseIfValid(builder, passData.albedo, AccessFlags.Write);
-                    UseIfValid(builder, passData.normal0, AccessFlags.Write);
-                    UseIfValid(builder, passData.normal1, AccessFlags.Write);
+                    UseIfValid(builder, passData.materialNormal, AccessFlags.Write);
                     builder.AllowPassCulling(false);
                     builder.SetRenderFunc(static (MaterialMapPassData data, UnsafeGraphContext context) =>
                     {
@@ -399,13 +380,10 @@ namespace Seb.Fluid2D.Simulation
                 passData.velocity0 = velocity0Handle;
                 passData.velocity1 = velocity1Handle;
                 passData.materialAlbedo = materialAlbedoHandle;
-                passData.materialNormal0 = materialNormal0Handle;
-                passData.materialNormal1 = materialNormal1Handle;
+                passData.materialNormal = materialNormalHandle;
                 passData.causticResolved = causticResolvedHandle;
                 passData.causticTemporal = causticTemporalHandle;
                 passData.causticMotion = causticMotionHandle;
-                passData.lightDirection = lightDirectionHandle;
-                passData.lightDirectionTemporal = lightDirectionTemporalHandle;
                 passData.softLight0 = softLight0Handle;
                 passData.softLight1 = softLight1Handle;
                 UseIfValid(builder, passData.color, AccessFlags.Write);
@@ -415,13 +393,10 @@ namespace Seb.Fluid2D.Simulation
                 UseIfValid(builder, passData.velocity0, AccessFlags.Read);
                 UseIfValid(builder, passData.velocity1, AccessFlags.Read);
                 UseIfValid(builder, passData.materialAlbedo, AccessFlags.Read);
-                UseIfValid(builder, passData.materialNormal0, AccessFlags.Read);
-                UseIfValid(builder, passData.materialNormal1, AccessFlags.Read);
+                UseIfValid(builder, passData.materialNormal, AccessFlags.Read);
                 UseIfValid(builder, passData.causticResolved, AccessFlags.Read);
                 UseIfValid(builder, passData.causticTemporal, AccessFlags.Read);
                 UseIfValid(builder, passData.causticMotion, AccessFlags.Read);
-                UseIfValid(builder, passData.lightDirection, AccessFlags.Read);
-                UseIfValid(builder, passData.lightDirectionTemporal, AccessFlags.Read);
                 UseIfValid(builder, passData.softLight0, AccessFlags.Read);
                 UseIfValid(builder, passData.softLight1, AccessFlags.Read);
                 builder.AllowPassCulling(false);
@@ -451,6 +426,11 @@ namespace Seb.Fluid2D.Simulation
 
         void RecordJumpFloodRenderGraph(RenderGraph renderGraph, Camera camera, UniversalResourceData resourceData)
         {
+            if (!display.JumpFloodRenderer.PrepareForRender(display, camera))
+            {
+                return;
+            }
+
             using var builder = renderGraph.AddUnsafePass<JumpFloodPassData>("Fluid Sim 2D", out var passData);
 
             passData.display = display;
@@ -473,7 +453,7 @@ namespace Seb.Fluid2D.Simulation
                 }
 
                 CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-                data.jumpFloodRenderer.Record(data.display, data.camera, nativeCommandBuffer, data.color);
+                data.jumpFloodRenderer.RecordComposite(data.display, data.camera, nativeCommandBuffer, data.color);
             });
         }
 
@@ -603,7 +583,6 @@ namespace Seb.Fluid2D.Simulation
             public TextureHandle gradient2;
             public TextureHandle causticResolved;
             public TextureHandle causticMotion;
-            public TextureHandle lightDirection;
         }
 
         class CausticsBlurPassData
@@ -615,8 +594,6 @@ namespace Seb.Fluid2D.Simulation
             public TextureHandle causticMotion;
             public TextureHandle causticMotionDilated;
             public TextureHandle causticMotionDilationScratch;
-            public TextureHandle lightDirection;
-            public TextureHandle lightDirectionBlur;
         }
 
         class CausticsTemporalPassData
@@ -629,9 +606,6 @@ namespace Seb.Fluid2D.Simulation
             public TextureHandle causticMotion;
             public TextureHandle causticMotionDilated;
             public TextureHandle causticMotionDilationScratch;
-            public TextureHandle lightDirection;
-            public TextureHandle lightDirectionHistory;
-            public TextureHandle lightDirectionTemporal;
         }
 
         class CausticsSoftLightPassData
@@ -660,8 +634,7 @@ namespace Seb.Fluid2D.Simulation
             public TextureHandle gradient;
             public TextureHandle gradient2;
             public TextureHandle albedo;
-            public TextureHandle normal0;
-            public TextureHandle normal1;
+            public TextureHandle materialNormal;
         }
 
         class BlurPassData
@@ -697,13 +670,10 @@ namespace Seb.Fluid2D.Simulation
             public TextureHandle velocity0;
             public TextureHandle velocity1;
             public TextureHandle materialAlbedo;
-            public TextureHandle materialNormal0;
-            public TextureHandle materialNormal1;
+            public TextureHandle materialNormal;
             public TextureHandle causticResolved;
             public TextureHandle causticTemporal;
             public TextureHandle causticMotion;
-            public TextureHandle lightDirection;
-            public TextureHandle lightDirectionTemporal;
             public TextureHandle softLight0;
             public TextureHandle softLight1;
         }
