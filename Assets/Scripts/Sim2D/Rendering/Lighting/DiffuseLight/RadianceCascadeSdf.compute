@@ -1,0 +1,215 @@
+#pragma kernel Clear
+#pragma kernel SeedBoundary
+#pragma kernel JumpFlood
+#pragma kernel ResolveDistance
+
+Texture2D<float4> CombinedTex;
+Texture2D<float4> ColourMap;
+RWTexture2D<float4> Result;
+RWTexture2D<float4> ResultPayload;
+Texture2D<float4> _SrcTex;
+Texture2D<float4> _SrcPayloadTex;
+RWTexture2D<float4> _DstTex;
+RWTexture2D<float4> _DstPayloadTex;
+
+int _Width;
+int _Height;
+int combinedWidth;
+int combinedHeight;
+int _Step;
+float densityThreshold;
+float edgeSoftness;
+float phase0RenderBias;
+int useEllipticalBounds;
+float2 ellipseBoundsCenter;
+float2 ellipseBoundsSize;
+float obstacleY;
+float analyticBoundaryExpansion;
+float2 metaballWorldCenter;
+float2 metaballWorldSize;
+
+float2 WorldFromUV(float2 uv)
+{
+	return metaballWorldCenter + (uv - 0.5) * max(metaballWorldSize, float2(0.0001, 0.0001));
+}
+
+float2 BoundaryDistances(float2 worldPos)
+{
+	float2 radii = max(abs(ellipseBoundsSize), 0.0001);
+	float2 rel = worldPos - ellipseBoundsCenter;
+	float2 q = rel / radii;
+	float qLen = max(length(q), 0.0001);
+	float ellipseGradientLength = length(float2(q.x / radii.x, q.y / radii.y)) / qLen;
+	float ellipseDistance = (qLen - 1.0) / max(ellipseGradientLength, 0.0001);
+	float cutDistance = obstacleY - worldPos.y;
+	return float2(ellipseDistance, cutDistance);
+}
+
+float OuterAnalyticBoundaryDistance(float2 worldPos)
+{
+	float2 distances = BoundaryDistances(worldPos);
+	float outsideDistance = length(max(distances, 0.0)) + min(max(distances.x, distances.y), 0.0);
+	return outsideDistance - max(analyticBoundaryExpansion, 0.0);
+}
+
+float SampleBoundsMask(float2 uv, float density)
+{
+	float particleAlpha = smoothstep(max(densityThreshold - edgeSoftness, 0.0), densityThreshold + edgeSoftness, density);
+	if (useEllipticalBounds == 0)
+	{
+		return particleAlpha;
+	}
+
+	float boundsDistance = OuterAnalyticBoundaryDistance(WorldFromUV(uv));
+	float2 worldTexel = max(metaballWorldSize / max(float2(_Width, _Height), float2(1.0, 1.0)), float2(0.0001, 0.0001));
+	float boundsAA = max(max(worldTexel.x, worldTexel.y), 0.0001);
+	float boundsAlpha = smoothstep(boundsAA, -boundsAA, boundsDistance);
+	return min(particleAlpha, boundsAlpha);
+}
+
+float4 SampleCombinedAtUv(float2 uv)
+{
+	int2 pixel = clamp((int2)round(saturate(uv) * float2(combinedWidth - 1, combinedHeight - 1)), int2(0, 0), int2(combinedWidth - 1, combinedHeight - 1));
+	return CombinedTex.Load(int3(pixel, 0));
+}
+
+int ClassifyPixel(float2 uv, out float3 payloadColour)
+{
+	float4 combined = SampleCombinedAtUv(uv);
+	float density0 = combined.g;
+	float density1 = combined.a;
+	float density = max(density0, density1);
+	float mask = SampleBoundsMask(uv, density);
+	payloadColour = 0.0;
+
+	float phaseRatio = density1 / max(density0 + density1, 0.0001);
+	float phaseBoundary = saturate(0.5 + phase0RenderBias * 0.5);
+	if (mask > 0.5 && phaseRatio < phaseBoundary)
+	{
+		float data0 = density0 > 0.0001 ? combined.r / density0 : 0.0;
+		uint gradientWidth;
+		uint gradientHeight;
+		ColourMap.GetDimensions(gradientWidth, gradientHeight);
+		int gradientX = (int)round(saturate(data0) * max((int)gradientWidth - 1, 0));
+		payloadColour = ColourMap.Load(int3(gradientX, 0, 0)).rgb;
+		return 1;
+	}
+
+	// Outside the visible fluid is treated like phase 1 for this SDF so the
+	// phase-0/phase-1 interface remains the only traced boundary.
+	return 2;
+}
+
+[numthreads(16,16,1)]
+void Clear(uint3 id : SV_DispatchThreadID)
+{
+	int2 pix = int2(id.xy);
+	if (pix.x >= _Width || pix.y >= _Height) return;
+	Result[pix] = float4(-1.0, -1.0, 0.0, -1.0);
+	ResultPayload[pix] = 0.0;
+}
+
+[numthreads(16,16,1)]
+void SeedBoundary(uint3 id : SV_DispatchThreadID)
+{
+	int2 pix = int2(id.xy);
+	if (pix.x >= _Width || pix.y >= _Height) return;
+	float2 uv = (pix + 0.5) / float2(_Width, _Height);
+	float3 payloadColour;
+	int classCenter = ClassifyPixel(uv, payloadColour);
+
+	bool isBoundary = false;
+	float3 boundaryPayload = payloadColour;
+	int2 offsets[4] = { int2(-1,0), int2(1,0), int2(0,-1), int2(0,1) };
+	[unroll]
+	for (int i = 0; i < 4; i++)
+	{
+		int2 neighbourPix = clamp(pix + offsets[i], int2(0, 0), int2(_Width - 1, _Height - 1));
+		float2 neighbourUv = (neighbourPix + 0.5) / float2(_Width, _Height);
+		float3 neighbourPayload;
+		int classNeighbour = ClassifyPixel(neighbourUv, neighbourPayload);
+		if (classNeighbour != classCenter)
+		{
+			if (classCenter == 1 || classNeighbour == 1)
+			{
+				isBoundary = true;
+				boundaryPayload = classCenter == 1 ? payloadColour : neighbourPayload;
+				break;
+			}
+		}
+	}
+
+	if (!isBoundary)
+	{
+		return;
+	}
+
+	Result[pix] = float4((float)pix.x, (float)pix.y, 0.0, 0.0);
+	ResultPayload[pix] = float4(boundaryPayload, 1.0);
+}
+
+[numthreads(16,16,1)]
+void JumpFlood(uint3 id : SV_DispatchThreadID)
+{
+	int2 pix = int2(id.xy);
+	if (pix.x >= _Width || pix.y >= _Height) return;
+
+	float2 p = float2(pix);
+	float4 best = _SrcTex.Load(int3(pix, 0));
+	float4 bestPayload = _SrcPayloadTex.Load(int3(pix, 0));
+	float bestDist = 1e20;
+	if (best.w >= 0.0)
+	{
+		float2 d = p - best.xy;
+		bestDist = dot(d, d);
+	}
+
+	for (int oy = -1; oy <= 1; oy++)
+	{
+		for (int ox = -1; ox <= 1; ox++)
+		{
+			int2 n = pix + int2(ox * _Step, oy * _Step);
+			if (n.x < 0 || n.y < 0 || n.x >= _Width || n.y >= _Height) continue;
+			float4 cand = _SrcTex.Load(int3(n, 0));
+			if (cand.w < 0.0) continue;
+			float2 dd = p - cand.xy;
+			float d2 = dot(dd, dd);
+			if (d2 < bestDist)
+			{
+				bestDist = d2;
+				best = cand;
+				bestPayload = _SrcPayloadTex.Load(int3(n, 0));
+			}
+		}
+	}
+
+	_DstTex[pix] = best;
+	_DstPayloadTex[pix] = bestPayload;
+}
+
+[numthreads(16,16,1)]
+void ResolveDistance(uint3 id : SV_DispatchThreadID)
+{
+	int2 pix = int2(id.xy);
+	if (pix.x >= _Width || pix.y >= _Height) return;
+
+	float4 seed = _SrcTex.Load(int3(pix, 0));
+	float4 payload = _SrcPayloadTex.Load(int3(pix, 0));
+	if (seed.w < 0.0)
+	{
+		Result[pix] = float4(0.0, 0.0, 0.0, -1.0);
+		ResultPayload[pix] = 0.0;
+		return;
+	}
+
+	float2 pixelDelta = float2(pix) - seed.xy;
+	float2 texelWorld = max(metaballWorldSize / max(float2(_Width - 1, _Height - 1), float2(1.0, 1.0)), float2(0.0001, 0.0001));
+	float unsignedDistanceWorld = length(pixelDelta * texelWorld);
+
+	float2 uv = (pix + 0.5) / float2(_Width, _Height);
+	float3 unused;
+	int phaseClass = ClassifyPixel(uv, unused);
+	float signValue = phaseClass == 1 ? -1.0 : 1.0;
+	Result[pix] = float4(unsignedDistanceWorld * signValue, 1.0, 0.0, 1.0);
+	ResultPayload[pix] = payload;
+}

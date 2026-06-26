@@ -1,0 +1,110 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9d4d03e2d4df9aa4bad61f2c62a8dfd8, type: 3}
+  m_Name: PhaseLookPreset-default 1
+  m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Rendering.ParticleFluidPhaseLookPreset
+  phase0Material:
+    indexOfRefraction: 1.442
+    absorption: 1.61
+    absorptionDiffuseTintBlend: 0
+    reflectance: 0.09775279
+    roughness: 0.25
+    metallic: 0
+    screenSpaceReflectionStrength: 1
+    diffuseScatterStrength: 2.18
+    diffuseGaussianRadius: 52.5
+    diffuseLightTint: {r: 0.09803921, g: 1, b: 0.980392, a: 1}
+    diffuseAlbedoTintBlend: 0
+  phase1Material:
+    indexOfRefraction: 1.333
+    absorption: 0.05
+    absorptionDiffuseTintBlend: 0
+    reflectance: 0.5
+    roughness: 0.3
+    metallic: 0
+    screenSpaceReflectionStrength: 0.2
+    diffuseScatterStrength: 0
+    diffuseGaussianRadius: 24
+    diffuseLightTint: {r: 0, g: 0.44119108, b: 1, a: 1}
+    diffuseAlbedoTintBlend: 0
+  boundaryMaterial:
+    indexOfRefraction: 1.516
+    absorption: 0
+    absorptionDiffuseTintBlend: 0
+    reflectance: 0
+    roughness: 0.35
+    metallic: 0
+    screenSpaceReflectionStrength: 1
+    diffuseScatterStrength: 0
+    diffuseGaussianRadius: 24
+    diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
+    diffuseAlbedoTintBlend: 0
+  phase0ColourMap:
+    serializedVersion: 2
+    key0: {r: 0.22352943, g: 0.08235294, b: 0.42352945, a: 1}
+    key1: {r: 0.49411768, g: 0.16078432, b: 0.61960787, a: 1}
+    key2: {r: 0.5882353, g: 1, b: 0.9921569, a: 0}
+    key3: {r: 1, g: 1, b: 1, a: 0}
+    key4: {r: 0, g: 0, b: 0, a: 0}
+    key5: {r: 0, g: 0, b: 0, a: 0}
+    key6: {r: 0, g: 0, b: 0, a: 0}
+    key7: {r: 0, g: 0, b: 0, a: 0}
+    ctime0: 0
+    ctime1: 21823
+    ctime2: 43690
+    ctime3: 65535
+    ctime4: 0
+    ctime5: 0
+    ctime6: 0
+    ctime7: 0
+    atime0: 0
+    atime1: 65535
+    atime2: 0
+    atime3: 0
+    atime4: 0
+    atime5: 0
+    atime6: 0
+    atime7: 0
+    m_Mode: 2
+    m_ColorSpace: -1
+    m_NumColorKeys: 4
+    m_NumAlphaKeys: 2
+  phase1ColourMap:
+    serializedVersion: 2
+    key0: {r: 0, g: 0.03, b: 0.08, a: 1}
+    key1: {r: 0, g: 0.1, b: 0.45, a: 1}
+    key2: {r: 0, g: 0, b: 0, a: 0}
+    key3: {r: 0, g: 0, b: 0, a: 0}
+    key4: {r: 0, g: 0, b: 0, a: 0}
+    key5: {r: 0, g: 0, b: 0, a: 0}
+    key6: {r: 0, g: 0, b: 0, a: 0}
+    key7: {r: 0, g: 0, b: 0, a: 0}
+    ctime0: 0
+    ctime1: 65535
+    ctime2: 0
+    ctime3: 0
+    ctime4: 0
+    ctime5: 0
+    ctime6: 0
+    ctime7: 0
+    atime0: 0
+    atime1: 65535
+    atime2: 0
+    atime3: 0
+    atime4: 0
+    atime5: 0
+    atime6: 0
+    atime7: 0
+    m_Mode: 2
+    m_ColorSpace: -1
+    m_NumColorKeys: 2
+    m_NumAlphaKeys: 2
