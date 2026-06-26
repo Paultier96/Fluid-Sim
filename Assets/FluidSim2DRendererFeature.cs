@@ -182,7 +182,7 @@ namespace Seb.Fluid2D.Simulation
             TextureHandle causticMotionDilationScratchHandle = renderCaustics ? causticMotionDilationScratch.Import(renderGraph, lighting.causticMotionDilationScratchTexture, "FluidSim2D Caustic Motion Dilation Scratch") : TextureHandle.nullHandle;
             TextureHandle gradientHandle = gradient.Import(renderGraph, display.gradientTexture != null ? display.gradientTexture : Texture2D.blackTexture, "FluidSim2D Gradient");
             TextureHandle gradient2Handle = gradient2.Import(renderGraph, display.gradientTexture2 != null ? display.gradientTexture2 : Texture2D.blackTexture, "FluidSim2D Gradient 2");
-            bool renderSoftLight = lighting.ShouldRenderPhaseDiffuseLight() || lighting.ShouldRenderRadianceCascadeLight();
+            bool renderSoftLight = lighting != null && (lighting.ShouldRenderPhaseDiffuseLight() || lighting.ShouldRenderRadianceCascadeLight());
             TextureHandle softLight0Handle = renderSoftLight ? softLight0.Import(renderGraph, lighting.softLightTexture0, "FluidSim2D Soft Light 0") : TextureHandle.nullHandle;
             TextureHandle softLight1Handle = renderSoftLight ? softLight1.Import(renderGraph, lighting.softLightTexture1, "FluidSim2D Soft Light 1") : TextureHandle.nullHandle;
             bool renderSdfRadianceCascade = renderSoftLight && lighting.UsesRadianceCascadeSdfField();
@@ -192,7 +192,9 @@ namespace Seb.Fluid2D.Simulation
             TextureHandle radianceCascadeSdfPayloadBHandle = renderSdfRadianceCascade ? radianceCascadeSdfPayloadB.Import(renderGraph, lighting.radianceCascadeSdfPayloadB, "FluidSim2D RC SDF Payload B") : TextureHandle.nullHandle;
             TextureHandle radianceCascadeSdfResolvedHandle = renderSdfRadianceCascade ? radianceCascadeSdfResolved.Import(renderGraph, lighting.radianceCascadeSdfNormalA, "FluidSim2D RC SDF Resolved") : TextureHandle.nullHandle;
             TextureHandle radianceCascadeSdfResolvedPayloadHandle = renderSdfRadianceCascade ? radianceCascadeSdfResolvedPayload.Import(renderGraph, lighting.radianceCascadeSdfNormalB, "FluidSim2D RC SDF Resolved Payload") : TextureHandle.nullHandle;
-            ParticleFluidLighting2D.FrameContext lightingContext = metaballRenderer.CreateLightingContext(display, camera);
+            ParticleFluidLighting2D.FrameContext lightingContext = lighting != null
+                ? metaballRenderer.CreateLightingContext(display, camera)
+                : default;
             int causticsFrameIndex = renderCaustics ? lighting.ReserveCausticsFrameIndex() : 0;
             bool useMaterialPipeline = metaballRenderer.UsesMaterialPipeline(display) && metaballRenderer.materialRenderer.IsReady;
 
