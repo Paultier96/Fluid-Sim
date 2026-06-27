@@ -344,17 +344,21 @@ float3 SampleSpecularCausticIrradiance(float2 materialUv, float3 normal, float p
 		return 1.0;
 	}
 
+	float2 causticUv = CausticUvFromCameraUv(CameraUvFromMaterialUv(materialUv));
+	float3 baseIrradiance = tex2D(CausticTex, causticUv).rgb;
 	float normalXYLength = length(normal.xy);
 	if (particleSpecularCausticSampleOffset <= 0.0001 || normalXYLength <= 0.0001)
 	{
-		return tex2D(CausticTex, CausticUvFromCameraUv(CameraUvFromMaterialUv(materialUv))).rgb;
+		return baseIrradiance;
 	}
 
 	float2 outwardDir = normal.xy / normalXYLength;
 	float virtualCapDistance = min(normal.z / max(normalXYLength, 0.02), 128.0);
 	float2 outwardOffset = outwardDir * MaterialAlbedoTex_TexelSize.xy * particleSpecularCausticSampleOffset * max(phaseScale, 0.0001) * virtualCapDistance;
 	float2 specularUv = saturate(materialUv + outwardOffset);
-	return tex2D(CausticTex, CausticUvFromCameraUv(CameraUvFromMaterialUv(specularUv))).rgb;
+	float3 offsetIrradiance = tex2D(CausticTex, CausticUvFromCameraUv(CameraUvFromMaterialUv(specularUv))).rgb;
+	float offsetBlend = smoothstep(0.05, 0.35, normalXYLength);
+	return lerp(baseIrradiance, offsetIrradiance, offsetBlend);
 }
 
 float Phase0Density(float4 combined)

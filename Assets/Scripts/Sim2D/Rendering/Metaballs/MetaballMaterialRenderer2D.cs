@@ -73,6 +73,7 @@ namespace Seb.Fluid2D.Rendering
 			material.SetFloat("metaballRefractionEdgeFade", lighting != null ? lighting.refractionEdgeFade : 0f);
 			material.SetInt("screenSpaceRefractionCanCrossPhases", lighting != null && lighting.screenSpaceRefractionCanCrossPhases ? 1 : 0);
 			material.SetFloat("particleNormalStrength", effectiveNormalStrength);
+			material.SetFloat("particleNormalProfileCurve", settings.normalProfileCurve);
 		}
 
 		public void Render(CommandBuffer commandBuffer)

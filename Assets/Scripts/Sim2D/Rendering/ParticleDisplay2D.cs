@@ -133,6 +133,8 @@ namespace Seb.Fluid2D.Rendering
 			[Header("Lighting - Normals")]
 			[Tooltip("Multiplier applied to reconstructed normal XY before rebuilding Z. Higher values make blurred normals look steeper.")]
 			[Min(0f)] public float normalStrength = 1f;
+			[Tooltip("Curves the reconstructed normal magnitude before rebuilding Z. Values above 1 keep the surface flatter for longer and push the steep falloff closer to the silhouette.")]
+			[Min(0.0001f)] public float normalProfileCurve = 1f;
 			[Tooltip("Exponent used to increase normal strength with effective blur radius. 0 disables automatic compensation, 1 is linear.")]
 			[Min(0f)] public float normalBlurCompensation = 0.5f;
 

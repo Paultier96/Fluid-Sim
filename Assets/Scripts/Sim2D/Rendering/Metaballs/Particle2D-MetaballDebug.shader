@@ -69,6 +69,7 @@ float2 causticCurrentWorldCenter;
 float2 causticCurrentWorldSize;
 float particleCausticDebugExposure;
 float particleNormalStrength;
+float particleNormalProfileCurve;
 v2f vert(appdata v)
 {
 	v2f o;
@@ -108,9 +109,23 @@ float2 ApplyNormalStrength(float2 normalXY, float normalStrengthMultiplier)
 	return normalXY * particleNormalStrength * max(normalStrengthMultiplier, 0.0);
 }
 
+float2 ApplyNormalProfileCurve(float2 normalXY)
+{
+	float curve = max(particleNormalProfileCurve, 0.0001);
+	float magnitude = length(normalXY);
+	if (magnitude <= 0.000001)
+	{
+		return 0.0;
+	}
+
+	float curvedMagnitude = pow(saturate(magnitude), curve);
+	return normalXY * (curvedMagnitude / magnitude);
+}
+
 float3 NormalFromXY(float2 normalXY, float normalStrengthMultiplier)
 {
 	normalXY = ApplyNormalStrength(normalXY, normalStrengthMultiplier);
+	normalXY = ApplyNormalProfileCurve(normalXY);
 	float lenSq = dot(normalXY, normalXY);
 	if (lenSq > 0.999)
 	{

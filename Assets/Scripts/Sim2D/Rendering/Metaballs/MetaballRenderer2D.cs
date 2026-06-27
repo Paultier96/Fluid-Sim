@@ -377,6 +377,7 @@ namespace Seb.Fluid2D.Rendering
 			debugMaterial.SetVector("causticCurrentWorldCenter", new Vector4(causticRegion.WorldCenter.x, causticRegion.WorldCenter.y, 0f, 0f));
 			debugMaterial.SetVector("causticCurrentWorldSize", new Vector4(causticRegion.WorldSize.x, causticRegion.WorldSize.y, 0f, 0f));
 			debugMaterial.SetFloat("particleNormalStrength", effectiveNormalStrength);
+			debugMaterial.SetFloat("particleNormalProfileCurve", display.metaballs.normalProfileCurve);
 			blurMaterial.SetFloat("blurRadius", effectiveBlurRadius);
 		}
 

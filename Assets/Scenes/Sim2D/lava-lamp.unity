@@ -323,6 +323,7 @@ MonoBehaviour:
     sharpness: 1
     intensity: 20
     normalStrength: 1.1
+    normalProfileCurve: 1
     normalBlurCompensation: 0.99
     ghostBoundaryNormalStrength: 1
     analyticBoundaryPadding: 0.4
@@ -491,57 +492,6 @@ MonoBehaviour:
   radianceCascadeShader: {fileID: 4800000, guid: cf6b063e0da6b9d499eea03eed03b4ef, type: 3}
   radianceCascadeSdfShader: {fileID: 4800000, guid: 8521f648322323d4fbdfe9824745de1a, type: 3}
   debugMode: 0
-  primaryLight:
-    enabled: 1
-    type: 0
-    temperatureKelvin: 4000
-    color: {r: 1, g: 1, b: 1, a: 1}
-    intensity: 7.5
-    sampleBias: 1
-    directional:
-      azimuthDegrees: 130
-      elevationDegrees: 50
-      angularRadiusDegrees: 0
-    point:
-      position: {x: 0, y: 0}
-      followsMouse: 0
-      height: 8
-      range: 20
-      falloff: 2
-  secondaryLight:
-    enabled: 1
-    type: 1
-    temperatureKelvin: 2700
-    color: {r: 1, g: 1, b: 1, a: 1}
-    intensity: 0.25
-    sampleBias: 5
-    directional:
-      azimuthDegrees: -120
-      elevationDegrees: 20
-      angularRadiusDegrees: 0
-    point:
-      position: {x: 0, y: -13}
-      followsMouse: 0
-      height: 8
-      range: 50
-      falloff: 1
-  tertiaryLight:
-    enabled: 1
-    type: 0
-    temperatureKelvin: 6500
-    color: {r: 1, g: 1, b: 1, a: 1}
-    intensity: 0.01
-    sampleBias: 0
-    directional:
-      azimuthDegrees: 15
-      elevationDegrees: 35
-      angularRadiusDegrees: 0
-    point:
-      position: {x: 0, y: 0}
-      followsMouse: 0
-      height: 8
-      range: 20
-      falloff: 2
   lights:
   - enabled: 1
     type: 0
