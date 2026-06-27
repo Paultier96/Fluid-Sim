@@ -170,8 +170,8 @@ MonoBehaviour:
   timeScale: 5
   unlockedTimeScale: 0
   minSubstepHz: 360
-  autoIterationsPerFrame: 1
-  iterationsPerFrame: 8
+  autoIterationsPerFrame: 0
+  iterationsPerFrame: 3
   maxAutoIterationsPerFrame: 16
   gravity: -13
   collisionDamping: 0.5
@@ -333,7 +333,7 @@ MonoBehaviour:
     materialShader: {fileID: 4800000, guid: a9e2b4c1f7d84f3a9c6b2e014dd5a771, type: 3}
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
-  renderMode: 2
+  renderMode: 0
   directParticleShader: {fileID: 4800000, guid: 441b7193936682446b30d2140d15792a, type: 3}
   metaballShader: {fileID: 4800000, guid: 85b87c70f093d411791140a3aca6ced6, type: 3}
   scale: 0.07
@@ -477,7 +477,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 271053315}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1e5c8d20762d4a91af2193f078dbf2fd, type: 3}
   m_Name: 

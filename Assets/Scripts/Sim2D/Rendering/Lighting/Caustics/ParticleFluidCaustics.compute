@@ -992,7 +992,10 @@ void Trace(uint3 id : SV_DispatchThreadID)
 				rayDir = Refract2D(rayDir, normal, eta);
 
 				rayStep = rayDir / causticSize;
+				uv += rayStep * 0.25;
 				stepWorldDistance = length(rayStep * causticsWorldSize);
+				insideOuterBoundary = true;
+				insideInnerBoundary = InsideInnerAnalyticBoundary(uv);
 			}
 			else
 			{
@@ -1000,8 +1003,12 @@ void Trace(uint3 id : SV_DispatchThreadID)
 				rayDir = Reflect2D(rayDir, normal);
 				rayIsRefractedOnly = false;
 				rayStep = rayDir / causticSize;
+				// The sampled position was outside. Resume slightly along the inward
+				// reflected direction so the same crossing cannot fire repeatedly.
+				uv += rayStep * 0.25;
 				stepWorldDistance = length(rayStep * causticsWorldSize);
 				insideOuterBoundary = true;
+				insideInnerBoundary = InsideInnerAnalyticBoundary(uv);
 				previousInsideOuterBoundary = true;
 				previousInsideInnerBoundary = insideInnerBoundary;
 				previousDensity = 0.0;
