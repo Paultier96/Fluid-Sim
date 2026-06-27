@@ -326,16 +326,6 @@ float2 WorldToUv(float2 worldPos)
 	return (worldPos - causticsWorldCenter) / max(causticsWorldSize, 0.0001) + 0.5;
 }
 
-float2 WorldDirectionToPixelDirection(float2 worldDirection)
-{
-	float2 pixelDirection = float2(
-		worldDirection.x * causticWidth / max(causticsWorldSize.x, 0.0001),
-		worldDirection.y * causticHeight / max(causticsWorldSize.y, 0.0001)
-	);
-	float pixelLength = length(pixelDirection);
-	return pixelLength > 0.0001 ? pixelDirection / pixelLength : float2(1.0, 0.0);
-}
-
 float PointLightAttenuation(float2 worldPos, float4 pointLight, float falloff)
 {
 	float range = max(pointLight.w, 0.0001);
@@ -808,7 +798,7 @@ bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir, out float3 lightM
 		: max(raySpacing, 0.0001);
 
 	float2 lightXY = float2(-lightDirection.x, -lightDirection.y);
-	rayDir = WorldDirectionToPixelDirection(lightXY);
+	rayDir = length(lightXY) > 0.0001 ? normalize(lightXY) : float2(1.0, 0.0);
 	uint initialRaySeed = (uint)rayId.x * 1973u ^ (uint)rayId.y * 9277u ^ (uint)causticsFrameIndex * 26699u;
 	float angleJitter = (Hash01(initialRaySeed) * 2.0 - 1.0) * max(lightAngularRadius, 0.0);
 	rayDir = Rotate2D(rayDir, angleJitter);
@@ -827,8 +817,8 @@ bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir, out float3 lightM
 	{
 		float angleRange = max(pointLightAngleRange, 0.0001);
 		float angle = pointLightAngleStart + ((float)localBaseRay + rayOffset) / max((float)localRayCount, 1.0) * angleRange + temporalJitter.x * 0.01;
-		float2 worldRayDir = Rotate2D(float2(cos(angle), sin(angle)), angleJitter);
-		rayDir = WorldDirectionToPixelDirection(worldRayDir);
+		rayDir = float2(cos(angle), sin(angle));
+		rayDir = Rotate2D(rayDir, angleJitter);
 		uv = WorldToUv(pointLightData.xy) + rayDir * temporalJitter.y / causticSize;
 		return true;
 	}

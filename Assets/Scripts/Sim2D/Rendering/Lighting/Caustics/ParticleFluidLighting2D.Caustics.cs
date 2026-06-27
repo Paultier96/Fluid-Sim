@@ -247,7 +247,7 @@ namespace Seb.Fluid2D.Rendering
 			Vector2 worldSize = context.renderLayout.Caustic.WorldSize;
 			float analyticBoundaryExpansion = context.analyticBoundaryExpansion;
 			Vector2 lightXY = new Vector2(-lightDirection.x, -lightDirection.y);
-			Vector2 rayDir = GetCausticPixelDirection(lightXY, worldSize, width, height);
+			Vector2 rayDir = lightXY.sqrMagnitude > 0.0001f ? lightXY.normalized : Vector2.right;
 			Vector2 tangent = new Vector2(-rayDir.y, rayDir.x);
 			float fullSpan = Mathf.Sqrt(width * width + height * height);
 			float screenMinOffset = -fullSpan * 0.5f;
@@ -317,15 +317,6 @@ namespace Seb.Fluid2D.Rendering
 			float offset = Vector2.Dot(centredPixel, tangent);
 			minOffset = Mathf.Min(minOffset, offset);
 			maxOffset = Mathf.Max(maxOffset, offset);
-		}
-
-		static Vector2 GetCausticPixelDirection(Vector2 worldDirection, Vector2 worldSize, int width, int height)
-		{
-			Vector2 pixelDirection = new Vector2(
-				worldDirection.x * width / Mathf.Max(worldSize.x, 0.0001f),
-				worldDirection.y * height / Mathf.Max(worldSize.y, 0.0001f)
-			);
-			return pixelDirection.sqrMagnitude > 0.0001f ? pixelDirection.normalized : Vector2.right;
 		}
 		
 		internal static int GetCausticPointRayCount(FluidLightSettings light, Vector2 worldSize, int width, int height)
