@@ -121,7 +121,7 @@ namespace Seb.Fluid2D.Simulation
             TextureHandle combinedBlurHandle = combinedBlur.Import(renderGraph, metaballRenderer.combinedBlurTexture, "FluidSim2D Combined Blur");
             TextureHandle normalHandle = normalAccumulation.Import(renderGraph, metaballRenderer.normalAccumulationTexture, "FluidSim2D Normal Accumulation");
             TextureHandle normalBlurHandle = normalBlur.Import(renderGraph, metaballRenderer.normalBlurTexture, "FluidSim2D Normal Blur");
-            bool renderCaustics = lighting != null && lighting.ShouldRenderCaustics();
+            bool renderCaustics = lighting != null && lighting.lightingMode == ParticleFluidLighting2D.LightingMode.FullCaustics;
             bool renderVelocityTextures = metaballRenderer.ShouldRenderVelocityTextures(display);
             TextureHandle velocity0Handle = renderVelocityTextures ? velocityPhase0Accumulation.Import(renderGraph, metaballRenderer.velocityPhase0AccumulationTexture, "FluidSim2D Velocity Phase 0") : TextureHandle.nullHandle;
             TextureHandle velocity0BlurHandle = renderVelocityTextures ? velocityPhase0Blur.Import(renderGraph, metaballRenderer.velocityPhase0BlurTexture, "FluidSim2D Velocity Phase 0 Blur") : TextureHandle.nullHandle;

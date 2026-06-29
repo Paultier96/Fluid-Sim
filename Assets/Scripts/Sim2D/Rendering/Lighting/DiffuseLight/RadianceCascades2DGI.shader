@@ -51,13 +51,12 @@ Shader "Hidden/RadianceCascades"
 			int _DirectionalLightEnabled;
 			float _DirectionalLightStrength;
 			float _DirectionalLightCascadeStart;
-			int _DirectionalLightSdfVisibility;
-			float _SdfBoundaryThicknessPixels;
+			float _SdfPhase0InsetPixels;
 			float3 _DirectionalLightDirection;
 			float3 _DirectionalLightColor;
 			float _DirectionalLightIntensity;
 			int _UseSdfSkipping;
-			int radianceCascadeAbsorption;
+			int _HybridPhase1Only;
 
 			float densityThreshold;
 			float edgeSoftness;
@@ -67,10 +66,11 @@ Shader "Hidden/RadianceCascades"
 			float lightIntensity;
 			float causticsPhase0Absorption;
 			float causticsPhase1Absorption;
-			float3 causticsPhase0AbsorptionTint;
-			float3 causticsPhase1AbsorptionTint;
-			float causticsPhase0AbsorptionTintBlend;
-			float causticsPhase1AbsorptionTintBlend;
+			float3 radianceCascadePhase0AbsorptionTint;
+			float3 radianceCascadePhase1AbsorptionTint;
+			float radianceCascadePhase0AbsorptionTintBlend;
+			
+			float radianceCascadePhase1AbsorptionTintBlend;
 			float causticsAbsorptionAlbedoBrightnessInfluence;
 			float causticsAbsorptionAlbedoSaturationInfluence;
 			int useEllipticalBounds;
@@ -213,11 +213,11 @@ Shader "Hidden/RadianceCascades"
 
 				if (phase == 0)
 				{
-					return lerp(brightnessControlledAlbedo, max(causticsPhase0AbsorptionTint, 0.0), saturate(causticsPhase0AbsorptionTintBlend));
+					return lerp(brightnessControlledAlbedo, max(radianceCascadePhase0AbsorptionTint, 0.0), saturate(radianceCascadePhase0AbsorptionTintBlend));
 				}
 				if (phase == 1)
 				{
-					return lerp(brightnessControlledAlbedo, max(causticsPhase1AbsorptionTint, 0.0), saturate(causticsPhase1AbsorptionTintBlend));
+					return lerp(brightnessControlledAlbedo, max(radianceCascadePhase1AbsorptionTint, 0.0), saturate(radianceCascadePhase1AbsorptionTintBlend));
 				}
 
 				return albedoColour;
@@ -272,6 +272,17 @@ Shader "Hidden/RadianceCascades"
 				float phaseBoundary = saturate(0.5 + phase0RenderBias * 0.5);
 				float phaseT = step(phaseBoundary, phaseRatio);
 				return mask * phaseT;
+			}
+
+			bool SkipHybridPhase0(float2 rayOrigin)
+			{
+				if (_HybridPhase1Only == 0)
+				{
+					return false;
+				}
+
+				float4 combined = tex2Dlod(CombinedTex, float4(SourceUvFromLocalUv(rayOrigin), 0.0, 0.0));
+				return Phase0MaskFromCombined(rayOrigin, combined) > 0.9999;
 			}
 
 			float3 SampleCausticSource(float2 uv, float phase0Mask, float phase1Mask)
@@ -332,7 +343,7 @@ Shader "Hidden/RadianceCascades"
 			float SdfHitThresholdWorld()
 			{
 				float2 worldTexel = max(metaballWorldSize / max(_CascadeResolution, float2(1.0, 1.0)), float2(0.0001, 0.0001));
-				return max(max(worldTexel.x, worldTexel.y) * max(_SdfBoundaryThicknessPixels, 0.0), 0.0005);
+				return max(max(worldTexel.x, worldTexel.y) * max(_SdfPhase0InsetPixels, 0.0), 0.0005);
 			}
 
 			bool HasSdfBoundaryHit(float2 rayOrigin, float2 rayDirection, float startT, float endT)
@@ -385,11 +396,6 @@ Shader "Hidden/RadianceCascades"
 				}
 
 				float endT = DistanceToUvBounds(rayOrigin, rayDirection);
-				if (_DirectionalLightSdfVisibility != 0 && _UseSdfSkipping != 0 && HasSdfBoundaryHit(rayOrigin, rayDirection, 0.0, endT))
-				{
-					return 0.0;
-				}
-
 				float3 transmittance = 1.0;
 				int steps = min(max(_RaySteps * max(_CascadeCount, 1), 16), 128);
 				float stepLength = endT / max((float)steps, 1.0);
@@ -418,24 +424,22 @@ Shader "Hidden/RadianceCascades"
 					float phase1Mask = Phase1MaskFromCombined(currentPosition, combined);
 					float outsideMask = phase0Mask <= 0.0001 && phase1Mask <= 0.0001 ? 1.0 : 0.0;
 
-					if (radianceCascadeAbsorption != 0)
+					float stepWorldDistance = length(rayDirection * stepLength * metaballWorldSize);
+					float3 spectralAbsorption = 0.0;
+					if (phase0Mask > 0.0001)
 					{
-						float stepWorldDistance = length(rayDirection * stepLength * metaballWorldSize);
-						float3 spectralAbsorption = 0.0;
-						if (phase0Mask > 0.0001)
-						{
-							spectralAbsorption += SpectralAbsorptionFromCombined(combined, 0) * phase0Mask;
-						}
-						if (phase1Mask > 0.0001)
-						{
-							spectralAbsorption += SpectralAbsorptionFromCombined(combined, 1) * phase1Mask;
-						}
-						if (outsideMask > 0.5)
-						{
-							spectralAbsorption += SpectralAbsorptionFromCombined(combined, 1);
-						}
-						transmittance *= exp(-spectralAbsorption * stepWorldDistance);
+						spectralAbsorption += SpectralAbsorptionFromCombined(combined, 0) * phase0Mask;
 					}
+					if (phase1Mask > 0.0001)
+					{
+						spectralAbsorption += SpectralAbsorptionFromCombined(combined, 1) * phase1Mask;
+					}
+					if (outsideMask > 0.5)
+					{
+						spectralAbsorption += SpectralAbsorptionFromCombined(combined, 1);
+					}
+					transmittance *= exp(-spectralAbsorption * stepWorldDistance);
+					
 				}
 
 				return SampleDirectionalLightSource(rayDirection) * transmittance;
@@ -506,24 +510,20 @@ Shader "Hidden/RadianceCascades"
 						radiance += SampleCausticSource(currentPosition, phase0Mask, phase1Mask) * transmittance * advanceLength;
 					}
 
-					if (radianceCascadeAbsorption != 0)
+					float3 spectralAbsorption = 0.0;
+					if (phase0Mask > 0.0001)
 					{
-						float3 spectralAbsorption = 0.0;
-						if (phase0Mask > 0.0001)
-						{
-							spectralAbsorption += SpectralAbsorptionFromCombined(combined, 0) * phase0Mask;
-						}
-						if (phase1Mask > 0.0001)
-						{
-							spectralAbsorption += SpectralAbsorptionFromCombined(combined, 1) * phase1Mask;
-						}
-						if (outsideMask > 0.5)
-						{
-							spectralAbsorption += SpectralAbsorptionFromCombined(combined, 1);
-						}
-						transmittance *= exp(-spectralAbsorption * advanceWorldDistance);
+						spectralAbsorption += SpectralAbsorptionFromCombined(combined, 0) * phase0Mask;
 					}
-
+					if (phase1Mask > 0.0001)
+					{
+						spectralAbsorption += SpectralAbsorptionFromCombined(combined, 1) * phase1Mask;
+					}
+					if (outsideMask > 0.5)
+					{
+						spectralAbsorption += SpectralAbsorptionFromCombined(combined, 1);
+					}
+					transmittance *= exp(-spectralAbsorption * advanceWorldDistance);
 					t += advanceLength;
 				}
 
@@ -550,6 +550,10 @@ Shader "Hidden/RadianceCascades"
 				float blockIndex = block2DIndex.x + block2DIndex.y * blockSqrtCount;
 				float2 coordsInBlock = fmod(pixelIndex, blockDim);
 				float2 rayOrigin = (coordsInBlock + 0.5) * blockSqrtCount / _CascadeResolution;
+				if (SkipHybridPhase0(rayOrigin))
+				{
+					return 0.0;
+				}
 				float2 rayRange = CalculateRayRange(_CascadeLevel, _CascadeCount);
 				float4 finalResult = 0.0;
 

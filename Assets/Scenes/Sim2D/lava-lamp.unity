@@ -333,7 +333,7 @@ MonoBehaviour:
     materialShader: {fileID: 4800000, guid: a9e2b4c1f7d84f3a9c6b2e014dd5a771, type: 3}
   sim: {fileID: 271053319}
   mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
-  renderMode: 0
+  renderMode: 2
   directParticleShader: {fileID: 4800000, guid: 441b7193936682446b30d2140d15792a, type: 3}
   metaballShader: {fileID: 4800000, guid: 85b87c70f093d411791140a3aca6ced6, type: 3}
   scale: 0.07
@@ -477,7 +477,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 271053315}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1e5c8d20762d4a91af2193f078dbf2fd, type: 3}
   m_Name: 
@@ -495,7 +495,7 @@ MonoBehaviour:
   lights:
   - enabled: 1
     type: 0
-    temperatureKelvin: 4000
+    temperatureKelvin: 5500
     color: {r: 1, g: 1, b: 1, a: 1}
     intensity: 7.5
     sampleBias: 1
@@ -504,9 +504,8 @@ MonoBehaviour:
       elevationDegrees: 50
       angularRadiusDegrees: 0
     point:
-      position: {x: 0, y: 0}
+      position: {x: 0, y: 0, z: 0}
       followsMouse: 0
-      height: 8
       range: 20
       falloff: 2
   - enabled: 1
@@ -520,9 +519,8 @@ MonoBehaviour:
       elevationDegrees: 20
       angularRadiusDegrees: 0
     point:
-      position: {x: 0, y: -13}
+      position: {x: 0, y: -13, z: 8}
       followsMouse: 0
-      height: 8
       range: 50
       falloff: 1
   - enabled: 1
@@ -536,9 +534,8 @@ MonoBehaviour:
       elevationDegrees: 35
       angularRadiusDegrees: 0
     point:
-      position: {x: 0, y: 0}
+      position: {x: 0, y: 0, z: 0}
       followsMouse: 0
-      height: 8
       range: 20
       falloff: 2
   ambientLight: 0
@@ -551,6 +548,7 @@ MonoBehaviour:
   screenSpaceReflectionDistance: 180
   screenSpaceReflectionEdgePower: 2
   specularCausticSampleOffset: 6
+  specularAntiAliasingStrength: 1
   transmissionIntensity: 20
   transmissionPower: 4.5
   ambientOcclusion: 0.5
@@ -567,20 +565,22 @@ MonoBehaviour:
     indexOfRefraction: 1.442
     absorption: 1.61
     absorptionDiffuseTintBlend: 0
+    radianceCascadeAbsorptionDiffuseTintBlend: 0
     reflectance: 0.09775279
     roughness: 0.25
     metallic: 0
     screenSpaceReflectionStrength: 1
     diffuseScatterStrength: 0.82
     diffuseGaussianRadius: 52.7
-    diffuseLightTint: {r: 0.09803921, g: 1, b: 0.980392, a: 1}
+    diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
     causticAdditiveBlend: 0
-    diffuseAdditiveBlend: 0.5
+    diffuseAdditiveBlend: 0.627
     diffuseNormalInfluence: 0
   phase1Material:
     indexOfRefraction: 1.333
     absorption: 0.05
     absorptionDiffuseTintBlend: 0
+    radianceCascadeAbsorptionDiffuseTintBlend: 0
     reflectance: 0.5
     roughness: 0.3
     metallic: 0
@@ -589,12 +589,13 @@ MonoBehaviour:
     diffuseGaussianRadius: 50.3
     diffuseLightTint: {r: 0, g: 0.44119108, b: 1, a: 1}
     causticAdditiveBlend: 0
-    diffuseAdditiveBlend: 0.5
+    diffuseAdditiveBlend: 0.05
     diffuseNormalInfluence: 0
   boundaryMaterial:
     indexOfRefraction: 1.516
     absorption: 0
     absorptionDiffuseTintBlend: 0
+    radianceCascadeAbsorptionDiffuseTintBlend: 0
     reflectance: 0
     roughness: 0.35
     metallic: 0
@@ -616,25 +617,24 @@ MonoBehaviour:
   raysPerPixel: 10
   colourSampleStride: 5
   blur: 2
-  softLightMode: 2
+  softLightMode: 3
   phaseDiffuseLightTextureScale: 0.5
   phaseDiffuseLightBoundarySharpness: 7
   radianceCascadeCount: 6
-  radianceCascadeTraceMode: 2
-  radianceCascadeRayRange: 0.75
+  radianceCascadeTraceMode: 1
+  radianceCascadeRayRange: 0.23
   radianceCascadeRaySteps: 16
-  radianceCascadeIntensity: 1
-  radianceCascadeBlobEmissionStrength: 1
+  radianceCascadeIntensity: 5
+  radianceCascadeBlobEmissionStrength: 80
   radianceCascadeDirectionalLightEnabled: 1
   radianceCascadeDirectionalLightStrength: 0.05
-  radianceCascadeDirectionalLightCascadeStart: 0.644
-  radianceCascadeDirectionalLightSdfVisibility: 0
-  radianceCascadeSdfBoundaryThicknessPixels: 1.5
-  radianceCascadeSdfBoundarySource: 0
-  radianceCascadePhase0Visibility: 2
-  radianceCascadePhase1Visibility: 1
+  radianceCascadeDirectionalLightCascadeStart: 0.527
+  radianceCascadeSdfPhase0InsetPixels: 1.5
+  radianceCascadeSdfBoundarySource: 3
+  radianceCascadeSdfApproximateAbsorption: 0
+  radianceCascadePhase0Visibility: 0
+  radianceCascadePhase1Visibility: 0.3
   radianceCascadeDirectCausticStrength: 1
-  radianceCascadeAbsorption: 1
   denoisingEnabled: 1
   temporalHistoryWeight: 0.95
   temporalHistoryClampStrength: 0.6

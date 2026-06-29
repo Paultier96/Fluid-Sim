@@ -30,6 +30,7 @@ Shader "Hidden/RadianceCascadesSdf"
 			sampler2D _ResultTex;
 			sampler2D _PayloadTex;
 			sampler2D _CausticTex;
+			sampler2D _GaussianSoftLightTex;
 			float _RayRange;
 			float2 _CascadeResolution;
 			int _CascadeLevel;
@@ -40,13 +41,20 @@ Shader "Hidden/RadianceCascadesSdf"
 			int _DirectionalLightEnabled;
 			float _DirectionalLightStrength;
 			float _DirectionalLightCascadeStart;
-			float _SdfBoundaryThicknessPixels;
+			float _SdfPhase0InsetPixels;
 			int _SdfBoundarySource;
+			int _SdfApproximateAbsorption;
+			int _HybridPhase1Only;
 			float3 _DirectionalLightDirection;
 			float3 _DirectionalLightColor;
 			float _DirectionalLightIntensity;
 			float2 metaballWorldCenter;
 			float2 metaballWorldSize;
+			float causticsPhase0Absorption;
+			float3 radianceCascadePhase0AbsorptionTint;
+			float radianceCascadePhase0AbsorptionTintBlend;
+			float causticsAbsorptionAlbedoBrightnessInfluence;
+			float causticsAbsorptionAlbedoSaturationInfluence;
 
 			v2f vert(appdata v)
 			{
@@ -149,6 +157,29 @@ Shader "Hidden/RadianceCascadesSdf"
 				return sdf;
 			}
 
+			bool SkipHybridPhase0(float2 rayOrigin)
+			{
+				if (_HybridPhase1Only == 0)
+				{
+					return false;
+				}
+
+				float3 payload;
+				float4 sdfSample = SampleSdfField(rayOrigin, payload);
+				if (sdfSample.w < 0.0)
+				{
+					return false;
+				}
+
+				float worldTexel = max(
+					max(metaballWorldSize.x / max(_CascadeResolution.x, 1.0), metaballWorldSize.y / max(_CascadeResolution.y, 1.0)),
+					0.0005
+				);
+				float sourceInsetWorld = worldTexel * max(_SdfPhase0InsetPixels, 0.0);
+				float interiorSafeWorld = max(worldTexel * 3.0, 0.0015);
+				return sdfSample.r < -(sourceInsetWorld + interiorSafeWorld);
+			}
+
 			float2 EstimateSdfNormal(float2 uv)
 			{
 				float2 texel = 1.0 / max(_CascadeResolution, float2(1.0, 1.0));
@@ -186,8 +217,35 @@ Shader "Hidden/RadianceCascadesSdf"
 				{
 					return tex2Dlod(_CausticTex, float4(uv, 0.0, 0.0)).rgb * albedo * sourceScale;
 				}
+				if (_SdfBoundarySource == 3)
+				{
+					return tex2Dlod(_GaussianSoftLightTex, float4(uv, 0.0, 0.0)).rgb * albedo * sourceScale;
+				}
 
 				return albedo * sourceScale;
+			}
+
+			float3 ApproximateAbsorptionColour(float3 albedo)
+			{
+				float maxChannel = max(max(albedo.r, albedo.g), albedo.b);
+				float3 hueColour = maxChannel > 0.0001 ? albedo / maxChannel : float3(1.0, 1.0, 1.0);
+				float brightness = lerp(1.0, maxChannel, saturate(causticsAbsorptionAlbedoBrightnessInfluence));
+				float luminance = dot(hueColour, float3(0.2126, 0.7152, 0.0722));
+				float3 controlledHue = lerp(float3(luminance, luminance, luminance), hueColour, saturate(causticsAbsorptionAlbedoSaturationInfluence));
+				float3 brightnessControlledAlbedo = controlledHue * brightness;
+				return lerp(brightnessControlledAlbedo, max(radianceCascadePhase0AbsorptionTint, 0.0), saturate(radianceCascadePhase0AbsorptionTintBlend));
+			}
+
+			float3 ApplyApproximateAbsorption(float3 radiance, float3 albedo, float depthWorld)
+			{
+				if (_SdfApproximateAbsorption == 0 || causticsPhase0Absorption <= 0.0 || depthWorld <= 0.0)
+				{
+					return radiance;
+				}
+
+				float3 transmissionColour = max(ApproximateAbsorptionColour(albedo), float3(0.001, 0.001, 0.001));
+				float3 spectralAbsorption = -log(transmissionColour) * causticsPhase0Absorption + causticsPhase0Absorption * 0.1;
+				return radiance * exp(-spectralAbsorption * depthWorld);
 			}
 
 			bool HasBoundaryHit(float2 rayOrigin, float2 rayDirection, float startT, float endT, float hitThresholdWorld)
@@ -230,7 +288,8 @@ Shader "Hidden/RadianceCascadesSdf"
 
 			float3 SampleVisibleDirectionalLight(float2 rayOrigin, float2 rayDirection, float startT, float hitThresholdWorld)
 			{
-				if (_CascadeLevel != _CascadeCount - 1)
+				int minDirectionalCascadeLevel = (int)round(saturate(_DirectionalLightCascadeStart) * max(_CascadeCount - 1, 0));
+				if (_CascadeLevel < minDirectionalCascadeLevel)
 				{
 					return 0.0;
 				}
@@ -247,7 +306,13 @@ Shader "Hidden/RadianceCascadesSdf"
 			float4 SampleRadianceField(float2 rayOrigin, float2 rayDirection, float2 rayRange)
 			{
 				float worldStepScale = RayWorldStepScale(rayDirection);
-				float hitThresholdWorld = max(max(metaballWorldSize.x / max(_CascadeResolution.x, 1.0), metaballWorldSize.y / max(_CascadeResolution.y, 1.0)) * max(_SdfBoundaryThicknessPixels, 0.0), 0.0005);
+				float worldTexel = max(
+					max(metaballWorldSize.x / max(_CascadeResolution.x, 1.0), metaballWorldSize.y / max(_CascadeResolution.y, 1.0)),
+					0.0005
+				);
+				float sourceStepWorld = worldTexel * 0.5;
+				float sourceInsetWorld = worldTexel * max(_SdfPhase0InsetPixels, 0.0);
+				float hitThresholdWorld = worldTexel * max(_SdfPhase0InsetPixels, 0.0);
 				float t = rayRange.x;
 				float endT = rayRange.y;
 
@@ -272,14 +337,16 @@ Shader "Hidden/RadianceCascadesSdf"
 					}
 
 					float sdf = sdfSample.r;
-					float distanceToBoundary = abs(sdf);
-
-					if (distanceToBoundary <= hitThresholdWorld)
+					if (sdf <= -sourceInsetWorld)
 					{
-						return float4(SampleBoundaryRadiance(currentPosition, payload), 0.0);
+						float depthWorld = max(-sdf - sourceInsetWorld, 0.0);
+						float3 sourceRadiance = SampleBoundaryRadiance(currentPosition, payload) * sourceStepWorld;
+						return float4(ApplyApproximateAbsorption(sourceRadiance, payload, depthWorld), 0.0);
 					}
 
-					float advanceWorld = max(distanceToBoundary, hitThresholdWorld);
+					float distanceToBoundary = abs(sdf);
+
+					float advanceWorld = max(distanceToBoundary, sourceStepWorld);
 					t += advanceWorld / worldStepScale;
 				}
 
@@ -295,6 +362,10 @@ Shader "Hidden/RadianceCascadesSdf"
 				float blockIndex = block2DIndex.x + block2DIndex.y * blockSqrtCount;
 				float2 coordsInBlock = fmod(pixelIndex, blockDim);
 				float2 rayOrigin = (coordsInBlock + 0.5) * blockSqrtCount / _CascadeResolution;
+				if (SkipHybridPhase0(rayOrigin))
+				{
+					return 0.0;
+				}
 				float2 rayRange = CalculateRayRange(_CascadeLevel, _CascadeCount);
 				float4 finalResult = 0.0;
 

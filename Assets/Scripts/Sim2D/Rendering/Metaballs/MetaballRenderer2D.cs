@@ -137,14 +137,13 @@ namespace Seb.Fluid2D.Rendering
 				return true;
 			}
 
-			return lighting.ShouldRenderCaustics()
+			return lighting.lightingMode == ParticleFluidLighting2D.LightingMode.FullCaustics
 			       && (lighting.temporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.CausticMotion
 			           || lighting.debugMode == ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion);
 		}
 
 		public ParticleFluidLighting2D.FrameContext CreateLightingContext(ParticleDisplay2D display, Camera cam)
 		{
-			ParticleFluidLighting2D lighting = GetActiveLighting(display);
 			return new ParticleFluidLighting2D.FrameContext(
 				display,
 				cam,

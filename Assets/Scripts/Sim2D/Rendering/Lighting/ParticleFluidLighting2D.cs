@@ -20,6 +20,8 @@ namespace Seb.Fluid2D.Rendering
 			[Min(0f)] public float absorption = 0f;
 			[Tooltip("Blends ray absorption colour from the phase albedo gradient toward Diffuse Light Tint. 0 uses the current albedo-based absorption; 1 uses Diffuse Light Tint.")]
 			[Range(0f, 1f)] public float absorptionDiffuseTintBlend = 0f;
+			[Tooltip("Blends volumetric radiance-cascade absorption colour from the phase albedo gradient toward Diffuse Light Tint. This does not affect direct caustic absorption.")]
+			[Range(0f, 1f)] public float radianceCascadeAbsorptionDiffuseTintBlend = 0f;
 			[Range(0f, 1f)] public float reflectance = 0f;
 			[Range(0.02f, 1f)] public float roughness = 0.35f;
 			[Range(0f, 1f)] public float metallic = 0f;
@@ -54,19 +56,17 @@ namespace Seb.Fluid2D.Rendering
 			{
 				public float azimuthDegrees = 122.5f;
 				[Range(-89, 89f)] public float elevationDegrees = 50.3f;
-				[Tooltip("Angular radius of this directional light source in degrees. 0 keeps perfectly parallel rays.")]
 				[Min(0f)] public float angularRadiusDegrees = 0f;
 			}
 
 			[Serializable]
 			public class PointParams
 			{
-				public Vector2 position;
+				public Vector3 position;
 				public bool followsMouse = false;
-				[Min(0.0001f)] public float height = 8f;
 				[Tooltip("World-space radius over which point-light brightness fades to zero.")]
 				[Min(0.0001f)] public float range = 20f;
-				[Tooltip("Point-light attenuation exponent. 1 is linear, higher values make the light fall off faster near the edge of its range.")]
+				[Tooltip("Point-light attenuation exponent")]
 				[Min(0.1f)] public float falloff = 2f;
 			}
 
@@ -76,7 +76,6 @@ namespace Seb.Fluid2D.Rendering
 			[Range(1000f, 20000f)] public float temperatureKelvin = 6500f;
 			[ColorUsage(false, true)] public Color color = Color.white;
 			[Min(0f)] public float intensity = 0.45f;
-			[Tooltip("Multiplier ray allocation.")]
 			[Min(0f)] public float sampleBias = 1f;
 			public DirectionalParams directional = new();
 			public PointParams point = new();
@@ -118,7 +117,8 @@ namespace Seb.Fluid2D.Rendering
 		{
 			Off,
 			GaussianDiffuse,
-			RadianceCascade
+			RadianceCascade,
+			Hybrid
 		}
 
 		public enum RadianceCascadeTraceMode
@@ -131,7 +131,8 @@ namespace Seb.Fluid2D.Rendering
 		{
 			AlbedoEmission,
 			SkyLitAlbedo,
-			CausticAlbedo
+			CausticAlbedo,
+			GaussianPhase0
 		}
 
 		public enum LightingDebugVisualization
@@ -179,6 +180,8 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0.1f)] public float screenSpaceReflectionEdgePower = 1.5f;
 		[Tooltip("Base virtual-depth scale in material-map pixels for sampling caustic light colour outside the blob for rasterized specular highlights.")]
 		[Min(0f)] public float specularCausticSampleOffset = 6f;
+		[Tooltip("Widens sharp specular lobes based on screen-space normal derivatives to reduce highlight aliasing. 0 disables it.")]
+		[Min(0f)] public float specularAntiAliasingStrength = 1f;
 
 		[Header("Transmission")]
 		[Min(0f)] public float transmissionIntensity = 0.2f;
@@ -249,20 +252,18 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0f)] public float radianceCascadeDirectionalLightStrength = 1f;
 		[Tooltip("Normalized cascade level where directional light starts contributing. 0 lets it affect all cascades; 1 restricts it to the highest cascade only.")]
 		[Range(0f, 1f)] public float radianceCascadeDirectionalLightCascadeStart = 1f;
-		[Tooltip("Uses the phase-boundary SDF as a high-resolution visibility test for the volumetric RC directional light. Blob/caustic emission still uses volumetric tracing.")]
-		public bool radianceCascadeDirectionalLightSdfVisibility = false;
-		[Tooltip("Phase-boundary SDF mode hit thickness in soft-light texture pixels. Higher values make thin boundaries catch more rays but can thicken/brighten boundary emission.")]
-		[Min(0f)] public float radianceCascadeSdfBoundaryThicknessPixels = 1.5f;
-		[Tooltip("How phase-boundary SDF hits create radiance: direct albedo emission, directional sky-lit albedo, or caustic texture tinted by albedo.")]
+		[Tooltip("How far the phase-0 source region is inset inward in phase-boundary SDF mode, in soft-light texture pixels. Higher values shrink the effective phase-0 source region and also widen the directional-light visibility shell.")]
+		[Min(0f)] public float radianceCascadeSdfPhase0InsetPixels = 1.5f;
+		[Tooltip("How phase-boundary SDF hits create radiance: direct albedo emission, directional sky-lit albedo, caustic texture tinted by albedo, or the preserved gaussian phase-0 soft light.")]
 		public RadianceCascadeSdfBoundarySource radianceCascadeSdfBoundarySource = RadianceCascadeSdfBoundarySource.AlbedoEmission;
+		[Tooltip("Applies a cheap absorption approximation in phase-boundary SDF mode based on signed-distance depth inside phase 0. Useful for comparing SDF RC against volumetric RC without full marching cost.")]
+		public bool radianceCascadeSdfApproximateAbsorption = false;
 		[Tooltip("How much radiance-cascade lighting is visible on phase 0 in the final composite.")]
 		[Min(0f)] public float radianceCascadePhase0Visibility = 0f;
 		[Tooltip("How much radiance-cascade lighting is visible on phase 1 in the final composite.")]
 		[Min(0f)] public float radianceCascadePhase1Visibility = 1f;
 		[Tooltip("Amount of sharp direct caustic lighting kept while a soft SSS pass is enabled. 0 replaces sharp caustics with soft SSS, 1 keeps the previous sharp+soft result.")]
 		[Range(0f, 1f)] public float radianceCascadeDirectCausticStrength = 1f;
-		[Tooltip("Applies the same Beer-Lambert RGB absorption used by raymarched caustics while radiance cascade rays travel through phase 0 and phase 1.")]
-		public bool radianceCascadeAbsorption = true;
 
 		[Header("Raymarched Lighting - Temporal Denoising")]
 		public bool denoisingEnabled = true;
@@ -338,6 +339,7 @@ namespace Seb.Fluid2D.Rendering
 		internal RenderTexture causticMotionDilationScratchTexture;
 		internal RenderTexture softLightTexture0;
 		internal RenderTexture softLightTexture1;
+		internal RenderTexture softLightPhase0Texture;
 		internal RenderTexture radianceCascadeSdfSeedA;
 		internal RenderTexture radianceCascadeSdfSeedB;
 		internal RenderTexture radianceCascadeSdfPayloadA;
@@ -470,6 +472,7 @@ namespace Seb.Fluid2D.Rendering
 			destination.indexOfRefraction = source.indexOfRefraction;
 			destination.absorption = source.absorption;
 			destination.absorptionDiffuseTintBlend = source.absorptionDiffuseTintBlend;
+			destination.radianceCascadeAbsorptionDiffuseTintBlend = source.radianceCascadeAbsorptionDiffuseTintBlend;
 			destination.reflectance = source.reflectance;
 			destination.roughness = source.roughness;
 			destination.metallic = source.metallic;
@@ -718,7 +721,7 @@ namespace Seb.Fluid2D.Rendering
 			);
 
 			ApplyTemporalSettings(context, combinedAccumulationTexture, velocityPhase0AccumulationTexture, velocityPhase1AccumulationTexture);
-			bool renderCaustics = ShouldRenderCaustics();
+			bool renderCaustics = lightingMode == LightingMode.FullCaustics;
 			bool renderSoftLight = ShouldRenderPhaseDiffuseLight() || ShouldRenderRadianceCascadeLight();
 			Texture causticTexture = renderCaustics
 				? (denoisingEnabled ? causticTemporalTexture : causticResolvedTexture)
@@ -815,6 +818,7 @@ namespace Seb.Fluid2D.Rendering
 			lightingMaterial.SetFloat("screenSpaceReflectionDistance", screenSpaceReflectionDistance * currentZoomScale);
 			lightingMaterial.SetFloat("screenSpaceReflectionEdgePower", screenSpaceReflectionEdgePower);
 			lightingMaterial.SetFloat("particleSpecularCausticSampleOffset", specularCausticSampleOffset * currentZoomScale);
+			lightingMaterial.SetFloat("particleSpecularAntiAliasingStrength", specularAntiAliasingStrength);
 			Vector4 phaseRadiusScale = GetPhaseRadiusScale(display.metaballs.phase0RenderBias);
 			lightingMaterial.SetVector("particleSpecularCausticPhaseScale", phaseRadiusScale);
 			lightingMaterial.SetVector("particleAmbientOcclusionPhaseScale", phaseRadiusScale);
@@ -844,7 +848,7 @@ namespace Seb.Fluid2D.Rendering
 
 		public static Vector4 GetPointLightVector(FluidLightSettings light)
 		{
-			return new Vector4(light.point.position.x, light.point.position.y, Mathf.Max(light.point.height, 0.0001f), Mathf.Max(light.point.range, 0.0001f));
+			return new Vector4(light.point.position.x, light.point.position.y, Mathf.Max(light.point.position.z, 0.0001f), Mathf.Max(light.point.range, 0.0001f));
 		}
 		
 		internal void Render(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, Camera cam)
@@ -873,11 +877,6 @@ namespace Seb.Fluid2D.Rendering
 			lightingMaterial.SetInt("particleFluidClipRegionEnabled", 0);
 			lightingMaterial.SetVector("particleFluidClipRect", materialRenderRegion.SourceUvRect);
 		}
-		
-		public bool ShouldRenderCaustics()
-		{
-			return lightingMode == LightingMode.FullCaustics && computeShader != null;
-		}
 
 		public bool ShouldRenderProjectedShadows()
 		{
@@ -890,8 +889,8 @@ namespace Seb.Fluid2D.Rendering
 		public bool ShouldRenderPhaseDiffuseLight()
 		{
 			PhaseMaterialSettings[] materials = PhaseMaterials;
-			return ShouldRenderCaustics()
-			       && softLightMode == SoftLightMode.GaussianDiffuse
+			return lightingMode == LightingMode.FullCaustics
+			       && (softLightMode == SoftLightMode.GaussianDiffuse || softLightMode == SoftLightMode.Hybrid)
 			       && phaseDiffuseLightCompute != null
 			       && (
 				       materials[0].diffuseScatterStrength > 0f
@@ -904,7 +903,7 @@ namespace Seb.Fluid2D.Rendering
 			bool hasShader = radianceCascadeTraceMode == RadianceCascadeTraceMode.PhaseBoundarySdf
 				? (radianceCascadeSdfShader != null || Shader.Find("Hidden/Particle2DMetaballRadianceCascadesSdf") != null)
 				: radianceCascadeShader != null;
-			return softLightMode == SoftLightMode.RadianceCascade
+			return (softLightMode == SoftLightMode.RadianceCascade || softLightMode == SoftLightMode.Hybrid)
 			       && hasShader;
 		}
 
@@ -964,6 +963,15 @@ namespace Seb.Fluid2D.Rendering
 				int softLightHeight = Mathf.Max(1, Mathf.RoundToInt(causticHeight * softLightScale));
 				ComputeHelper.CreateRenderTexture(ref softLightTexture0, softLightWidth, softLightHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Diffuse Light 0");
 				ComputeHelper.CreateRenderTexture(ref softLightTexture1, softLightWidth, softLightHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Diffuse Light 1");
+				if (softLightMode == SoftLightMode.Hybrid)
+				{
+					ComputeHelper.CreateRenderTexture(ref softLightPhase0Texture, softLightWidth, softLightHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Diffuse Light Phase 0");
+				}
+				else
+				{
+					ComputeHelper.Release(softLightPhase0Texture);
+					softLightPhase0Texture = null;
+				}
 				if (renderRadianceCascadeLight && UsesRadianceCascadeSdfField())
 				{
 					ComputeHelper.CreateRenderTexture(ref radianceCascadeSdfSeedA, softLightWidth, softLightHeight, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D RC SDF Seed A");
@@ -989,7 +997,7 @@ namespace Seb.Fluid2D.Rendering
 				ReleasePhaseDiffuseLightTextures();
 			}
 
-			if (ShouldRenderCaustics())
+			if (lightingMode == LightingMode.FullCaustics)
 			{
 				RenderTexture CreateHistoryBackup(RenderTexture source, string name)
 				{

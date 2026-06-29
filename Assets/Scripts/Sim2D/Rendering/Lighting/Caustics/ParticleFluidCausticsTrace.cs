@@ -101,7 +101,7 @@ namespace Seb.Fluid2D.Rendering
 			float analyticBoundaryExpansion = context.analyticBoundaryExpansion;
 			ParticleDisplay2D.MetaballSettings surface = display.metaballs;
 			ComputeShader compute = owner.computeShader;
-			bool renderCausticMotion = owner.ShouldRenderCaustics() && (owner.temporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.CausticMotion || owner.debugMode == ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion);
+			bool renderCausticMotion = owner.lightingMode == ParticleFluidLighting2D.LightingMode.FullCaustics && (owner.temporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.CausticMotion || owner.debugMode == ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion);
 			int clearKernel = compute.FindKernel("Clear");
 			int traceKernel = compute.FindKernel("Trace");
 			int resolveKernel = compute.FindKernel("Resolve");

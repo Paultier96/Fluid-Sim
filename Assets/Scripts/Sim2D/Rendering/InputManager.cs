@@ -46,7 +46,8 @@ namespace Seb.Fluid2D.Rendering
 		{
 			if (light != null && light.type == ParticleFluidLighting2D.FluidLightSettings.LightType.Point && light.point.followsMouse)
 			{
-				light.point.position = mouseWorldPosition;
+				light.point.position.x = mouseWorldPosition.x;
+				light.point.position.y = mouseWorldPosition.y;
 			}
 		}
 

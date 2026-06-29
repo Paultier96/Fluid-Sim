@@ -30,7 +30,7 @@ namespace Seb.Fluid2D.Rendering
 
 		public Texture GetSharpCausticsTexture()
 		{
-			if (!ShouldRenderCaustics())
+			if (!(lightingMode == LightingMode.FullCaustics))
 			{
 				return Texture2D.blackTexture;
 			}
@@ -382,9 +382,10 @@ namespace Seb.Fluid2D.Rendering
 		
 		void ReleasePhaseDiffuseLightTextures()
 		{
-			ComputeHelper.Release(softLightTexture0, softLightTexture1, radianceCascadeSdfSeedA, radianceCascadeSdfSeedB, radianceCascadeSdfPayloadA, radianceCascadeSdfPayloadB, radianceCascadeSdfNormalA, radianceCascadeSdfNormalB);
+			ComputeHelper.Release(softLightTexture0, softLightTexture1, softLightPhase0Texture, radianceCascadeSdfSeedA, radianceCascadeSdfSeedB, radianceCascadeSdfPayloadA, radianceCascadeSdfPayloadB, radianceCascadeSdfNormalA, radianceCascadeSdfNormalB);
 			softLightTexture0 = null;
 			softLightTexture1 = null;
+			softLightPhase0Texture = null;
 			radianceCascadeSdfSeedA = null;
 			radianceCascadeSdfSeedB = null;
 			radianceCascadeSdfPayloadA = null;

@@ -75,7 +75,6 @@ float CausticsLightPointAngleStart(int lightIndex) { return CausticsLightOptics(
 float CausticsLightPointAngleRange(int lightIndex) { return CausticsLightOptics(lightIndex).w; }
 int CausticsLightRayCount(int lightIndex) { return (int)(CausticsLightRay(lightIndex).x + 0.5); }
 int CausticsLightSubRaysPerPixel(int lightIndex) { return (int)(CausticsLightRay(lightIndex).y + 0.5); }
-float CausticsLightRayStartOffset(int lightIndex) { return CausticsLightRay(lightIndex).z; }
 float CausticsLightRaySpacing(int lightIndex) { return CausticsLightRay(lightIndex).w; }
 float CausticsLightTemperatureKelvin(int lightIndex) { return CausticsLightExtra(lightIndex).x; }
 float CausticsLightDispersionScale(int lightIndex) { return CausticsLightExtra(lightIndex).y; }
@@ -790,7 +789,7 @@ bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir, out float3 lightM
 	float lightAngularRadius = CausticsLightAngularRadius(lightIndex);
 	float pointLightAngleStart = CausticsLightPointAngleStart(lightIndex);
 	float pointLightAngleRange = CausticsLightPointAngleRange(lightIndex);
-	float rayStartOffset = CausticsLightRayStartOffset(lightIndex);
+	float rayStartOffset = CausticsLightRay(lightIndex).z;
 	float raySpacing = CausticsLightRaySpacing(lightIndex);
 	lightMultiplier = CausticsLightMultiplier(lightIndex);
 	lightSampleWeight = splitBySubRay

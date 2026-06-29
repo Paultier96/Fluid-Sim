@@ -71,6 +71,7 @@ float particleFresnelPower;
 float screenSpaceReflectionDistance;
 float screenSpaceReflectionEdgePower;
 float particleSpecularCausticSampleOffset;
+float particleSpecularAntiAliasingStrength;
 float2 particleSpecularCausticPhaseScale;
 float particleTransmissionIntensity;
 float particleTransmissionPower;
@@ -424,7 +425,24 @@ float PhaseAmbientOcclusion(float3 normal, float phaseRadiusScale)
 	return pow(saturate(1.0 - normal.z), scaledPower) * particleAmbientOcclusion;
 }
 
-float3 ParticleDirectLightTerm(float3 colour, float3 normal, float3 lightDir, float reflectance, float roughness, float metallic, float3 directLightIrradiance, float3 specularLightIrradiance, float3 lightColor, float lightIntensity, float causticAdditiveBlend)
+float ApplySpecularAntiAliasing(float perceptualRoughness, float3 normal, float phaseT)
+{
+	if (particleSpecularAntiAliasingStrength <= 0.0001)
+	{
+		return saturate(perceptualRoughness);
+	}
+
+	float3 dndx = ddx(normal);
+	float3 dndy = ddy(normal);
+	float normalVariance = dot(dndx, dndx) + dot(dndy, dndy);
+	float phaseBoundaryDistance = abs(phaseT - 0.5);
+	float phaseBoundaryWidth = max(fwidth(phaseT) * 2.0, 0.0001);
+	float interiorMask = smoothstep(phaseBoundaryWidth, phaseBoundaryWidth * 3.0, phaseBoundaryDistance);
+	float roughness2 = perceptualRoughness * perceptualRoughness + normalVariance * particleSpecularAntiAliasingStrength * interiorMask;
+	return saturate(sqrt(roughness2));
+}
+
+float3 ParticleDirectLightTerm(float3 colour, float3 normal, float phaseT, float3 lightDir, float reflectance, float roughness, float metallic, float3 directLightIrradiance, float3 specularLightIrradiance, float3 lightColor, float lightIntensity, float causticAdditiveBlend)
 {
 	float nDotL = saturate(dot(normal, lightDir));
 	float3 directLight = lightColor * directLightIrradiance * lightIntensity;
@@ -432,7 +450,7 @@ float3 ParticleDirectLightTerm(float3 colour, float3 normal, float3 lightDir, fl
 	float3 viewDir = float3(0.0, 0.0, 1.0);
 	float3 halfVector = lightDir + viewDir;
 	float3 halfDir = halfVector / max(length(halfVector), 0.0001);
-	float perceptualRoughness = saturate(roughness);
+	float perceptualRoughness = ApplySpecularAntiAliasing(saturate(roughness), normal, phaseT);
 	float roughness2 = max(perceptualRoughness * perceptualRoughness, 0.0004);
 	float specularPower = max(1.0, 2.0 / max(roughness2 * roughness2, 0.0001) - 2.0);
 	float dielectricReflectance = 0.04 * (1.0 - saturate(metallic));
@@ -451,7 +469,7 @@ float3 ParticleDirectLightTerm(float3 colour, float3 normal, float3 lightDir, fl
 	;
 }
 
-float3 ApplyParticleLightingWithSource(float3 colour, float3 normal, float phaseRadiusScale, float3 lightDir, float reflectance, float roughness, float metallic, float3 directLightIrradiance, float3 specularLightIrradiance, float3 lightColor, float lightIntensity, float causticAdditiveBlend)
+float3 ApplyParticleLightingWithSource(float3 colour, float3 normal, float phaseT, float phaseRadiusScale, float3 lightDir, float reflectance, float roughness, float metallic, float3 directLightIrradiance, float3 specularLightIrradiance, float3 lightColor, float lightIntensity, float causticAdditiveBlend)
 {
 	float3 viewDir = float3(0.0, 0.0, 1.0);
 	float fresnel = pow(saturate(1.0 - dot(normal, viewDir)), max(particleFresnelPower, 0.1)) * particleFresnelIntensity;
@@ -460,21 +478,21 @@ float3 ApplyParticleLightingWithSource(float3 colour, float3 normal, float phase
 	float3 ambient = colour * particleAmbientLight;
 	return
 		ambient
-		+ ParticleDirectLightTerm(colour, normal, lightDir, reflectance, roughness, metallic, directLightIrradiance, specularLightIrradiance, lightColor, lightIntensity, causticAdditiveBlend)
+		+ ParticleDirectLightTerm(colour, normal, phaseT, lightDir, reflectance, roughness, metallic, directLightIrradiance, specularLightIrradiance, lightColor, lightIntensity, causticAdditiveBlend)
 		+ particleFresnelColor.rgb * fresnel
 	;
 }
 
-float3 ApplyParticleLighting(float3 colour, float3 normal, float phaseRadiusScale, float3 lightDir, float reflectance, float roughness, float metallic, float3 directLightIrradiance, float3 specularLightIrradiance)
+float3 ApplyParticleLighting(float3 colour, float3 normal, float phaseT, float phaseRadiusScale, float3 lightDir, float reflectance, float roughness, float metallic, float3 directLightIrradiance, float3 specularLightIrradiance)
 {
-	return ApplyParticleLightingWithSource(colour, normal, phaseRadiusScale, lightDir, reflectance, roughness, metallic, directLightIrradiance, specularLightIrradiance, particleLightColors[0].rgb, ParticleLightIntensity(0), 0.0);
+	return ApplyParticleLightingWithSource(colour, normal, phaseT, phaseRadiusScale, lightDir, reflectance, roughness, metallic, directLightIrradiance, specularLightIrradiance, particleLightColors[0].rgb, ParticleLightIntensity(0), 0.0);
 }
 
-float3 ApplyParticleAdditionalLighting(float3 colour, float3 normal, float phaseRadiusScale, float3 lightDir, float reflectance, float roughness, float metallic, float3 directLightIrradiance, float3 specularLightIrradiance, int lightIndex, float causticAdditiveBlend)
+float3 ApplyParticleAdditionalLighting(float3 colour, float3 normal, float phaseT, float phaseRadiusScale, float3 lightDir, float reflectance, float roughness, float metallic, float3 directLightIrradiance, float3 specularLightIrradiance, int lightIndex, float causticAdditiveBlend)
 {
 	float ambientOcclusion = PhaseAmbientOcclusion(normal, phaseRadiusScale);
 	colour *= 1.0 - ambientOcclusion;
-	return ParticleDirectLightTerm(colour, normal, lightDir, reflectance, roughness, metallic, directLightIrradiance, specularLightIrradiance, particleLightColors[lightIndex].rgb, ParticleLightIntensity(lightIndex), causticAdditiveBlend);
+	return ParticleDirectLightTerm(colour, normal, phaseT, lightDir, reflectance, roughness, metallic, directLightIrradiance, specularLightIrradiance, particleLightColors[lightIndex].rgb, ParticleLightIntensity(lightIndex), causticAdditiveBlend);
 }
 float4 fragSplitLighting(v2f i) : SV_Target
 {
@@ -531,8 +549,8 @@ float4 fragSplitLighting(v2f i) : SV_Target
 	float phase0PrimaryCausticAdditiveBlend = primaryUsesCausticLight ? ParticlePhaseCausticAdditiveBlend(0) : 0.0;
 	float phase1PrimaryCausticAdditiveBlend = primaryUsesCausticLight ? ParticlePhaseCausticAdditiveBlend(1) : 0.0;
 	float3 lightDir = ResolveParticleLightDirection(0, worldPos);
-	float3 lit0 = ApplyParticleLightingWithSource(materialAlbedo.rgb, normal0, particleAmbientOcclusionPhaseScale.x, lightDir, ParticlePhaseReflectance(0), ParticlePhaseRoughness(0), ParticlePhaseMetallic(0), primaryDirectLightIrradiance0, primarySpecularLightIrradiance0, directLightColor, directLightIntensity, phase0PrimaryCausticAdditiveBlend);
-	float3 lit1 = ApplyParticleLightingWithSource(materialAlbedo.rgb, normal1, particleAmbientOcclusionPhaseScale.y, lightDir, ParticlePhaseReflectance(1), ParticlePhaseRoughness(1), ParticlePhaseMetallic(1), primaryDirectLightIrradiance1, primarySpecularLightIrradiance1, directLightColor, directLightIntensity, phase1PrimaryCausticAdditiveBlend);
+	float3 lit0 = ApplyParticleLightingWithSource(materialAlbedo.rgb, normal0, phaseT, particleAmbientOcclusionPhaseScale.x, lightDir, ParticlePhaseReflectance(0), ParticlePhaseRoughness(0), ParticlePhaseMetallic(0), primaryDirectLightIrradiance0, primarySpecularLightIrradiance0, directLightColor, directLightIntensity, phase0PrimaryCausticAdditiveBlend);
+	float3 lit1 = ApplyParticleLightingWithSource(materialAlbedo.rgb, normal1, phaseT, particleAmbientOcclusionPhaseScale.y, lightDir, ParticlePhaseReflectance(1), ParticlePhaseRoughness(1), ParticlePhaseMetallic(1), primaryDirectLightIrradiance1, primarySpecularLightIrradiance1, directLightColor, directLightIntensity, phase1PrimaryCausticAdditiveBlend);
 	[unroll]
 	for (int lightIndex = 1; lightIndex < 3; lightIndex++)
 	{
@@ -546,8 +564,8 @@ float4 fragSplitLighting(v2f i) : SV_Target
 			float3 additionalSpecularLightIrradiance0 = ParticleLightType(lightIndex) == 1 ? pointIrradiance : specularCausticIrradiance0;
 			float3 additionalSpecularLightIrradiance1 = ParticleLightType(lightIndex) == 1 ? pointIrradiance : specularCausticIrradiance1;
 			bool additionalUsesCausticLight = particleFluidCausticsEnabled != 0 && ParticleLightType(lightIndex) == 0;
-			lit0 += ApplyParticleAdditionalLighting(materialAlbedo.rgb, normal0, particleAmbientOcclusionPhaseScale.x, additionalLightDir, ParticlePhaseReflectance(0), ParticlePhaseRoughness(0), ParticlePhaseMetallic(0), additionalDirectLightIrradiance0, additionalSpecularLightIrradiance0, lightIndex, additionalUsesCausticLight ? ParticlePhaseCausticAdditiveBlend(0) : 0.0);
-			lit1 += ApplyParticleAdditionalLighting(materialAlbedo.rgb, normal1, particleAmbientOcclusionPhaseScale.y, additionalLightDir, ParticlePhaseReflectance(1), ParticlePhaseRoughness(1), ParticlePhaseMetallic(1), additionalDirectLightIrradiance1, additionalSpecularLightIrradiance1, lightIndex, additionalUsesCausticLight ? ParticlePhaseCausticAdditiveBlend(1) : 0.0);
+			lit0 += ApplyParticleAdditionalLighting(materialAlbedo.rgb, normal0, phaseT, particleAmbientOcclusionPhaseScale.x, additionalLightDir, ParticlePhaseReflectance(0), ParticlePhaseRoughness(0), ParticlePhaseMetallic(0), additionalDirectLightIrradiance0, additionalSpecularLightIrradiance0, lightIndex, additionalUsesCausticLight ? ParticlePhaseCausticAdditiveBlend(0) : 0.0);
+			lit1 += ApplyParticleAdditionalLighting(materialAlbedo.rgb, normal1, phaseT, particleAmbientOcclusionPhaseScale.y, additionalLightDir, ParticlePhaseReflectance(1), ParticlePhaseRoughness(1), ParticlePhaseMetallic(1), additionalDirectLightIrradiance1, additionalSpecularLightIrradiance1, lightIndex, additionalUsesCausticLight ? ParticlePhaseCausticAdditiveBlend(1) : 0.0);
 		}
 	}
 

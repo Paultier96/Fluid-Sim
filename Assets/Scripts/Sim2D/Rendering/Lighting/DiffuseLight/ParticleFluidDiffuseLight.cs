@@ -38,8 +38,13 @@ namespace Seb.Fluid2D.Rendering
 			if (renderPhaseDiffuse)
 			{
 				phase0SoftLightTexture = RenderPhaseDiffuseLight(context, targetCommandBuffer, surface, sharpCaustics, combinedAccumulationTexture);
+				if (renderRadianceCascade && owner.softLightMode == ParticleFluidLighting2D.SoftLightMode.Hybrid && owner.softLightPhase0Texture != null)
+				{
+					targetCommandBuffer.Blit(phase0SoftLightTexture, owner.softLightPhase0Texture);
+					phase0SoftLightTexture = owner.softLightPhase0Texture;
+				}
 			}
-			else if (renderRadianceCascade)
+			if (renderRadianceCascade)
 			{
 				switch (owner.radianceCascadeTraceMode)
 				{
@@ -258,6 +263,7 @@ namespace Seb.Fluid2D.Rendering
 			Vector2 currentWorldCenter = context.renderLayout.Caustic.WorldCenter;
 			Vector2 currentWorldSize = context.renderLayout.Caustic.WorldSize;
 			targetCommandBuffer.SetGlobalTexture("_CausticTex", sharpCaustics != null ? sharpCaustics : Texture2D.blackTexture);
+			targetCommandBuffer.SetGlobalTexture("_GaussianSoftLightTex", owner.softLightPhase0Texture != null ? owner.softLightPhase0Texture : Texture2D.blackTexture);
 			targetCommandBuffer.SetGlobalTexture("_ResultTex", sdfResult != null ? sdfResult : Texture2D.blackTexture);
 			targetCommandBuffer.SetGlobalTexture("_PayloadTex", sdfPayload);
 			targetCommandBuffer.SetGlobalVector("_CascadeResolution", new Vector4(width, height, 0f, 0f));
@@ -269,11 +275,17 @@ namespace Seb.Fluid2D.Rendering
 			ApplyRadianceCascadeLightGlobals(targetCommandBuffer, lightState);
 			targetCommandBuffer.SetGlobalFloat("_DirectionalLightStrength", owner.radianceCascadeDirectionalLightStrength);
 			targetCommandBuffer.SetGlobalFloat("_DirectionalLightCascadeStart", owner.radianceCascadeDirectionalLightCascadeStart);
-			targetCommandBuffer.SetGlobalFloat("_SdfBoundaryThicknessPixels", Mathf.Max(owner.radianceCascadeSdfBoundaryThicknessPixels, 0f));
-			targetCommandBuffer.SetGlobalInt("_DirectionalLightSdfVisibility", owner.radianceCascadeDirectionalLightSdfVisibility && !sdfBoundaryMode ? 1 : 0);
+			targetCommandBuffer.SetGlobalFloat("_SdfPhase0InsetPixels", Mathf.Max(owner.radianceCascadeSdfPhase0InsetPixels, 0f));
 			targetCommandBuffer.SetGlobalInt("_SdfBoundarySource", sdfBoundaryMode ? (int)owner.radianceCascadeSdfBoundarySource : 0);
+			targetCommandBuffer.SetGlobalInt("_SdfApproximateAbsorption", sdfBoundaryMode && owner.radianceCascadeSdfApproximateAbsorption ? 1 : 0);
+			targetCommandBuffer.SetGlobalInt("_HybridPhase1Only", owner.softLightMode == ParticleFluidLighting2D.SoftLightMode.Hybrid ? 1 : 0);
 			targetCommandBuffer.SetGlobalVector("metaballWorldCenter", new Vector4(currentWorldCenter.x, currentWorldCenter.y, 0f, 0f));
 			targetCommandBuffer.SetGlobalVector("metaballWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
+			targetCommandBuffer.SetGlobalFloat("causticsPhase0Absorption", materials[0].absorption);
+			targetCommandBuffer.SetGlobalVector("radianceCascadePhase0AbsorptionTint", materials[0].diffuseLightTint);
+			targetCommandBuffer.SetGlobalFloat("radianceCascadePhase0AbsorptionTintBlend", materials[0].radianceCascadeAbsorptionDiffuseTintBlend);
+			targetCommandBuffer.SetGlobalFloat("causticsAbsorptionAlbedoBrightnessInfluence", owner.absorptionAlbedoBrightnessInfluence);
+			targetCommandBuffer.SetGlobalFloat("causticsAbsorptionAlbedoSaturationInfluence", owner.absorptionAlbedoSaturationInfluence);
 			if (sdfBoundaryMode)
 			{
 				return;
@@ -283,21 +295,15 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetGlobalTexture("ColourMap", display.gradientTexture);
 			targetCommandBuffer.SetGlobalTexture("ColourMap2", display.gradientTexture2);
 			targetCommandBuffer.SetGlobalInt("_UseSdfSkipping", sdfResult != null ? 1 : 0);
-			targetCommandBuffer.SetGlobalInt("radianceCascadeAbsorption", owner.radianceCascadeAbsorption ? 1 : 0);
 			targetCommandBuffer.SetGlobalFloat("densityThreshold", surface.densityThreshold);
 			targetCommandBuffer.SetGlobalFloat("edgeSoftness", surface.edgeSoftness);
 			targetCommandBuffer.SetGlobalFloat("phase0RenderBias", surface.phase0RenderBias);
 			targetCommandBuffer.SetGlobalFloat("scatterStrengthA", materials[0].diffuseScatterStrength);
 			targetCommandBuffer.SetGlobalFloat("scatterStrengthB", materials[1].diffuseScatterStrength);
 			targetCommandBuffer.SetGlobalFloat("lightIntensity", 1f);
-			targetCommandBuffer.SetGlobalFloat("causticsPhase0Absorption", materials[0].absorption);
 			targetCommandBuffer.SetGlobalFloat("causticsPhase1Absorption", materials[1].absorption);
-			targetCommandBuffer.SetGlobalVector("causticsPhase0AbsorptionTint", materials[0].diffuseLightTint);
-			targetCommandBuffer.SetGlobalVector("causticsPhase1AbsorptionTint", materials[1].diffuseLightTint);
-			targetCommandBuffer.SetGlobalFloat("causticsPhase0AbsorptionTintBlend", materials[0].absorptionDiffuseTintBlend);
-			targetCommandBuffer.SetGlobalFloat("causticsPhase1AbsorptionTintBlend", materials[1].absorptionDiffuseTintBlend);
-			targetCommandBuffer.SetGlobalFloat("causticsAbsorptionAlbedoBrightnessInfluence", owner.absorptionAlbedoBrightnessInfluence);
-			targetCommandBuffer.SetGlobalFloat("causticsAbsorptionAlbedoSaturationInfluence", owner.absorptionAlbedoSaturationInfluence);
+			targetCommandBuffer.SetGlobalVector("radianceCascadePhase1AbsorptionTint", materials[1].diffuseLightTint);
+			targetCommandBuffer.SetGlobalFloat("radianceCascadePhase1AbsorptionTintBlend", materials[1].radianceCascadeAbsorptionDiffuseTintBlend);
 			SetSharedBoundsGlobals(context, targetCommandBuffer);
 			targetCommandBuffer.SetGlobalVector("metaballSourceUvRect", new Vector4(0f, 0f, 1f, 1f));
 		}
