@@ -29,8 +29,7 @@ Shader "Hidden/RadianceCascadesSdf"
 			sampler2D _UpperCascadeTex;
 			sampler2D _ResultTex;
 			sampler2D _PayloadTex;
-			sampler2D _CausticTex;
-			sampler2D _GaussianSoftLightTex;
+			sampler2D _BoundarySourceTex;
 			float _RayRange;
 			float2 _CascadeResolution;
 			int _CascadeLevel;
@@ -42,7 +41,8 @@ Shader "Hidden/RadianceCascadesSdf"
 			float _DirectionalLightStrength;
 			float _DirectionalLightCascadeStart;
 			float _SdfPhase0InsetPixels;
-			int _SdfBoundarySource;
+			int _UseBoundarySourceTex;
+			int _SdfBoundarySourceMultiplyAlbedo;
 			int _SdfApproximateAbsorption;
 			int _HybridPhase1Only;
 			float3 _DirectionalLightDirection;
@@ -209,20 +209,17 @@ Shader "Hidden/RadianceCascadesSdf"
 			float3 SampleBoundaryRadiance(float2 uv, float3 albedo)
 			{
 				float sourceScale = max(_BlobEmissionStrength, 0.0) * max(_RadianceIntensity, 0.0);
-				if (_SdfBoundarySource == 1)
+				if (_UseBoundarySourceTex != 0)
 				{
-					return SampleSkyLitBoundary(uv, albedo) * max(_BlobEmissionStrength, 0.0) * max(_RadianceIntensity, 0.0);
-				}
-				if (_SdfBoundarySource == 2)
-				{
-					return tex2Dlod(_CausticTex, float4(uv, 0.0, 0.0)).rgb * albedo * sourceScale;
-				}
-				if (_SdfBoundarySource == 3)
-				{
-					return tex2Dlod(_GaussianSoftLightTex, float4(uv, 0.0, 0.0)).rgb * albedo * sourceScale;
+					float3 sourceTex = tex2Dlod(_BoundarySourceTex, float4(uv, 0.0, 0.0)).rgb;
+					if (_SdfBoundarySourceMultiplyAlbedo != 0)
+					{
+						sourceTex *= albedo;
+					}
+					return sourceTex * sourceScale;
 				}
 
-				return albedo * sourceScale;
+				return SampleSkyLitBoundary(uv, albedo) * sourceScale;
 			}
 
 			float3 ApproximateAbsorptionColour(float3 albedo)

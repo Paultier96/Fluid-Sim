@@ -280,7 +280,7 @@ namespace Seb.Fluid2D.Rendering
 				? lighting.lightingShader
 				: Shader.Find("Hidden/Particle2DParticleFluidLighting");
 			lighting.EnsureMaterials(lightingShader);
-			if (!lighting.IsReady)
+			if (!(lighting.lightingMaterial != null))
 			{
 				materialMaps.RenderUnlit(targetCommandBuffer, materialMapMaterial, finalTarget, UnlitPass, renderRegion);
 				targetCommandBuffer.EndSample("Jump Flood/Material Pipeline");
@@ -299,10 +299,11 @@ namespace Seb.Fluid2D.Rendering
 			Vector2 projectedShadowDirection = Vector2.zero;
 			ParticleFluidProjectedShadow.RecordParams projectedShadowParams = default;
 			if (lighting.ShouldRenderProjectedShadows()
-			    && lighting.lights[0].enabled
-			    && lighting.lights[0].type == ParticleFluidLighting2D.FluidLightSettings.LightType.Directional)
+			    && lighting.lightSlots[0] != null
+			    && lighting.lightSlots[0] is ParticleFluidDirectionalLight2D directionalLight
+			    && directionalLight.isActiveAndEnabled)
 			{
-				Vector3 effectiveLightDirection = lighting.GetDirectLightingDirection(display, lighting.lights[0].Direction);
+				Vector3 effectiveLightDirection = directionalLight.GetDirectLightingDirection(lighting, display);
 				projectedShadowParams = new ParticleFluidProjectedShadow.RecordParams(
 					lighting.projectedShadowCompute,
 					lighting.projectedShadowMapBuffer,

@@ -12,6 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9d4d03e2d4df9aa4bad61f2c62a8dfd8, type: 3}
   m_Name: PhaseLookPreset-green
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Rendering.ParticleFluidPhaseLookPreset
+  gaussianDiffuseScatterStrength: 1
+  gaussianDiffuseRadius: 25
   phase0Material:
     indexOfRefraction: 1.442
     absorption: 0.5
@@ -20,8 +22,6 @@ MonoBehaviour:
     roughness: 0.25
     metallic: 0
     screenSpaceReflectionStrength: 1
-    diffuseScatterStrength: 1
-    diffuseGaussianRadius: 25
     diffuseLightTint: {r: 1, g: 1, b: 0, a: 1}
     diffuseAlbedoTintBlend: 0.25
   phase1Material:
@@ -32,8 +32,6 @@ MonoBehaviour:
     roughness: 0.3
     metallic: 0
     screenSpaceReflectionStrength: 0.2
-    diffuseScatterStrength: 0
-    diffuseGaussianRadius: 24
     diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
     diffuseAlbedoTintBlend: 0
   boundaryMaterial:
@@ -44,8 +42,6 @@ MonoBehaviour:
     roughness: 0.35
     metallic: 0
     screenSpaceReflectionStrength: 1
-    diffuseScatterStrength: 0
-    diffuseGaussianRadius: 24
     diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
     diffuseAlbedoTintBlend: 0
   phase0ColourMap:

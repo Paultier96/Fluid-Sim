@@ -325,7 +325,7 @@ namespace Seb.Fluid2D.Rendering
 			Texture causticDebugTexture =
 				lighting == null ? Texture2D.blackTexture :
 				lighting.denoisingEnabled ? lighting.causticTemporalTexture : lighting.causticResolvedTexture;
-			bool renderSoftLight = lighting != null && (lighting.ShouldRenderPhaseDiffuseLight() || lighting.ShouldRenderRadianceCascadeLight());
+			bool renderSoftLight = lighting != null && (lighting.ShouldRenderPhaseDiffuseLight() || lighting.radianceCascadeEnabled);
 			debugMaterial.SetInt("metaballPhaseDiffuseLightEnabled", renderSoftLight ? 1 : 0);
 			Texture softLightPhase0Tex = lighting != null && lighting.currentSoftLightPhase0Texture != null
 				? lighting.currentSoftLightPhase0Texture
@@ -344,8 +344,15 @@ namespace Seb.Fluid2D.Rendering
 					debugTex0 = causticDebugTexture != null ? causticDebugTexture : Texture2D.blackTexture;
 					break;
 				case 8:
-					debugTex0 = softLightPhase0Tex;
+					debugTex0 = lighting != null && lighting.currentGaussianSoftLightBlurTexture != null
+						? lighting.currentGaussianSoftLightBlurTexture
+						: Texture2D.blackTexture;
 					debugTex1 = softLightPhase1Tex;
+					break;
+				case 18:
+					debugTex0 = lighting != null && lighting.currentGaussianSoftLightInitTexture != null
+						? lighting.currentGaussianSoftLightInitTexture
+						: Texture2D.blackTexture;
 					break;
 				case 17:
 					debugTex0 = softLightPhase1Tex;
@@ -360,13 +367,10 @@ namespace Seb.Fluid2D.Rendering
 			debugMaterial.SetColor("metaballPhase1DiffuseLightTint", lighting != null ? lighting.phase1Material.diffuseLightTint : Color.white);
 			debugMaterial.SetFloat("metaballPhase0DiffuseAdditiveBlend", lighting != null ? lighting.phase0Material.diffuseAdditiveBlend : 0f);
 			debugMaterial.SetFloat("metaballPhase1DiffuseAdditiveBlend", lighting != null ? lighting.phase1Material.diffuseAdditiveBlend : 0f);
-			debugMaterial.SetFloat("metaballRadianceCascadePhase0Visibility", lighting != null ? lighting.radianceCascadePhase0Visibility : 0f);
-			debugMaterial.SetFloat("metaballRadianceCascadePhase1Visibility", lighting != null ? lighting.radianceCascadePhase1Visibility : 1f);
 			float effectiveNormalStrength = display.GetEffectiveNormalStrength(effectiveConfiguredBlurRadius);
 			debugMaterial.SetInt("debugMode", debugShaderMode);
 			debugMaterial.SetFloat("debugGradientMax", display.debugGradientMax);
 			debugMaterial.SetFloat("motionDebugDeltaTime", display.sim.CurrentSimulationDeltaTime);
-			debugMaterial.SetFloat("motionVelocityThreshold", lighting != null ? lighting.motionVelocityThreshold : 0f);
 			display.ApplyDebugClipSettings(debugMaterial);
 			debugMaterial.SetFloat("particleCausticDebugExposure", lighting != null ? lighting.GetCausticDebugExposure() : 1f);
 			debugMaterial.SetInt("particleCausticTemporalDebugEnabled", lighting != null && lighting.denoisingEnabled ? 1 : 0);
@@ -451,7 +455,7 @@ namespace Seb.Fluid2D.Rendering
 		{
 			bool useMaterialPipeline = ShouldUseMaterialPipeline(display);
 			ParticleFluidLighting2D lighting = GetActiveLighting(display);
-			bool useLighting = useMaterialPipeline && lighting != null && lighting.IsReady;
+			bool useLighting = useMaterialPipeline && lighting != null && lighting.lightingMaterial != null;
 			if (useMaterialPipeline && materialRenderer.IsReady)
 			{
 				materialRenderer.Render(targetCommandBuffer);
@@ -469,7 +473,7 @@ namespace Seb.Fluid2D.Rendering
 		{
 			bool useMaterialPipeline = ShouldUseMaterialPipeline(display);
 			ParticleFluidLighting2D lighting = GetActiveLighting(display);
-			bool useLighting = useMaterialPipeline && lighting != null && lighting.IsReady;
+			bool useLighting = useMaterialPipeline && lighting != null && lighting.lightingMaterial != null;
 			if (!useMaterialPipeline || !materialRenderer.IsReady)
 			{
 				return;
@@ -482,10 +486,10 @@ namespace Seb.Fluid2D.Rendering
 				Vector2 projectedShadowDirection = Vector2.zero;
 				ParticleFluidProjectedShadow.RecordParams projectedShadowParams = default;
 				if (lighting.ShouldRenderProjectedShadows()
-				    && lighting.lights[0].enabled
-				    && lighting.lights[0].type == ParticleFluidLighting2D.FluidLightSettings.LightType.Directional)
+				    && lighting.lightSlots[0] is ParticleFluidDirectionalLight2D directionalLight
+				    && directionalLight.isActiveAndEnabled)
 				{
-					Vector3 effectiveLightDirection = lighting.GetDirectLightingDirection(display, lighting.lights[0].Direction);
+					Vector3 effectiveLightDirection = directionalLight.GetDirectLightingDirection(lighting, display);
 					projectedShadowParams = new ParticleFluidProjectedShadow.RecordParams(
 						lighting.projectedShadowCompute,
 						lighting.projectedShadowMapBuffer,
@@ -646,6 +650,7 @@ namespace Seb.Fluid2D.Rendering
 			return settings.debugMode switch
 			{
 				ParticleFluidLighting2D.LightingDebugVisualization.Caustics => 7,
+				ParticleFluidLighting2D.LightingDebugVisualization.SoftLightInit => 18,
 				ParticleFluidLighting2D.LightingDebugVisualization.SoftLight => 8,
 				ParticleFluidLighting2D.LightingDebugVisualization.RadianceCascadeRaw => 17,
 				ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion => 10,

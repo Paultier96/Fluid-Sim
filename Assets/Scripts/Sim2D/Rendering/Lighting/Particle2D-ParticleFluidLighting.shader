@@ -47,6 +47,7 @@ int particleFluidCausticsEnabled;
 int particleFluidCausticRegionEnabled;
 float4 particleFluidCausticUvRect;
 int particleFluidPhaseDiffuseLightEnabled;
+int particleGaussianPhase0Only;
 int particleFluidProjectedShadowEnabled;
 float2 particleFluidProjectedShadowDirection;
 float particleFluidProjectedShadowOffset;
@@ -55,8 +56,6 @@ float particleFluidRadianceCascadeDirectCausticStrength;
 float4 particleFluidPhaseDiffuseLightTint[2];
 float4 particlePhaseSurface[2];
 float4 particlePhaseSoftLight[2];
-float particleFluidRadianceCascadePhase0Visibility;
-float particleFluidRadianceCascadePhase1Visibility;
 float particleFluidIridescenceIntensity;
 float particleFluidIridescenceScale;
 float4 particleLightBaseDirections[3];
@@ -72,12 +71,11 @@ float screenSpaceReflectionDistance;
 float screenSpaceReflectionEdgePower;
 float particleSpecularCausticSampleOffset;
 float particleSpecularAntiAliasingStrength;
-float2 particleSpecularCausticPhaseScale;
+float2 particlePhaseScale;
 float particleTransmissionIntensity;
 float particleTransmissionPower;
 float particleAmbientOcclusion;
 float particleAmbientOcclusionPower;
-float2 particleAmbientOcclusionPhaseScale;
 float densityThreshold;
 
 v2f vert(appdata v)
@@ -537,8 +535,8 @@ float4 fragSplitLighting(v2f i) : SV_Target
 
 	float primaryPointAttenuation = ParticleLightType(0) == 1 ? ParticlePointLightAttenuation(particleLightPoints[0], ParticleLightPointFalloff(0), worldPos) : 1.0;
 	float3 primaryPointIrradiance = float3(primaryPointAttenuation, primaryPointAttenuation, primaryPointAttenuation);
-	float3 specularCausticIrradiance0 = SampleSpecularCausticIrradiance(materialUv, normal0, particleSpecularCausticPhaseScale.x);
-	float3 specularCausticIrradiance1 = SampleSpecularCausticIrradiance(materialUv, normal1, particleSpecularCausticPhaseScale.y);
+	float3 specularCausticIrradiance0 = SampleSpecularCausticIrradiance(materialUv, normal0, particlePhaseScale.x);
+	float3 specularCausticIrradiance1 = SampleSpecularCausticIrradiance(materialUv, normal1, particlePhaseScale.y);
 	float3 primaryDirectLightIrradiance0 = ParticleLightType(0) == 1 ? primaryPointIrradiance : directLightIrradiance0;
 	float3 primaryDirectLightIrradiance1 = ParticleLightType(0) == 1 ? primaryPointIrradiance : directLightIrradiance1;
 	float3 primarySpecularLightIrradiance0 = ParticleLightType(0) == 1 ? primaryPointIrradiance : specularCausticIrradiance0;
@@ -549,8 +547,8 @@ float4 fragSplitLighting(v2f i) : SV_Target
 	float phase0PrimaryCausticAdditiveBlend = primaryUsesCausticLight ? ParticlePhaseCausticAdditiveBlend(0) : 0.0;
 	float phase1PrimaryCausticAdditiveBlend = primaryUsesCausticLight ? ParticlePhaseCausticAdditiveBlend(1) : 0.0;
 	float3 lightDir = ResolveParticleLightDirection(0, worldPos);
-	float3 lit0 = ApplyParticleLightingWithSource(materialAlbedo.rgb, normal0, phaseT, particleAmbientOcclusionPhaseScale.x, lightDir, ParticlePhaseReflectance(0), ParticlePhaseRoughness(0), ParticlePhaseMetallic(0), primaryDirectLightIrradiance0, primarySpecularLightIrradiance0, directLightColor, directLightIntensity, phase0PrimaryCausticAdditiveBlend);
-	float3 lit1 = ApplyParticleLightingWithSource(materialAlbedo.rgb, normal1, phaseT, particleAmbientOcclusionPhaseScale.y, lightDir, ParticlePhaseReflectance(1), ParticlePhaseRoughness(1), ParticlePhaseMetallic(1), primaryDirectLightIrradiance1, primarySpecularLightIrradiance1, directLightColor, directLightIntensity, phase1PrimaryCausticAdditiveBlend);
+	float3 lit0 = ApplyParticleLightingWithSource(materialAlbedo.rgb, normal0, phaseT, particlePhaseScale.x, lightDir, ParticlePhaseReflectance(0), ParticlePhaseRoughness(0), ParticlePhaseMetallic(0), primaryDirectLightIrradiance0, primarySpecularLightIrradiance0, directLightColor, directLightIntensity, phase0PrimaryCausticAdditiveBlend);
+	float3 lit1 = ApplyParticleLightingWithSource(materialAlbedo.rgb, normal1, phaseT, particlePhaseScale.y, lightDir, ParticlePhaseReflectance(1), ParticlePhaseRoughness(1), ParticlePhaseMetallic(1), primaryDirectLightIrradiance1, primarySpecularLightIrradiance1, directLightColor, directLightIntensity, phase1PrimaryCausticAdditiveBlend);
 	[unroll]
 	for (int lightIndex = 1; lightIndex < 3; lightIndex++)
 	{
@@ -564,8 +562,8 @@ float4 fragSplitLighting(v2f i) : SV_Target
 			float3 additionalSpecularLightIrradiance0 = ParticleLightType(lightIndex) == 1 ? pointIrradiance : specularCausticIrradiance0;
 			float3 additionalSpecularLightIrradiance1 = ParticleLightType(lightIndex) == 1 ? pointIrradiance : specularCausticIrradiance1;
 			bool additionalUsesCausticLight = particleFluidCausticsEnabled != 0 && ParticleLightType(lightIndex) == 0;
-			lit0 += ApplyParticleAdditionalLighting(materialAlbedo.rgb, normal0, phaseT, particleAmbientOcclusionPhaseScale.x, additionalLightDir, ParticlePhaseReflectance(0), ParticlePhaseRoughness(0), ParticlePhaseMetallic(0), additionalDirectLightIrradiance0, additionalSpecularLightIrradiance0, lightIndex, additionalUsesCausticLight ? ParticlePhaseCausticAdditiveBlend(0) : 0.0);
-			lit1 += ApplyParticleAdditionalLighting(materialAlbedo.rgb, normal1, phaseT, particleAmbientOcclusionPhaseScale.y, additionalLightDir, ParticlePhaseReflectance(1), ParticlePhaseRoughness(1), ParticlePhaseMetallic(1), additionalDirectLightIrradiance1, additionalSpecularLightIrradiance1, lightIndex, additionalUsesCausticLight ? ParticlePhaseCausticAdditiveBlend(1) : 0.0);
+			lit0 += ApplyParticleAdditionalLighting(materialAlbedo.rgb, normal0, phaseT, particlePhaseScale.x, additionalLightDir, ParticlePhaseReflectance(0), ParticlePhaseRoughness(0), ParticlePhaseMetallic(0), additionalDirectLightIrradiance0, additionalSpecularLightIrradiance0, lightIndex, additionalUsesCausticLight ? ParticlePhaseCausticAdditiveBlend(0) : 0.0);
+			lit1 += ApplyParticleAdditionalLighting(materialAlbedo.rgb, normal1, phaseT, particlePhaseScale.y, additionalLightDir, ParticlePhaseReflectance(1), ParticlePhaseRoughness(1), ParticlePhaseMetallic(1), additionalDirectLightIrradiance1, additionalSpecularLightIrradiance1, lightIndex, additionalUsesCausticLight ? ParticlePhaseCausticAdditiveBlend(1) : 0.0);
 		}
 	}
 
@@ -575,7 +573,6 @@ float4 fragSplitLighting(v2f i) : SV_Target
 		float4 gaussianSoftLight = tex2D(SoftLightTex, softLightUv);
 		float3 softLightPhase0 = gaussianSoftLight.rgb;
 		float3 softLightPhase1 = tex2D(SoftLightTexPhase1, softLightUv).rgb;
-		float gaussianPhaseT = saturate(gaussianSoftLight.a);
 		float4 combined = tex2D(CombinedTex, materialUv);
 		float density0 = Phase0Density(combined);
 		float density1 = combined.a;
@@ -591,10 +588,12 @@ float4 fragSplitLighting(v2f i) : SV_Target
 		float3 radianceDiffuse1 = lerp(materialAlbedo.rgb, 1.0, additiveBlend1);
 		float softNormal0 = lerp(1.0, saturate(dot(normal0, lightDir)), saturate(ParticlePhaseDiffuseNormalInfluence(0)));
 		float softNormal1 = lerp(1.0, saturate(dot(normal1, lightDir)), saturate(ParticlePhaseDiffuseNormalInfluence(1)));
-		lit0 += softLightPhase0 * (1.0 - gaussianPhaseT) * gaussianDiffuse0 * softNormal0;
-		lit1 += softLightPhase0 * gaussianPhaseT * gaussianDiffuse1 * softNormal1;
-		lit0 += softLightPhase1 * radianceDiffuse0 * max(particleFluidRadianceCascadePhase0Visibility, 0.0) * softNormal0;
-		lit1 += softLightPhase1 * radianceDiffuse1 * max(particleFluidRadianceCascadePhase1Visibility, 0.0) * softNormal1;
+		lit0 += softLightPhase0 * (1.0 - phaseT) * gaussianDiffuse0 * softNormal0;
+		if (particleGaussianPhase0Only == 0)
+		{
+			lit1 += softLightPhase0 * phaseT * gaussianDiffuse1 * softNormal1;
+		}
+		lit1 += softLightPhase1 * radianceDiffuse1 * softNormal1;
 	}
 
 	lit0 = ApplyIridescence(lit0, normal0);

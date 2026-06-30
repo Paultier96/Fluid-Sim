@@ -12,6 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9d4d03e2d4df9aa4bad61f2c62a8dfd8, type: 3}
   m_Name: PhaseLookPreset-water
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Rendering.ParticleFluidPhaseLookPreset
+  gaussianDiffuseScatterStrength: 0.5
+  gaussianDiffuseRadius: 0
   phase0Material:
     indexOfRefraction: 1.333
     absorption: 0
@@ -20,8 +22,6 @@ MonoBehaviour:
     roughness: 0.25
     metallic: 0
     screenSpaceReflectionStrength: 1
-    diffuseScatterStrength: 0.5
-    diffuseGaussianRadius: 0
     diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
     causticAdditiveBlend: 0
     diffuseAdditiveBlend: 0
@@ -34,8 +34,6 @@ MonoBehaviour:
     roughness: 0.3
     metallic: 0
     screenSpaceReflectionStrength: 0.2
-    diffuseScatterStrength: 0
-    diffuseGaussianRadius: 0
     diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
     causticAdditiveBlend: 0
     diffuseAdditiveBlend: 0
@@ -48,8 +46,6 @@ MonoBehaviour:
     roughness: 0.35
     metallic: 0
     screenSpaceReflectionStrength: 1
-    diffuseScatterStrength: 0
-    diffuseGaussianRadius: 0
     diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
     causticAdditiveBlend: 0
     diffuseAdditiveBlend: 0

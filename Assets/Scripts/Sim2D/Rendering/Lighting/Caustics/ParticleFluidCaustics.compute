@@ -39,7 +39,6 @@ float causticsAbsorptionAlbedoSaturationInfluence;
 float causticsRayBrightness;
 float causticsTemporalJitterPixels;
 float causticsSurfaceNormalJitterPixels;
-float causticsMotionVelocityThreshold;
 float causticsDeltaTime;
 int useEllipticalBounds;
 float2 ellipseBoundsCenter;
@@ -216,8 +215,7 @@ float2 SamplePhaseVelocity(float2 uv, int phase)
 		return 0.0;
 	}
 
-	float2 velocity = packedVelocity.rg / packedVelocity.b;
-	return dot(velocity, velocity) >= causticsMotionVelocityThreshold * causticsMotionVelocityThreshold ? velocity : 0.0;
+	return packedVelocity.rg / packedVelocity.b;
 }
 
 int PhaseAt(float2 uv)

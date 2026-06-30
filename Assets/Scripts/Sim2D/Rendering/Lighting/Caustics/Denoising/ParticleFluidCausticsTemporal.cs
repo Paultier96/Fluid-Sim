@@ -114,10 +114,10 @@ namespace Seb.Fluid2D.Rendering
 			Vector2 projectedShadowDirection = Vector2.zero;
 			bool useProjectedShadowMap = false;
 			if (wantsProjectedShadowMap
-			    && owner.lights[0].enabled
-			    && owner.lights[0].type == ParticleFluidLighting2D.FluidLightSettings.LightType.Directional)
+			    && owner.lightSlots[0] is ParticleFluidDirectionalLight2D directionalLight
+			    && directionalLight.isActiveAndEnabled)
 			{
-				Vector3 effectiveLightDirection = owner.GetDirectLightingDirection(context.display, owner.lights[0].Direction);
+				Vector3 effectiveLightDirection = directionalLight.GetDirectLightingDirection(owner, context.display);
 				ParticleFluidProjectedShadow.RecordParams projectedShadowParams = new(
 					owner.projectedShadowCompute,
 					owner.projectedShadowMapBuffer,

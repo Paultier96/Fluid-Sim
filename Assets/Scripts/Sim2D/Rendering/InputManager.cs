@@ -34,7 +34,7 @@ namespace Seb.Fluid2D.Rendering
 				return;
 			}
 
-			foreach (ParticleFluidLighting2D.FluidLightSettings light in lighting.lights)
+			foreach (ParticleFluidLight2D light in lighting.lightSlots)
 			{
 				ApplyMousePosition(light, mouseWorldPosition);
 			}
@@ -42,18 +42,20 @@ namespace Seb.Fluid2D.Rendering
 		
 		
 
-		static void ApplyMousePosition(ParticleFluidLighting2D.FluidLightSettings light, Vector2 mouseWorldPosition)
+		static void ApplyMousePosition(ParticleFluidLight2D light, Vector2 mouseWorldPosition)
 		{
-			if (light != null && light.type == ParticleFluidLighting2D.FluidLightSettings.LightType.Point && light.point.followsMouse)
+			if (light is ParticleFluidPointLight2D pointLight && pointLight.FollowsMouse)
 			{
-				light.point.position.x = mouseWorldPosition.x;
-				light.point.position.y = mouseWorldPosition.y;
+				Vector3 position = light.transform.position;
+				position.x = mouseWorldPosition.x;
+				position.y = mouseWorldPosition.y;
+				light.transform.position = position;
 			}
 		}
 
 		bool AnyPointLightFollowsMouse()
 		{
-			foreach (ParticleFluidLighting2D.FluidLightSettings light in lighting.lights)
+			foreach (ParticleFluidLight2D light in lighting.lightSlots)
 			{
 				if (PointLightFollowsMouse(light))
 				{
@@ -63,9 +65,9 @@ namespace Seb.Fluid2D.Rendering
 			return false;
 		}
 
-		static bool PointLightFollowsMouse(ParticleFluidLighting2D.FluidLightSettings light)
+		static bool PointLightFollowsMouse(ParticleFluidLight2D light)
 		{
-			return light != null && light.type == ParticleFluidLighting2D.FluidLightSettings.LightType.Point && light.point.followsMouse;
+			return light is ParticleFluidPointLight2D pointLight && pointLight.FollowsMouse;
 		}
 
 		static bool TryGetMouseWorldPosition(out Vector2 mouseWorldPosition)
@@ -153,6 +155,10 @@ namespace Seb.Fluid2D.Rendering
 			else if (Input.GetKeyDown(KeyCode.Alpha8) || Input.GetKeyDown(KeyCode.Keypad8))
 			{
 				SetDebugMode(ParticleDisplay2D.DebugVisualization.None, ParticleFluidLighting2D.LightingDebugVisualization.SoftLight);
+			}
+			else if (Input.GetKeyDown(KeyCode.Alpha9) || Input.GetKeyDown(KeyCode.Keypad9))
+			{
+				SetDebugMode(ParticleDisplay2D.DebugVisualization.None, ParticleFluidLighting2D.LightingDebugVisualization.SoftLightInit);
 			}
 			else if (Input.GetKeyDown(KeyCode.U))
 			{

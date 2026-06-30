@@ -12,6 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9d4d03e2d4df9aa4bad61f2c62a8dfd8, type: 3}
   m_Name: PhaseLookPreset-nasty
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Rendering.ParticleFluidPhaseLookPreset
+  gaussianDiffuseScatterStrength: 1
+  gaussianDiffuseRadius: 28.7
   phase0Material:
     indexOfRefraction: 1.442
     absorption: 0.5
@@ -21,8 +23,6 @@ MonoBehaviour:
     roughness: 0.635
     metallic: 0
     screenSpaceReflectionStrength: 1
-    diffuseScatterStrength: 1
-    diffuseGaussianRadius: 28.7
     diffuseLightTint: {r: 0.575, g: 0, b: 0, a: 1}
     causticAdditiveBlend: 0
     diffuseAdditiveBlend: 0
@@ -36,8 +36,6 @@ MonoBehaviour:
     roughness: 0.186
     metallic: 0.682
     screenSpaceReflectionStrength: 0.2
-    diffuseScatterStrength: 0
-    diffuseGaussianRadius: 24
     diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
     causticAdditiveBlend: 0
     diffuseAdditiveBlend: 0.035
@@ -51,8 +49,6 @@ MonoBehaviour:
     roughness: 0.35
     metallic: 0
     screenSpaceReflectionStrength: 1
-    diffuseScatterStrength: 0
-    diffuseGaussianRadius: 24
     diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
     causticAdditiveBlend: 0
     diffuseAdditiveBlend: 0

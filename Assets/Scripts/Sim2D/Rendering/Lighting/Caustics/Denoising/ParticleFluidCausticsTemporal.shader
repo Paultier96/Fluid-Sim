@@ -36,7 +36,6 @@ float phaseBlendWidth;
 float phase0RenderBias;
 int debugMode;
 float motionDebugDeltaTime;
-float causticTemporalMotionVelocityThreshold;
 float causticTemporalHistoryWeight;
 float causticTemporalHistoryClampStrength;
 float causticTemporalClampRejection;
@@ -212,8 +211,6 @@ float4 fragCausticTemporal(v2f i) : SV_Target
 		float2 weightedVelocity = lerp(packedVelocity0.rg, packedVelocity1.rg, phaseT);
 		float weight = lerp(packedVelocity0.b, packedVelocity1.b, phaseT);
 		float2 velocityWorld = weight > 0.0001 ? weightedVelocity / weight : 0.0;
-		float velocityThresholdSq = causticTemporalMotionVelocityThreshold * causticTemporalMotionVelocityThreshold;
-		velocityWorld = dot(velocityWorld, velocityWorld) >= velocityThresholdSq ? velocityWorld : 0.0;
 		float2 motionWorld = velocityWorld * max(motionDebugDeltaTime, 0.0);
 		float2 motionHistoryUv = stationaryHistoryUv - motionWorld / max(causticHistoryWorldSize, float2(0.0001, 0.0001));
 		historyUv = lerp(stationaryHistoryUv, motionHistoryUv, step(0.0001, weight));

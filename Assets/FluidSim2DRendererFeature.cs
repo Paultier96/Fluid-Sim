@@ -70,6 +70,8 @@ namespace Seb.Fluid2D.Simulation
         readonly ImportedTexture gradient2 = new();
         readonly ImportedTexture softLight0 = new();
         readonly ImportedTexture softLight1 = new();
+        readonly ImportedTexture radianceCascade0 = new();
+        readonly ImportedTexture radianceCascade1 = new();
         readonly ImportedTexture radianceCascadeSdfSeedA = new();
         readonly ImportedTexture radianceCascadeSdfSeedB = new();
         readonly ImportedTexture radianceCascadeSdfPayloadA = new();
@@ -182,10 +184,14 @@ namespace Seb.Fluid2D.Simulation
             TextureHandle causticMotionDilationScratchHandle = renderCaustics ? causticMotionDilationScratch.Import(renderGraph, lighting.causticMotionDilationScratchTexture, "FluidSim2D Caustic Motion Dilation Scratch") : TextureHandle.nullHandle;
             TextureHandle gradientHandle = gradient.Import(renderGraph, display.gradientTexture != null ? display.gradientTexture : Texture2D.blackTexture, "FluidSim2D Gradient");
             TextureHandle gradient2Handle = gradient2.Import(renderGraph, display.gradientTexture2 != null ? display.gradientTexture2 : Texture2D.blackTexture, "FluidSim2D Gradient 2");
-            bool renderSoftLight = lighting != null && (lighting.ShouldRenderPhaseDiffuseLight() || lighting.ShouldRenderRadianceCascadeLight());
-            TextureHandle softLight0Handle = renderSoftLight ? softLight0.Import(renderGraph, lighting.softLightTexture0, "FluidSim2D Soft Light 0") : TextureHandle.nullHandle;
-            TextureHandle softLight1Handle = renderSoftLight ? softLight1.Import(renderGraph, lighting.softLightTexture1, "FluidSim2D Soft Light 1") : TextureHandle.nullHandle;
-            bool renderSdfRadianceCascade = renderSoftLight && lighting.UsesRadianceCascadeSdfField();
+            bool renderPhaseDiffuseLight = lighting != null && lighting.ShouldRenderPhaseDiffuseLight();
+            bool renderRadianceCascadeLight = lighting != null && lighting.radianceCascadeEnabled;
+            bool renderSoftLight = renderPhaseDiffuseLight || renderRadianceCascadeLight;
+            TextureHandle gaussianSoftLight0Handle = renderPhaseDiffuseLight ? softLight0.Import(renderGraph, lighting.gaussianSoftLightTexture0, "FluidSim2D Gaussian Soft Light 0") : TextureHandle.nullHandle;
+            TextureHandle gaussianSoftLight1Handle = renderPhaseDiffuseLight ? softLight1.Import(renderGraph, lighting.gaussianSoftLightTexture1, "FluidSim2D Gaussian Soft Light 1") : TextureHandle.nullHandle;
+            TextureHandle radianceCascade0Handle = renderRadianceCascadeLight ? radianceCascade0.Import(renderGraph, lighting.radianceCascadeTexture0, "FluidSim2D Radiance Cascade 0") : TextureHandle.nullHandle;
+            TextureHandle radianceCascade1Handle = renderRadianceCascadeLight ? radianceCascade1.Import(renderGraph, lighting.radianceCascadeTexture1, "FluidSim2D Radiance Cascade 1") : TextureHandle.nullHandle;
+            bool renderSdfRadianceCascade = renderSoftLight && lighting.radianceCascadeEnabled;
             TextureHandle radianceCascadeSdfSeedAHandle = renderSdfRadianceCascade ? radianceCascadeSdfSeedA.Import(renderGraph, lighting.radianceCascadeSdfSeedA, "FluidSim2D RC SDF Seed A") : TextureHandle.nullHandle;
             TextureHandle radianceCascadeSdfSeedBHandle = renderSdfRadianceCascade ? radianceCascadeSdfSeedB.Import(renderGraph, lighting.radianceCascadeSdfSeedB, "FluidSim2D RC SDF Seed B") : TextureHandle.nullHandle;
             TextureHandle radianceCascadeSdfPayloadAHandle = renderSdfRadianceCascade ? radianceCascadeSdfPayloadA.Import(renderGraph, lighting.radianceCascadeSdfPayloadA, "FluidSim2D RC SDF Payload A") : TextureHandle.nullHandle;
@@ -195,7 +201,7 @@ namespace Seb.Fluid2D.Simulation
             ParticleFluidLighting2D.FrameContext lightingContext = lighting != null
                 ? metaballRenderer.CreateLightingContext(display, camera)
                 : default;
-            int causticsFrameIndex = renderCaustics ? lighting.ReserveCausticsFrameIndex() : 0;
+            int causticsFrameIndex = renderCaustics ? lighting.causticFrameIndex++ : 0;
             bool useMaterialPipeline = metaballRenderer.UsesMaterialPipeline(display) && metaballRenderer.materialRenderer.IsReady;
 
             if (renderCaustics)
@@ -315,8 +321,10 @@ namespace Seb.Fluid2D.Simulation
                     passData.combined = combinedHandle;
                     passData.causticResolved = causticResolvedHandle;
                     passData.causticTemporal = causticTemporalHandle;
-                    passData.softLight0 = softLight0Handle;
-                    passData.softLight1 = softLight1Handle;
+                    passData.gaussianSoftLight0 = gaussianSoftLight0Handle;
+                    passData.gaussianSoftLight1 = gaussianSoftLight1Handle;
+                    passData.radianceCascade0 = radianceCascade0Handle;
+                    passData.radianceCascade1 = radianceCascade1Handle;
                     passData.radianceCascadeSdfSeedA = radianceCascadeSdfSeedAHandle;
                     passData.radianceCascadeSdfSeedB = radianceCascadeSdfSeedBHandle;
                     passData.radianceCascadeSdfPayloadA = radianceCascadeSdfPayloadAHandle;
@@ -326,8 +334,10 @@ namespace Seb.Fluid2D.Simulation
                     UseIfValid(builder, passData.combined, AccessFlags.Read);
                     UseIfValid(builder, passData.causticResolved, AccessFlags.Read);
                     UseIfValid(builder, passData.causticTemporal, AccessFlags.Read);
-                    UseIfValid(builder, passData.softLight0, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.softLight1, AccessFlags.ReadWrite);
+                    UseIfValid(builder, passData.gaussianSoftLight0, AccessFlags.ReadWrite);
+                    UseIfValid(builder, passData.gaussianSoftLight1, AccessFlags.ReadWrite);
+                    UseIfValid(builder, passData.radianceCascade0, AccessFlags.ReadWrite);
+                    UseIfValid(builder, passData.radianceCascade1, AccessFlags.ReadWrite);
                     UseIfValid(builder, passData.radianceCascadeSdfSeedA, AccessFlags.ReadWrite);
                     UseIfValid(builder, passData.radianceCascadeSdfSeedB, AccessFlags.ReadWrite);
                     UseIfValid(builder, passData.radianceCascadeSdfPayloadA, AccessFlags.ReadWrite);
@@ -386,8 +396,10 @@ namespace Seb.Fluid2D.Simulation
                 passData.causticResolved = causticResolvedHandle;
                 passData.causticTemporal = causticTemporalHandle;
                 passData.causticMotion = causticMotionHandle;
-                passData.softLight0 = softLight0Handle;
-                passData.softLight1 = softLight1Handle;
+                passData.gaussianSoftLight0 = gaussianSoftLight0Handle;
+                passData.gaussianSoftLight1 = gaussianSoftLight1Handle;
+                passData.radianceCascade0 = radianceCascade0Handle;
+                passData.radianceCascade1 = radianceCascade1Handle;
                 UseIfValid(builder, passData.color, AccessFlags.Write);
                 UseIfValid(builder, passData.depth, AccessFlags.ReadWrite);
                 UseIfValid(builder, passData.combined, AccessFlags.Read);
@@ -399,8 +411,10 @@ namespace Seb.Fluid2D.Simulation
                 UseIfValid(builder, passData.causticResolved, AccessFlags.Read);
                 UseIfValid(builder, passData.causticTemporal, AccessFlags.Read);
                 UseIfValid(builder, passData.causticMotion, AccessFlags.Read);
-                UseIfValid(builder, passData.softLight0, AccessFlags.Read);
-                UseIfValid(builder, passData.softLight1, AccessFlags.Read);
+                UseIfValid(builder, passData.gaussianSoftLight0, AccessFlags.Read);
+                UseIfValid(builder, passData.gaussianSoftLight1, AccessFlags.Read);
+                UseIfValid(builder, passData.radianceCascade0, AccessFlags.Read);
+                UseIfValid(builder, passData.radianceCascade1, AccessFlags.Read);
                 builder.AllowPassCulling(false);
                 builder.SetRenderFunc(static (CompositePassData data, UnsafeGraphContext context) =>
                 {
@@ -618,8 +632,10 @@ namespace Seb.Fluid2D.Simulation
             public TextureHandle combined;
             public TextureHandle causticResolved;
             public TextureHandle causticTemporal;
-            public TextureHandle softLight0;
-            public TextureHandle softLight1;
+            public TextureHandle gaussianSoftLight0;
+            public TextureHandle gaussianSoftLight1;
+            public TextureHandle radianceCascade0;
+            public TextureHandle radianceCascade1;
             public TextureHandle radianceCascadeSdfSeedA;
             public TextureHandle radianceCascadeSdfSeedB;
             public TextureHandle radianceCascadeSdfPayloadA;
@@ -676,8 +692,10 @@ namespace Seb.Fluid2D.Simulation
             public TextureHandle causticResolved;
             public TextureHandle causticTemporal;
             public TextureHandle causticMotion;
-            public TextureHandle softLight0;
-            public TextureHandle softLight1;
+            public TextureHandle gaussianSoftLight0;
+            public TextureHandle gaussianSoftLight1;
+            public TextureHandle radianceCascade0;
+            public TextureHandle radianceCascade1;
         }
 
         class JumpFloodPassData

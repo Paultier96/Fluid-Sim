@@ -55,14 +55,11 @@ int debugMode;
 int debugShowClipping;
 float debugGradientMax;
 float motionDebugDeltaTime;
-float motionVelocityThreshold;
 int metaballPhaseDiffuseLightEnabled;
 float4 metaballPhase0DiffuseLightTint;
 float4 metaballPhase1DiffuseLightTint;
 float metaballPhase0DiffuseAdditiveBlend;
 float metaballPhase1DiffuseAdditiveBlend;
-float metaballRadianceCascadePhase0Visibility;
-float metaballRadianceCascadePhase1Visibility;
 float causticTemporalHistoryWeight;
 int causticTemporalMotionSource;
 float2 causticCurrentWorldCenter;
@@ -478,35 +475,11 @@ float4 frag(v2f i) : SV_Target
 	}
 	if (debugMode == 8)
 	{
-		float3 softLight = 0.0;
-		if (insideCausticRegion && metaballPhaseDiffuseLightEnabled != 0)
-		{
-			float4 combined = tex2D(CombinedTex, causticLocalUv);
-			float density0 = Phase0Density(combined);
-			float density1 = combined.a;
-			float phaseT = ShiftedPhaseT(density0, density1);
-			float data0 = combined.r / max(density0, 0.0001);
-			float data1 = combined.b / max(density1, 0.0001);
-			float noise = InterleavedGradientNoise(i.vertex.xy);
-			float3 diffuseAlbedo0 = SamplePhaseGradientColour(data0, false, noise);
-			float3 diffuseAlbedo1 = SamplePhaseGradientColour(data1, true, noise);
-			float4 packedGaussianSoftLight = tex2D(DebugTex0, causticUv);
-			float3 packedSoftLight0 = packedGaussianSoftLight.rgb;
-			float3 packedSoftLight1 = tex2D(DebugTex1, causticUv).rgb;
-			float gaussianPhaseT = saturate(packedGaussianSoftLight.a);
-			float3 radianceCascadeSurfaceColour = lerp(diffuseAlbedo0, diffuseAlbedo1, phaseT);
-			float additiveBlend0 = saturate(metaballPhase0DiffuseAdditiveBlend);
-			float additiveBlend1 = saturate(metaballPhase1DiffuseAdditiveBlend);
-			float3 gaussianDiffuse0 = lerp(diffuseAlbedo0, 1.0, additiveBlend0) * metaballPhase0DiffuseLightTint.rgb;
-			float3 gaussianDiffuse1 = lerp(diffuseAlbedo1, 1.0, additiveBlend1) * metaballPhase1DiffuseLightTint.rgb;
-			float3 radianceDiffuse0 = lerp(radianceCascadeSurfaceColour, 1.0, additiveBlend0);
-			float3 radianceDiffuse1 = lerp(radianceCascadeSurfaceColour, 1.0, additiveBlend1);
-			softLight += packedSoftLight0 * (1.0 - gaussianPhaseT) * gaussianDiffuse0;
-			softLight += packedSoftLight0 * gaussianPhaseT * gaussianDiffuse1;
-			softLight += packedSoftLight1 * radianceDiffuse0 * max(metaballRadianceCascadePhase0Visibility, 0.0) * (1.0 - phaseT);
-			softLight += packedSoftLight1 * radianceDiffuse1 * max(metaballRadianceCascadePhase1Visibility, 0.0) * phaseT;
-		}
-		return float4(softLight, 1.0);
+		return insideCausticRegion ? float4(tex2D(DebugTex0, causticUv).rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
+	}
+	if (debugMode == 18)
+	{
+		return insideCausticRegion ? float4(tex2D(DebugTex0, causticUv).rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
 	}
 	if (debugMode == 17)
 	{
@@ -589,8 +562,6 @@ float4 frag(v2f i) : SV_Target
 		float2 weightedVelocity = lerp(packedVelocity0.rg, packedVelocity1.rg, phaseT);
 		float weight = lerp(packedVelocity0.b, packedVelocity1.b, phaseT);
 		float2 velocity = weight > 0.0001 ? weightedVelocity / weight : 0.0;
-		float velocityThresholdSq = motionVelocityThreshold * motionVelocityThreshold;
-		velocity = dot(velocity, velocity) >= velocityThresholdSq ? velocity : 0.0;
 		float2 debugMotion = velocity * max(motionDebugDeltaTime, 0.0);
 		float motionScale = max(debugGradientMax, 0.0001);
 		float rawMotionMagnitude = length(debugMotion) * motionScale;

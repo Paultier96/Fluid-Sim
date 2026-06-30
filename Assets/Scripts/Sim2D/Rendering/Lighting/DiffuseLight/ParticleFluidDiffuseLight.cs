@@ -32,13 +32,15 @@ namespace Seb.Fluid2D.Rendering
 		{
 			ParticleDisplay2D.MetaballSettings surface = context.display.metaballs;
 			bool renderPhaseDiffuse = owner.ShouldRenderPhaseDiffuseLight();
-			bool renderRadianceCascade = owner.ShouldRenderRadianceCascadeLight();
+			bool renderRadianceCascade = owner.radianceCascadeEnabled;
 			Texture phase0SoftLightTexture = Texture2D.blackTexture;
 			Texture phase1SoftLightTexture = Texture2D.blackTexture;
+			Texture gaussianBlurredTexture = Texture2D.blackTexture;
 			if (renderPhaseDiffuse)
 			{
 				phase0SoftLightTexture = RenderPhaseDiffuseLight(context, targetCommandBuffer, surface, sharpCaustics, combinedAccumulationTexture);
-				if (renderRadianceCascade && owner.softLightMode == ParticleFluidLighting2D.SoftLightMode.Hybrid && owner.softLightPhase0Texture != null)
+				gaussianBlurredTexture = phase0SoftLightTexture;
+				if (renderRadianceCascade && owner.gaussianDiffuseEnabled && owner.radianceCascadeEnabled && owner.softLightPhase0Texture != null)
 				{
 					targetCommandBuffer.Blit(phase0SoftLightTexture, owner.softLightPhase0Texture);
 					phase0SoftLightTexture = owner.softLightPhase0Texture;
@@ -46,16 +48,10 @@ namespace Seb.Fluid2D.Rendering
 			}
 			if (renderRadianceCascade)
 			{
-				switch (owner.radianceCascadeTraceMode)
-				{
-					case ParticleFluidLighting2D.RadianceCascadeTraceMode.PhaseBoundarySdf:
-						phase1SoftLightTexture = RenderRadianceCascadeSdfLight(context, targetCommandBuffer, surface, sharpCaustics);
-						break;
-					default:
-						phase1SoftLightTexture = RenderRadianceCascadeVolumetricLight(context, targetCommandBuffer, surface, sharpCaustics, combinedAccumulationTexture);
-						break;
-				}
+				phase1SoftLightTexture = RenderRadianceCascadeSdfLight(context, targetCommandBuffer, surface, sharpCaustics);
 			}
+			owner.currentGaussianSoftLightInitTexture = owner.gaussianSoftLightInitTexture != null ? owner.gaussianSoftLightInitTexture : Texture2D.blackTexture;
+			owner.currentGaussianSoftLightBlurTexture = gaussianBlurredTexture;
 			owner.currentSoftLightPhase0Texture = phase0SoftLightTexture;
 			owner.currentSoftLightPhase1Texture = phase1SoftLightTexture;
 			owner.lightingMaterial.SetTexture("SoftLightTex", phase0SoftLightTexture);
@@ -65,75 +61,65 @@ namespace Seb.Fluid2D.Rendering
 		Texture RenderPhaseDiffuseLight(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings surface, Texture sharpCaustics, RenderTexture combinedAccumulationTexture)
 		{
 			targetCommandBuffer.BeginSample("Metaballs/Phase Diffuse Light");
-			ComputeShader compute = owner.phaseDiffuseLightCompute;
-			int initKernel = compute.FindKernel("Init");
-			int gaussianHorizontalKernel = compute.FindKernel("MaskedGaussianHorizontal");
-			int gaussianVerticalKernel = compute.FindKernel("MaskedGaussianVertical");
-			int width = owner.softLightTexture0.width;
-			int height = owner.softLightTexture0.height;
+			Material initMaterial = owner.phaseDiffuseLightInitMaterial;
+			Material blurMaterial = owner.gaussianDiffuseBlurMaterial;
+			if (initMaterial == null || blurMaterial == null)
+			{
+				targetCommandBuffer.EndSample("Metaballs/Phase Diffuse Light");
+				return Texture2D.blackTexture;
+			}
 
-			SetPhaseDiffuseCommonParams(context, targetCommandBuffer, compute, initKernel, gaussianHorizontalKernel, gaussianVerticalKernel, width, height, sharpCaustics, surface, combinedAccumulationTexture);
-			targetCommandBuffer.SetComputeTextureParam(compute, initKernel, "SoftLightWrite", owner.softLightTexture0);
-			DispatchCompute(targetCommandBuffer, compute, initKernel, width, height);
+			int width = owner.gaussianSoftLightTexture0.width;
+			int height = owner.gaussianSoftLightTexture0.height;
 
-			RenderTexture source = owner.softLightTexture0;
-			RenderTexture target = owner.softLightTexture1;
-			SetPhaseDiffuseCommonParams(context, targetCommandBuffer, compute, initKernel, gaussianHorizontalKernel, gaussianVerticalKernel, width, height, sharpCaustics, surface, combinedAccumulationTexture);
-			targetCommandBuffer.SetComputeTextureParam(compute, gaussianHorizontalKernel, "SoftLightRead", source);
-			targetCommandBuffer.SetComputeTextureParam(compute, gaussianHorizontalKernel, "SoftLightWrite", target);
-			DispatchCompute(targetCommandBuffer, compute, gaussianHorizontalKernel, width, height);
+			SetPhaseDiffuseCommonParams(context, targetCommandBuffer, initMaterial, width, height, sharpCaustics, surface, combinedAccumulationTexture);
+			targetCommandBuffer.Blit(null, owner.gaussianSoftLightTexture0, initMaterial, 0);
+			if (owner.gaussianSoftLightInitTexture != null)
+			{
+				targetCommandBuffer.Blit(owner.gaussianSoftLightTexture0, owner.gaussianSoftLightInitTexture);
+			}
 
+			RenderTexture source = owner.gaussianSoftLightTexture0;
+			RenderTexture target = owner.gaussianSoftLightTexture1;
+			float gaussianRadiusScale = owner.GetRayTextureBlurScale(surface) * Mathf.Max(owner.gaussianDiffuseTextureScale, 0.0001f);
+			float blurRadius = owner.gaussianDiffuseRadius * gaussianRadiusScale;
+			blurMaterial.SetFloat("blurRadius", blurRadius);
+
+			targetCommandBuffer.SetGlobalVector("blurDirection", new Vector2(1f, 0f));
+			targetCommandBuffer.Blit(source, target, blurMaterial);
 			Swap(ref source, ref target);
 
-			SetPhaseDiffuseCommonParams(context, targetCommandBuffer, compute, initKernel, gaussianHorizontalKernel, gaussianVerticalKernel, width, height, sharpCaustics, surface, combinedAccumulationTexture);
-			targetCommandBuffer.SetComputeTextureParam(compute, gaussianVerticalKernel, "SoftLightRead", source);
-			targetCommandBuffer.SetComputeTextureParam(compute, gaussianVerticalKernel, "SoftLightWrite", target);
-			DispatchCompute(targetCommandBuffer, compute, gaussianVerticalKernel, width, height);
-
+			targetCommandBuffer.SetGlobalVector("blurDirection", new Vector2(0f, 1f));
+			targetCommandBuffer.Blit(source, target, blurMaterial);
 			Swap(ref source, ref target);
 
 			targetCommandBuffer.EndSample("Metaballs/Phase Diffuse Light");
 			return source;
 		}
 
-		void SetPhaseDiffuseCommonParams(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ComputeShader compute, int initKernel, int gaussianHorizontalKernel, int gaussianVerticalKernel, int width, int height, Texture sharpCaustics, ParticleDisplay2D.MetaballSettings surface, RenderTexture combinedAccumulationTexture)
+		void SetPhaseDiffuseCommonParams(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, Material material, int width, int height, Texture sharpCaustics, ParticleDisplay2D.MetaballSettings surface, RenderTexture combinedAccumulationTexture)
 		{
-			ParticleDisplay2D display = context.display;
 			ParticleFluidLighting2D.PhaseMaterialSettings[] materials = owner.PhaseMaterials;
 			Vector2 currentWorldCenter = context.renderLayout.Caustic.WorldCenter;
 			Vector2 currentWorldSize = context.renderLayout.Caustic.WorldSize;
-			targetCommandBuffer.SetComputeTextureParam(compute, initKernel, "SharpCausticsTex", sharpCaustics);
-			targetCommandBuffer.SetComputeTextureParam(compute, initKernel, "CombinedTex", combinedAccumulationTexture);
-			targetCommandBuffer.SetComputeTextureParam(compute, gaussianHorizontalKernel, "SharpCausticsTex", sharpCaustics);
-			targetCommandBuffer.SetComputeTextureParam(compute, gaussianHorizontalKernel, "CombinedTex", combinedAccumulationTexture);
-			targetCommandBuffer.SetComputeTextureParam(compute, gaussianVerticalKernel, "SharpCausticsTex", sharpCaustics);
-			targetCommandBuffer.SetComputeTextureParam(compute, gaussianVerticalKernel, "CombinedTex", combinedAccumulationTexture);
-			targetCommandBuffer.SetComputeVectorParam(compute, "softLightSize", new Vector4(width, height, 0f, 0f));
-			targetCommandBuffer.SetComputeFloatParam(compute, "densityThreshold", surface.densityThreshold);
-			targetCommandBuffer.SetComputeFloatParam(compute, "edgeSoftness", surface.edgeSoftness);
-			targetCommandBuffer.SetComputeFloatParam(compute, "phaseBlendWidth", surface.phaseBlendWidth);
-			targetCommandBuffer.SetComputeFloatParam(compute, "phase0RenderBias", surface.phase0RenderBias);
-			targetCommandBuffer.SetComputeFloatParam(compute, "phaseBoundarySharpness", owner.phaseDiffuseLightBoundarySharpness);
-			targetCommandBuffer.SetComputeFloatParam(compute, "scatterStrengthA", materials[0].diffuseScatterStrength);
-			targetCommandBuffer.SetComputeFloatParam(compute, "scatterStrengthB", materials[1].diffuseScatterStrength);
-			targetCommandBuffer.SetComputeFloatParam(compute, "lightIntensity", 1f);
-			float gaussianRadiusScale = owner.GetRayTextureBlurScale(surface) * Mathf.Max(owner.phaseDiffuseLightTextureScale, 0.0001f);
-			targetCommandBuffer.SetComputeFloatParam(compute, "gaussianRadius0", materials[0].diffuseGaussianRadius * gaussianRadiusScale);
-			targetCommandBuffer.SetComputeFloatParam(compute, "gaussianRadius1", materials[1].diffuseGaussianRadius * gaussianRadiusScale);
-			SetSharedBoundsComputeParams(context, targetCommandBuffer, compute);
-			targetCommandBuffer.SetComputeVectorParam(compute, "softLightWorldCenter", new Vector4(currentWorldCenter.x, currentWorldCenter.y, 0f, 0f));
-			targetCommandBuffer.SetComputeVectorParam(compute, "softLightWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
-			targetCommandBuffer.SetComputeVectorParam(compute, "softLightSourceUvRect", new Vector4(0f, 0f, 1f, 1f));
-		}
-
-		Texture RenderRadianceCascadeVolumetricLight(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings surface, Texture sharpCaustics, RenderTexture combinedAccumulationTexture)
-		{
-			if (!BuildRadianceCascadeSdfField(context, targetCommandBuffer, surface, out RenderTexture sdfResult, out _))
-			{
-				return RenderRadianceCascadePass(context, targetCommandBuffer, surface, sharpCaustics, combinedAccumulationTexture, null, null, owner.radianceCascadeMaterial, "Metaballs/Radiance Cascades", false);
-			}
-
-			return RenderRadianceCascadePass(context, targetCommandBuffer, surface, sharpCaustics, combinedAccumulationTexture, sdfResult, null, owner.radianceCascadeMaterial, "Metaballs/Radiance Cascades SDF Accelerated", false);
+			material.SetTexture("SharpCausticsTex", sharpCaustics);
+			material.SetTexture("CombinedTex", combinedAccumulationTexture);
+			material.SetVector("softLightSize", new Vector4(width, height, 0f, 0f));
+			material.SetFloat("densityThreshold", surface.densityThreshold);
+			material.SetFloat("edgeSoftness", surface.edgeSoftness);
+			material.SetFloat("phaseBlendWidth", surface.phaseBlendWidth);
+			material.SetFloat("phase0RenderBias", surface.phase0RenderBias);
+			material.SetFloat("scatterStrengthA", owner.gaussianDiffuseScatterStrength);
+			material.SetFloat("lightIntensity", 1f);
+			SetSharedBoundsGlobals(context, targetCommandBuffer);
+			material.SetInt("useEllipticalBounds", context.display.sim.useEllipticalBounds ? 1 : 0);
+			material.SetVector("ellipseBoundsCenter", new Vector4(context.display.sim.ellipseBoundsCenter.x, context.display.sim.ellipseBoundsCenter.y, 0f, 0f));
+			material.SetVector("ellipseBoundsSize", new Vector4(context.display.sim.ellipseBoundsSize.x, context.display.sim.ellipseBoundsSize.y, 0f, 0f));
+			material.SetFloat("obstacleY", context.display.sim.obstacleY);
+			material.SetFloat("analyticBoundaryExpansion", context.analyticBoundaryExpansion);
+			material.SetVector("softLightWorldCenter", new Vector4(currentWorldCenter.x, currentWorldCenter.y, 0f, 0f));
+			material.SetVector("softLightWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
+			material.SetVector("softLightSourceUvRect", new Vector4(0f, 0f, 1f, 1f));
 		}
 
 		Texture RenderRadianceCascadeSdfLight(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings surface, Texture sharpCaustics)
@@ -144,21 +130,21 @@ namespace Seb.Fluid2D.Rendering
 				return Texture2D.blackTexture;
 			}
 
-			return RenderRadianceCascadePass(context, targetCommandBuffer, surface, sharpCaustics, null, sdfResult, sdfPayload, owner.radianceCascadeSdfMaterial, "Metaballs/Radiance Cascades SDF", true);
+			return RenderRadianceCascadePass(context, targetCommandBuffer, surface, sharpCaustics, sdfResult, sdfPayload, owner.radianceCascadeSdfMaterial, "Metaballs/Radiance Cascades SDF");
 		}
 
-		Texture RenderRadianceCascadePass(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings surface, Texture sharpCaustics, RenderTexture combinedAccumulationTexture, RenderTexture sdfResult, RenderTexture sdfPayload, Material material, string sampleName, bool sdfBoundaryMode)
+		Texture RenderRadianceCascadePass(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings surface, Texture sharpCaustics, RenderTexture sdfResult, RenderTexture sdfPayload, Material material, string sampleName)
 		{
 			targetCommandBuffer.BeginSample(sampleName);
-			int width = owner.softLightTexture0.width;
-			int height = owner.softLightTexture0.height;
+			int width = owner.radianceCascadeTexture0.width;
+			int height = owner.radianceCascadeTexture0.height;
 			int cascadeCount = Mathf.Clamp(owner.radianceCascadeCount, 1, 6);
-			RenderTexture source = owner.softLightTexture0;
-			RenderTexture target = owner.softLightTexture1;
+			RenderTexture source = owner.radianceCascadeTexture0;
+			RenderTexture target = owner.radianceCascadeTexture1;
 			targetCommandBuffer.Blit(Texture2D.blackTexture, source);
 
 			RadianceCascadeLightState lightState = BuildRadianceCascadeLightState(context.display);
-			SetRadianceCascadeCommonParams(context, targetCommandBuffer, surface, sharpCaustics, width, height, combinedAccumulationTexture, sdfResult, sdfPayload, lightState, sdfBoundaryMode);
+			SetRadianceCascadeCommonParams(context, targetCommandBuffer, width, height, sharpCaustics, sdfResult, sdfPayload, lightState);
 			for (int level = cascadeCount - 1; level >= 0; level--)
 			{
 				targetCommandBuffer.SetGlobalInt("_CascadeLevel", level);
@@ -256,14 +242,28 @@ namespace Seb.Fluid2D.Rendering
 			return true;
 		}
 
-		void SetRadianceCascadeCommonParams(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings surface, Texture sharpCaustics, int width, int height, RenderTexture combinedAccumulationTexture, RenderTexture sdfResult, RenderTexture sdfPayload, RadianceCascadeLightState lightState, bool sdfBoundaryMode)
+		void SetRadianceCascadeCommonParams(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, int width, int height, Texture sharpCaustics, RenderTexture sdfResult, RenderTexture sdfPayload, RadianceCascadeLightState lightState)
 		{
 			ParticleDisplay2D display = context.display;
 			ParticleFluidLighting2D.PhaseMaterialSettings[] materials = owner.PhaseMaterials;
 			Vector2 currentWorldCenter = context.renderLayout.Caustic.WorldCenter;
 			Vector2 currentWorldSize = context.renderLayout.Caustic.WorldSize;
-			targetCommandBuffer.SetGlobalTexture("_CausticTex", sharpCaustics != null ? sharpCaustics : Texture2D.blackTexture);
-			targetCommandBuffer.SetGlobalTexture("_GaussianSoftLightTex", owner.softLightPhase0Texture != null ? owner.softLightPhase0Texture : Texture2D.blackTexture);
+			bool useBoundarySourceTexture = false;
+			Texture boundarySourceTexture = Texture2D.blackTexture;
+			if (owner.lightingMode == ParticleFluidLighting2D.LightingMode.FullCaustics)
+			{
+				if (owner.gaussianDiffuseEnabled && owner.radianceCascadeEnabled && owner.softLightPhase0Texture != null)
+				{
+					boundarySourceTexture = owner.softLightPhase0Texture;
+					useBoundarySourceTexture = true;
+				}
+				else if (sharpCaustics != null)
+				{
+					boundarySourceTexture = sharpCaustics;
+					useBoundarySourceTexture = true;
+				}
+			}
+			targetCommandBuffer.SetGlobalTexture("_BoundarySourceTex", boundarySourceTexture);
 			targetCommandBuffer.SetGlobalTexture("_ResultTex", sdfResult != null ? sdfResult : Texture2D.blackTexture);
 			targetCommandBuffer.SetGlobalTexture("_PayloadTex", sdfPayload);
 			targetCommandBuffer.SetGlobalVector("_CascadeResolution", new Vector4(width, height, 0f, 0f));
@@ -276,9 +276,10 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetGlobalFloat("_DirectionalLightStrength", owner.radianceCascadeDirectionalLightStrength);
 			targetCommandBuffer.SetGlobalFloat("_DirectionalLightCascadeStart", owner.radianceCascadeDirectionalLightCascadeStart);
 			targetCommandBuffer.SetGlobalFloat("_SdfPhase0InsetPixels", Mathf.Max(owner.radianceCascadeSdfPhase0InsetPixels, 0f));
-			targetCommandBuffer.SetGlobalInt("_SdfBoundarySource", sdfBoundaryMode ? (int)owner.radianceCascadeSdfBoundarySource : 0);
-			targetCommandBuffer.SetGlobalInt("_SdfApproximateAbsorption", sdfBoundaryMode && owner.radianceCascadeSdfApproximateAbsorption ? 1 : 0);
-			targetCommandBuffer.SetGlobalInt("_HybridPhase1Only", owner.softLightMode == ParticleFluidLighting2D.SoftLightMode.Hybrid ? 1 : 0);
+			targetCommandBuffer.SetGlobalInt("_UseBoundarySourceTex", useBoundarySourceTexture ? 1 : 0);
+			targetCommandBuffer.SetGlobalInt("_SdfBoundarySourceMultiplyAlbedo", owner.radianceCascadeSdfBoundarySourceMultiplyAlbedo ? 1 : 0);
+			targetCommandBuffer.SetGlobalInt("_SdfApproximateAbsorption", owner.radianceCascadeSdfApproximateAbsorption ? 1 : 0);
+			targetCommandBuffer.SetGlobalInt("_HybridPhase1Only", owner.gaussianDiffuseEnabled && owner.radianceCascadeEnabled ? 1 : 0);
 			targetCommandBuffer.SetGlobalVector("metaballWorldCenter", new Vector4(currentWorldCenter.x, currentWorldCenter.y, 0f, 0f));
 			targetCommandBuffer.SetGlobalVector("metaballWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
 			targetCommandBuffer.SetGlobalFloat("causticsPhase0Absorption", materials[0].absorption);
@@ -286,38 +287,20 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetGlobalFloat("radianceCascadePhase0AbsorptionTintBlend", materials[0].radianceCascadeAbsorptionDiffuseTintBlend);
 			targetCommandBuffer.SetGlobalFloat("causticsAbsorptionAlbedoBrightnessInfluence", owner.absorptionAlbedoBrightnessInfluence);
 			targetCommandBuffer.SetGlobalFloat("causticsAbsorptionAlbedoSaturationInfluence", owner.absorptionAlbedoSaturationInfluence);
-			if (sdfBoundaryMode)
-			{
-				return;
-			}
-
-			targetCommandBuffer.SetGlobalTexture("CombinedTex", combinedAccumulationTexture);
-			targetCommandBuffer.SetGlobalTexture("ColourMap", display.gradientTexture);
-			targetCommandBuffer.SetGlobalTexture("ColourMap2", display.gradientTexture2);
-			targetCommandBuffer.SetGlobalInt("_UseSdfSkipping", sdfResult != null ? 1 : 0);
-			targetCommandBuffer.SetGlobalFloat("densityThreshold", surface.densityThreshold);
-			targetCommandBuffer.SetGlobalFloat("edgeSoftness", surface.edgeSoftness);
-			targetCommandBuffer.SetGlobalFloat("phase0RenderBias", surface.phase0RenderBias);
-			targetCommandBuffer.SetGlobalFloat("scatterStrengthA", materials[0].diffuseScatterStrength);
-			targetCommandBuffer.SetGlobalFloat("scatterStrengthB", materials[1].diffuseScatterStrength);
-			targetCommandBuffer.SetGlobalFloat("lightIntensity", 1f);
-			targetCommandBuffer.SetGlobalFloat("causticsPhase1Absorption", materials[1].absorption);
-			targetCommandBuffer.SetGlobalVector("radianceCascadePhase1AbsorptionTint", materials[1].diffuseLightTint);
-			targetCommandBuffer.SetGlobalFloat("radianceCascadePhase1AbsorptionTintBlend", materials[1].radianceCascadeAbsorptionDiffuseTintBlend);
-			SetSharedBoundsGlobals(context, targetCommandBuffer);
-			targetCommandBuffer.SetGlobalVector("metaballSourceUvRect", new Vector4(0f, 0f, 1f, 1f));
 		}
 
 		RadianceCascadeLightState BuildRadianceCascadeLightState(ParticleDisplay2D display)
 		{
+			ParticleFluidLight2D light = owner.lightSlots[0];
+			ParticleFluidDirectionalLight2D directionalLight = light as ParticleFluidDirectionalLight2D;
 			bool useDirectionalLight =
 				owner.radianceCascadeDirectionalLightEnabled
-				&& owner.lights[0].enabled
-				&& owner.lights[0].type == ParticleFluidLighting2D.FluidLightSettings.LightType.Directional
-				&& owner.lights[0].intensity > 0f;
-			Vector3 direction = owner.GetDirectLightingDirection(display, owner.lights[0].Direction);
-			Vector4 color = useDirectionalLight ? owner.lights[0].EffectiveColor : Vector4.zero;
-			float intensity = useDirectionalLight ? owner.lights[0].intensity : 0f;
+				&& directionalLight != null
+				&& directionalLight.isActiveAndEnabled
+				&& directionalLight.intensity > 0f;
+			Vector3 direction = directionalLight != null ? directionalLight.GetDirectLightingDirection(owner, display) : Vector3.down;
+			Vector4 color = useDirectionalLight && light != null ? light.EffectiveColor : Vector4.zero;
+			float intensity = useDirectionalLight && light != null ? light.intensity : 0f;
 			return new RadianceCascadeLightState(useDirectionalLight, direction, color, intensity);
 		}
 

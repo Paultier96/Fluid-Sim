@@ -626,7 +626,6 @@ namespace Seb.Fluid2D.Rendering
 		void OnValidate()
 		{
 			needsUpdate = true;
-			//metaballRenderer?.ClearCausticHistory();
 		}
 
 		void OnDisable()

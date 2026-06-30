@@ -60,8 +60,10 @@ namespace Seb.Fluid2D.Rendering
 			{
 				return;
 			}
-
-			lighting.SetMaterialTextures(albedoTexture, normalTexture, renderRegion);
+			lighting.materialAlbedoTexture = albedoTexture;
+			lighting.materialNormalTexture = normalTexture;
+			lighting.materialRenderRegion = renderRegion;
+			lighting.BindMaterialTextures();
 		}
 
 		public void Release()
