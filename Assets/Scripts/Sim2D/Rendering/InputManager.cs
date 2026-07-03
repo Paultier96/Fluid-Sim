@@ -4,7 +4,6 @@ namespace Seb.Fluid2D.Rendering
 {
 	[AddComponentMenu("Fluid Sim/2D/Particle Fluid Input Manager 2D")]
 	[DisallowMultipleComponent]
-	[RequireComponent(typeof(ParticleDisplay2D))]
 	public sealed class InputManager : MonoBehaviour
 	{
 		[SerializeField] ParticleDisplay2D display;
@@ -34,7 +33,7 @@ namespace Seb.Fluid2D.Rendering
 				return;
 			}
 
-			foreach (ParticleFluidLight2D light in lighting.lightSlots)
+			foreach (ParticleFluidLight2D light in lighting.lightManager.LightSlots)
 			{
 				ApplyMousePosition(light, mouseWorldPosition);
 			}
@@ -55,7 +54,7 @@ namespace Seb.Fluid2D.Rendering
 
 		bool AnyPointLightFollowsMouse()
 		{
-			foreach (ParticleFluidLight2D light in lighting.lightSlots)
+			foreach (ParticleFluidLight2D light in lighting.lightManager.LightSlots)
 			{
 				if (PointLightFollowsMouse(light))
 				{
@@ -108,7 +107,17 @@ namespace Seb.Fluid2D.Rendering
 
 			if (lighting == null)
 			{
+				lighting = display != null ? display.Lighting : null;
+			}
+
+			if (lighting == null)
+			{
 				lighting = GetComponent<ParticleFluidLighting2D>();
+			}
+
+			if (lighting == null && transform.parent != null)
+			{
+				lighting = transform.parent.GetComponentInChildren<ParticleFluidLighting2D>(true);
 			}
 		}
 

@@ -1,10 +1,16 @@
+using Seb.Helpers;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
 namespace Seb.Fluid2D.Rendering
 {
 	internal sealed class ParticleFluidProjectedShadow
 	{
+		internal ComputeBuffer projectedShadowMapBuffer;
+		internal RenderTexture projectedShadowMapTexture;
+		internal RenderTexture projectedShadowMapHistoryTexture;
+
 		internal readonly struct RecordParams
 		{
 			public readonly ComputeShader compute;
@@ -96,6 +102,56 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeTextureParam(compute, resolveKernel, "ProjectedShadowMapResult", parameters.projectedShadowMapTexture);
 			targetCommandBuffer.DispatchCompute(compute, resolveKernel, Mathf.CeilToInt(binCount / 64f), 1, 1);
 			return true;
+		}
+
+		internal void EnsureResources(bool enabled, int binCount)
+		{
+			if (enabled)
+			{
+				ComputeHelper.CreateStructuredBuffer<uint>(ref projectedShadowMapBuffer, binCount);
+				ComputeHelper.CreateRenderTexture(ref projectedShadowMapTexture, binCount, 1, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Projected Shadow Map");
+				ComputeHelper.CreateRenderTexture(ref projectedShadowMapHistoryTexture, binCount, 1, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Projected Shadow Map History");
+				return;
+			}
+
+			ComputeHelper.Release(projectedShadowMapBuffer);
+			ComputeHelper.Release(projectedShadowMapTexture, projectedShadowMapHistoryTexture);
+			projectedShadowMapBuffer = null;
+			projectedShadowMapTexture = null;
+			projectedShadowMapHistoryTexture = null;
+		}
+
+		internal void Release()
+		{
+			EnsureResources(false, 0);
+		}
+
+		internal bool ShouldRender(ParticleFluidDirectLight owner)
+		{
+			if (owner == null)
+			{
+				return false;
+			}
+
+			ParticleFluidLight2D light = owner.Owner.lightManager.LightSlots[0];
+			return owner.lightingMode == ParticleFluidLighting2D.LightingMode.Shadows
+			       && owner.projectedShadowCompute != null
+			       && light is ParticleFluidDirectionalLight2D directionalLight
+			       && directionalLight.isActiveAndEnabled;
+		}
+
+		internal void ApplyToMaterial(Material material, bool enabled, Vector2 direction, float offset, float expansion)
+		{
+			if (material == null)
+			{
+				return;
+			}
+
+			material.SetInt("particleFluidProjectedShadowEnabled", enabled ? 1 : 0);
+			material.SetTexture("ProjectedShadowTex", enabled && projectedShadowMapTexture != null ? projectedShadowMapTexture : Texture2D.blackTexture);
+			material.SetVector("particleFluidProjectedShadowDirection", new Vector4(direction.x, direction.y, 0f, 0f));
+			material.SetFloat("particleFluidProjectedShadowOffset", offset);
+			material.SetFloat("particleFluidProjectedShadowExpansion", expansion);
 		}
 	}
 }

@@ -10,6 +10,8 @@ Shader "Hidden/ParticleFluidCausticsTemporal" {
 
 		CGINCLUDE
 		#include "UnityCG.cginc"
+		#include "../../../Shared/ParticleFluidCommon.hlsl"
+		#include "../../../Shared/ParticleFluidPhaseAA.cginc"
 
 struct appdata {
 	float4 vertex : POSITION;
@@ -67,15 +69,6 @@ float BlobColourWeight(float3 blobColourSum)
 float Phase0Density(float4 combined)
 {
 	return debugMode == 6 ? BlobColourWeight(combined.rgb) : combined.g;
-}
-
-float ShiftedPhaseT(float density0, float density1)
-{
-	float phaseRatio = density1 / max(density0 + density1, 0.0001);
-	float phaseBoundary = saturate(0.5 + phase0RenderBias * 0.5);
-	float phaseDelta = phaseRatio - phaseBoundary;
-	float phaseAA = max(0.5 * fwidth(phaseRatio) * max(phaseBlendWidth, 0.0001), 0.00001);
-	return smoothstep(-phaseAA, phaseAA, phaseDelta);
 }
 
 void CurrentNeighbourhoodBounds(float2 uv, out float3 minColour, out float3 maxColour)
@@ -205,7 +198,7 @@ float4 fragCausticTemporal(v2f i) : SV_Target
 		float4 combined = tex2D(CombinedTex, i.uv);
 		float density0 = Phase0Density(combined);
 		float density1 = combined.a;
-		float phaseT = ShiftedPhaseT(density0, density1);
+		float phaseT = ParticleFluidShiftedPhaseT(density0, density1, phase0RenderBias, phaseBlendWidth);
 		float4 packedVelocity0 = tex2D(VelocityTex0, i.uv);
 		float4 packedVelocity1 = tex2D(VelocityTex1, i.uv);
 		float2 weightedVelocity = lerp(packedVelocity0.rg, packedVelocity1.rg, phaseT);

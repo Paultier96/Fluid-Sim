@@ -7,13 +7,9 @@ namespace Seb.Fluid2D.Rendering
 {
 	internal sealed class ParticleFluidMaterialMapSet
 	{
-		RenderTexture albedoTexture;
-		RenderTexture normalTexture;
-
-		public RenderTexture AlbedoRenderTexture => albedoTexture;
-		public RenderTexture NormalRenderTexture => normalTexture;
-		public Texture AlbedoTexture => albedoTexture != null ? (Texture)albedoTexture : Texture2D.blackTexture;
-		public Texture NormalTexture => normalTexture != null ? (Texture)normalTexture : Texture2D.blackTexture;
+		public RenderTexture albedoTexture;
+		public RenderTexture normalTexture;
+		
 		public bool IsAllocated => albedoTexture != null && normalTexture != null;
 
 		public void EnsureRenderTextures(int width, int height, string namePrefix)

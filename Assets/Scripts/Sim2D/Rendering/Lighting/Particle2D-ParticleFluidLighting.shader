@@ -10,6 +10,7 @@ Shader "Hidden/Particle2DParticleFluidLighting" {
 
 		CGINCLUDE
 		#include "UnityCG.cginc"
+		#include "Shared/ParticleFluidCommon.hlsl"
 
 struct appdata {
 	float4 vertex : POSITION;
@@ -30,6 +31,7 @@ sampler2D ProjectedShadowTex;
 sampler2D CombinedTex;
 sampler2D ColourMap;
 sampler2D ColourMap2;
+#include "Shared/ParticleFluidGradientSampling.cginc"
 float4 MaterialAlbedoTex_TexelSize;
 float2 particleFluidWorldCenter;
 float2 particleFluidWorldSize;
@@ -43,6 +45,7 @@ float2 ellipseBoundsCenter;
 float2 ellipseBoundsSize;
 float obstacleY;
 float analyticBoundaryExpansion;
+#include "Shared/ParticleFluidAnalyticBoundary.hlsl"
 int particleFluidCausticsEnabled;
 int particleFluidCausticRegionEnabled;
 float4 particleFluidCausticUvRect;
@@ -96,11 +99,6 @@ float InterleavedGradientNoise(float2 pixel)
 {
 	float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
 	return frac(magic.z * frac(dot(pixel, magic.xy)));
-}
-
-float2 WorldPosFromUv(float2 uv)
-{
-	return particleFluidWorldCenter + (uv - 0.5) * max(particleFluidWorldSize, float2(0.0001, 0.0001));
 }
 
 bool TryGetMaterialUv(float2 screenUv, out float2 materialUv)
@@ -204,25 +202,6 @@ float ProjectedShadowOccupancy(float2 worldPos)
 {
 	float4 sample = SampleProjectedShadow(worldPos, particleFluidWorldCenter, particleFluidWorldSize, particleFluidProjectedShadowDirection, ProjectedShadowTex);
 	return sample.w * sample.y * step(sample.x + 0.01, sample.z);
-}
-
-float2 BoundaryDistances(float2 worldPos)
-{
-	float2 radii = max(abs(ellipseBoundsSize), 0.0001);
-	float2 rel = worldPos - ellipseBoundsCenter;
-	float2 q = rel / radii;
-	float qLen = max(length(q), 0.0001);
-	float ellipseGradientLength = length(float2(q.x / radii.x, q.y / radii.y)) / qLen;
-	float ellipseDistance = (qLen - 1.0) / max(ellipseGradientLength, 0.0001);
-	float cutDistance = obstacleY - worldPos.y;
-	return float2(ellipseDistance, cutDistance);
-}
-
-float OuterAnalyticBoundaryDistance(float2 worldPos)
-{
-	float2 distances = BoundaryDistances(worldPos);
-	float outsideDistance = length(max(distances, 0.0)) + min(max(distances.x, distances.y), 0.0);
-	return outsideDistance - max(analyticBoundaryExpansion, 0.0);
 }
 
 float AnalyticBoundaryLightExclusion(float2 worldPos)
@@ -363,13 +342,6 @@ float3 SampleSpecularCausticIrradiance(float2 materialUv, float3 normal, float p
 float Phase0Density(float4 combined)
 {
 	return combined.g;
-}
-
-float3 SamplePhaseGradientColour(float data, bool usePhase1)
-{
-	return usePhase1
-		? tex2D(ColourMap2, float2(saturate(data), 0.5)).rgb
-		: tex2D(ColourMap, float2(saturate(data), 0.5)).rgb;
 }
 
 float3 ApplyScreenSpaceReflection(float3 colour, float3 normal, float2 uv, float roughness, float metallic, float strength, float noise)
@@ -513,7 +485,7 @@ float4 fragSplitLighting(v2f i) : SV_Target
 	float3 normal0 = materialSurfaceNormal;
 	float3 normal1 = materialSurfaceNormal;
 	float phaseT = saturate(materialNormal.a);
-	float2 worldPos = WorldPosFromUv(materialUv);
+	float2 worldPos = ParticleFluidWorldFromUv(materialUv, particleFluidWorldCenter, particleFluidWorldSize);
 	float3 directLightIrradiance0 = 1.0;
 	float3 directLightIrradiance1 = 1.0;
 	if (particleFluidCausticsEnabled != 0)
@@ -578,8 +550,8 @@ float4 fragSplitLighting(v2f i) : SV_Target
 		float density1 = combined.a;
 		float data0 = density0 >= densityThreshold ? combined.r / max(density0, 0.0001) : 0.0;
 		float data1 = density1 >= densityThreshold ? combined.b / max(density1, 0.0001) : 0.0;
-		float3 diffuseAlbedo0 = SamplePhaseGradientColour(data0, false);
-		float3 diffuseAlbedo1 = SamplePhaseGradientColour(data1, true);
+		float3 diffuseAlbedo0 = ParticleFluidSamplePhaseGradientColour(data0, false);
+		float3 diffuseAlbedo1 = ParticleFluidSamplePhaseGradientColour(data1, true);
 		float additiveBlend0 = saturate(ParticlePhaseDiffuseAdditiveBlend(0));
 		float additiveBlend1 = saturate(ParticlePhaseDiffuseAdditiveBlend(1));
 		float3 gaussianDiffuse0 = lerp(diffuseAlbedo0, 1.0, additiveBlend0) * ParticlePhaseDiffuseLightTint(0);

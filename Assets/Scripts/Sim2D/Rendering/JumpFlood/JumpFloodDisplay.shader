@@ -17,6 +17,7 @@ Shader "Custom/JumpFloodDisplay"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            #include "../Lighting/Shared/ParticleFluidCommon.hlsl"
 
             Texture2D _PayloadTex;
             SamplerState sampler_PayloadTex;
@@ -49,11 +50,6 @@ Shader "Custom/JumpFloodDisplay"
                 o.pos = UnityObjectToClipPos(v.vertex);
                 o.uv = v.uv;
                 return o;
-            }
-
-            float2 WorldFromUV(float2 uv)
-            {
-                return jumpFloodWorldCenter + (uv - 0.5) * max(jumpFloodWorldSize, float2(0.0001, 0.0001));
             }
 
             bool TryGetMaterialUv(float2 screenUv, out float2 materialUv)
@@ -109,7 +105,7 @@ Shader "Custom/JumpFloodDisplay"
                 if (payload.a < 0.0)
                     return float4(0,0,0,1);
 
-                float mask = BoundsMask(WorldFromUV(seedUV));
+                float mask = BoundsMask(ParticleFluidWorldFromUv(seedUV, jumpFloodWorldCenter, jumpFloodWorldSize));
                 return float4(payload.rgb * mask, 1);
             }
             ENDCG

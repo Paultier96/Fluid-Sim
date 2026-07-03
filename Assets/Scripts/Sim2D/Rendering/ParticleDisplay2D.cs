@@ -141,8 +141,6 @@ namespace Seb.Fluid2D.Rendering
 			[Header("Ghost Boundary Normals")]
 			[Tooltip("Strength of the analytic ellipse/cut-boundary normals in the metaball composite. Values above 1 make the boundary normal ramp steeper; negative values flip the direction.")]
 			[Range(-4f, 4f)] public float ghostBoundaryNormalStrength = 1f;
-			[Tooltip("World-space expansion applied to the analytic boundary. 0 uses the original, non-expanded analytic boundary.")]
-			[Min(0f)] public float analyticBoundaryPadding = 0.175f;
 		}
 		
 		public JumpFloodSettings jumpFlood = new();
@@ -161,6 +159,7 @@ namespace Seb.Fluid2D.Rendering
 		}
 
 		public FluidSim2D sim;
+		[SerializeField] ParticleFluidLighting2D lighting;
 		public Mesh mesh;
 		public RenderMode renderMode = RenderMode.DirectParticles;
 		public Shader directParticleShader;
@@ -316,7 +315,7 @@ namespace Seb.Fluid2D.Rendering
 
 		internal void ApplyCommonParticleSettings(Material targetMaterial)
 		{
-			targetMaterial.SetFloat("scale", EffectiveParticleScale);
+			targetMaterial.SetFloat("scale", scale * ParticleResolutionLengthScale);
 			targetMaterial.SetFloat("tempMin", sim.ambientTemperature);
 			targetMaterial.SetFloat("tempMax", sim.HeatSourceTemperature);
 			targetMaterial.SetBuffer("DebugData", sim.debugDataBuffer);
@@ -327,14 +326,6 @@ namespace Seb.Fluid2D.Rendering
 			targetMaterial.SetFloat("debugDensityMax", DebugDensityMax);
 			targetMaterial.SetInt("debugMode", (int)ParticleShaderDebugMode);
 			ApplyDebugClipSettings(targetMaterial);
-		}
-
-		float EffectiveParticleScale
-		{
-			get
-			{
-				return scale * ParticleResolutionLengthScale;
-			}
 		}
 
 		void ApplyVectorFieldSettings()
@@ -353,10 +344,8 @@ namespace Seb.Fluid2D.Rendering
 			vectorFieldMaterial.SetBuffer("DebugVectorData", GetVectorFieldBuffer());
 			vectorFieldMaterial.SetBuffer("DebugVectorSign", sim.debugVectorSignBuffer);
 		}
-
-		float DensityDebugScale => Mathf.Max(0.0001f, sim.particleResolutionFactor);
-		internal float DebugDensityMin => Mathf.Min(debugDensityMin, debugDensityMax - 0.0001f) * DensityDebugScale;
-		internal float DebugDensityMax => Mathf.Max(debugDensityMax, debugDensityMin + 0.0001f) * DensityDebugScale;
+		internal float DebugDensityMin => Mathf.Min(debugDensityMin, debugDensityMax - 0.0001f) * sim.particleResolutionFactor;
+		internal float DebugDensityMax => Mathf.Max(debugDensityMax, debugDensityMin + 0.0001f) * sim.particleResolutionFactor;
 		float EffectiveVectorMaxMagnitude
 		{
 			get
@@ -641,11 +630,36 @@ namespace Seb.Fluid2D.Rendering
 			ComputeHelper.Release(vectorArgsBuffer);
 			metaballRenderer?.Release();
 			jumpFloodRenderer?.Release();
-			GetComponent<ParticleFluidLighting2D>()?.Release();
+			ResolveLighting()?.Release();
 			if (vectorArrowMesh != null)
 			{
 				DestroyImmediate(vectorArrowMesh);
 			}
+		}
+
+		internal ParticleFluidLighting2D Lighting => ResolveLighting();
+
+		ParticleFluidLighting2D ResolveLighting()
+		{
+			if (lighting != null)
+			{
+				return lighting;
+			}
+
+			lighting = GetComponent<ParticleFluidLighting2D>();
+			if (lighting != null)
+			{
+				return lighting;
+			}
+
+			if (transform.parent != null)
+			{
+				lighting = transform.parent.GetComponentInChildren<ParticleFluidLighting2D>(true);
+			}
+
+			lighting ??= FindAnyObjectByType<ParticleFluidLighting2D>();
+
+			return lighting;
 		}
     }
 }

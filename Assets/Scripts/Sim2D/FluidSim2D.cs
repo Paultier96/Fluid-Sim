@@ -7,6 +7,7 @@ using UnityEngine;
 
 namespace Seb.Fluid2D.Simulation
 {
+    [RequireComponent(typeof(ParticleFluidAnalyticBoundary2D))]
     public class FluidSim2D : MonoBehaviour
     {
         public event System.Action SimulationStepCompleted;
@@ -50,8 +51,6 @@ namespace Seb.Fluid2D.Simulation
         [Tooltip("Multiplier applied to viscous velocity exchange across phase boundaries and between separate same-phase blobs. Lower values make interfaces more slippery.")]
         [Range(0f, 1f)] public float interfaceViscosityMultiplier = 1f;
         public Vector2 boundsSize;
-        [Tooltip("Horizontal lower boundary used with elliptical bounds. The final fluid domain is the ellipse above this Y value.")]
-        public float obstacleY = -10f;
         [Tooltip("magnitude of repulsive acceleration at zero distance")]
         public float edgeForce;
         [Tooltip("distance from boundary over which repulsion fades to zero")]
@@ -76,11 +75,6 @@ namespace Seb.Fluid2D.Simulation
         [Min(0f)] public float wallPressureStrength = 0f;
         [Tooltip("Distance from boundary over which wall-pressure support is applied. Set to 0 to use smoothing radius.")]
         [Min(0f)] public float wallPressureRadius = 0f;
-
-        [Header("Bounds Type")]
-        public bool useEllipticalBounds = false;
-        public Vector2 ellipseBoundsSize = new Vector2(10, 8);
-        public Vector2 ellipseBoundsCenter = Vector2.zero;
 
         [Header("Interaction Settings")]
         public float interactionRadius;
@@ -342,6 +336,13 @@ namespace Seb.Fluid2D.Simulation
 
         // Runtime-change tracking
         Rendering.ParticleDisplay2D particleDisplay;
+        ParticleFluidAnalyticBoundary2D analyticBoundaryCache;
+        internal ParticleFluidAnalyticBoundary2D analyticBoundary => EnsureAnalyticBoundary();
+
+        void Awake()
+        {
+            EnsureAnalyticBoundary();
+        }
 
         void Start()
         {
@@ -388,7 +389,7 @@ namespace Seb.Fluid2D.Simulation
             ghostPhases = new List<int>();
             resolvedGhostPhase = ClampPhaseIndex(ghostPhase);
             resolvedObstacleGhostPhase = ClampPhaseIndex(obstacleGhostPhase);
-            spawner2D.GenerateGhostParticles(boundsSize, ellipseBoundsCenter, ellipseBoundsSize, useEllipticalBounds, resolvedGhostPhase, resolvedObstacleGhostPhase, ghostPositions, ghostVelocities, ghostPhases, obstacleY, ResolveLowerGhostPhaseWidth());
+            spawner2D.GenerateGhostParticles(analyticBoundary, boundsSize,  resolvedGhostPhase, resolvedObstacleGhostPhase, ghostPositions, ghostVelocities, ghostPhases, ResolveLowerGhostPhaseWidth());
             numGhostParticles = ghostPositions.Count;
             numParticles = numFluidParticles + numGhostParticles;
             spatialHash = new SpatialHash(numParticles);
@@ -645,7 +646,18 @@ namespace Seb.Fluid2D.Simulation
 
         void OnValidate()
         {
+            EnsureAnalyticBoundary();
             phasesDirty = true;
+        }
+
+        ParticleFluidAnalyticBoundary2D EnsureAnalyticBoundary()
+        {
+            if (analyticBoundaryCache == null)
+            {
+                analyticBoundaryCache = GetComponent<ParticleFluidAnalyticBoundary2D>();
+            }
+
+            return analyticBoundaryCache;
         }
 
         void CreateOrUpdatePhaseBuffers(bool initial)
@@ -823,10 +835,10 @@ namespace Seb.Fluid2D.Simulation
             compute.SetFloat("nearPressureMultiplier", nearPressureMultiplier);
             compute.SetFloat("interfaceViscosityMultiplier", interfaceViscosityMultiplier);
             compute.SetVector("boundsSize", boundsSize);
-            compute.SetFloat("obstacleY", obstacleY);
-            compute.SetBool("useEllipticalBounds", useEllipticalBounds);
-            compute.SetVector("ellipseBoundsSize", ellipseBoundsSize);
-            compute.SetVector("ellipseBoundsCenter", ellipseBoundsCenter);
+            compute.SetFloat("obstacleY", analyticBoundary.obstacleY);
+            compute.SetBool("useEllipticalBounds", analyticBoundary.useEllipticalBounds);
+            compute.SetVector("ellipseBoundsSize", analyticBoundary.ellipseBoundsSize);
+            compute.SetVector("ellipseBoundsCenter", analyticBoundary.ellipseBoundsCenter);
             compute.SetInt("wallFilmPhase", PhaseFilterToIndex(wallFilmPhase));
             compute.SetFloat("wallFilmDistance", wallFilmDistance);
             compute.SetFloat("wallFilmStrength", wallFilmStrength);
@@ -975,8 +987,8 @@ namespace Seb.Fluid2D.Simulation
             uint[] allGhostFlags = new uint[numParticles];
 
             // Fluid particles first
-            System.Array.Copy(spawnData.positions, 0, allPositions, 0, numFluidParticles);
-            System.Array.Copy(spawnData.velocities, 0, allVelocities, 0, numFluidParticles);
+            Array.Copy(spawnData.positions, 0, allPositions, 0, numFluidParticles);
+            Array.Copy(spawnData.velocities, 0, allVelocities, 0, numFluidParticles);
             for (int i = 0; i < numFluidParticles; i++)
             {
                 allPhases[i] = spawnData.phases[i];
@@ -1083,20 +1095,9 @@ namespace Seb.Fluid2D.Simulation
         {
             Gizmos.color = new Color(0, 1, 0, 0.4f);
             
-            if (useEllipticalBounds)
+            if (!analyticBoundary.useEllipticalBounds)
             {
-                // Draw ellipse bounds
-                DrawEllipseGizmo(ellipseBoundsCenter, ellipseBoundsSize, 128);
-            }
-            else
-            {
-                // Draw rectangular bounds
                 Gizmos.DrawWireCube(Vector2.zero, boundsSize);
-            }
-            if (useEllipticalBounds)
-            {
-                Gizmos.color = new Color(1, 0.65f, 0, 0.8f);
-                DrawHorizontalBoundaryLineGizmo();
             }
 
             if (Application.isPlaying)
@@ -1109,37 +1110,6 @@ namespace Seb.Fluid2D.Simulation
                     Gizmos.DrawWireSphere(mousePos, interactionRadius);
                 }
             }
-        }
-
-        void DrawEllipseGizmo(Vector2 center, Vector2 radii, int segments)
-        {
-            float angle = 0;
-            float angleStep = 360f / segments;
-            Vector3 lastPoint = center + new Vector2(radii.x, 0);
-
-            for (int i = 1; i <= segments; i++)
-            {
-                angle = i * angleStep * Mathf.Deg2Rad;
-                Vector3 newPoint = center + new Vector2(Mathf.Cos(angle) * radii.x, Mathf.Sin(angle) * radii.y);
-                Gizmos.DrawLine(lastPoint, newPoint);
-                lastPoint = newPoint;
-            }
-        }
-
-        void DrawHorizontalBoundaryLineGizmo()
-        {
-            float relY = obstacleY - ellipseBoundsCenter.y;
-            float radiusY = Mathf.Max(ellipseBoundsSize.y, 0.0001f);
-            float normalizedY = relY / radiusY;
-            if (Mathf.Abs(normalizedY) >= 1f)
-            {
-                return;
-            }
-
-            float halfWidth = ellipseBoundsSize.x * Mathf.Sqrt(1f - normalizedY * normalizedY);
-            Vector3 left = new Vector3(ellipseBoundsCenter.x - halfWidth, obstacleY, 0);
-            Vector3 right = new Vector3(ellipseBoundsCenter.x + halfWidth, obstacleY, 0);
-            Gizmos.DrawLine(left, right);
         }
 
         static bool TryGetMouseWorldPosition(out Vector2 mouseWorldPosition)

@@ -1,3 +1,4 @@
+using Seb.Fluid2D.Simulation;
 using UnityEngine;
 
 namespace Seb.Fluid2D.Rendering
@@ -25,10 +26,10 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
-		public Vector3 GetDirectLightingDirection(ParticleFluidLighting2D lighting, ParticleDisplay2D display)
+		public Vector3 GetDirectLightingDirection(ParticleFluidLighting2D lighting, ParticleFluidAnalyticBoundary2D analyticBoundary)
 		{
 			Vector3 lightDirection = Direction;
-			if (lighting == null || display == null || !display.sim.useEllipticalBounds)
+			if (lighting == null || !analyticBoundary.useEllipticalBounds)
 			{
 				return lightDirection;
 			}
@@ -41,7 +42,7 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			Vector2 directionToLight = lightXY / planarLength;
-			if (!TryGetAnalyticBoundaryHitFromCenter(display, directionToLight, out Vector2 outwardNormal))
+			if (!TryGetAnalyticBoundaryHitFromCenter(analyticBoundary, directionToLight, out Vector2 outwardNormal))
 			{
 				return lightDirection;
 			}
@@ -93,12 +94,12 @@ namespace Seb.Fluid2D.Rendering
 			return (eta * rayDirection + (eta * cosI - cosT) * normal).normalized;
 		}
 
-		static bool TryGetAnalyticBoundaryHitFromCenter(ParticleDisplay2D display, Vector2 directionToLight, out Vector2 outwardNormal)
+		static bool TryGetAnalyticBoundaryHitFromCenter(ParticleFluidAnalyticBoundary2D analyticBoundary, Vector2 directionToLight, out Vector2 outwardNormal)
 		{
-			float expansion = MetaballRenderer2D.GetAnalyticBoundaryExpansion(display);
-			Vector2 center = display.sim.ellipseBoundsCenter;
-			Vector2 radii = new Vector2(Mathf.Abs(display.sim.ellipseBoundsSize.x), Mathf.Abs(display.sim.ellipseBoundsSize.y)) + Vector2.one * expansion;
-			float cutY = display.sim.obstacleY - expansion;
+			float expansion = analyticBoundary.analyticBoundaryExpansion;
+			Vector2 center = analyticBoundary.ellipseBoundsCenter;
+			Vector2 radii = new Vector2(Mathf.Abs(analyticBoundary.ellipseBoundsSize.x), Mathf.Abs(analyticBoundary.ellipseBoundsSize.y)) + Vector2.one * expansion;
+			float cutY = analyticBoundary.obstacleY - expansion;
 			float topY = center.y + radii.y;
 			Vector2 start = new Vector2(center.x, (topY + cutY) * 0.5f);
 			outwardNormal = Vector2.up;

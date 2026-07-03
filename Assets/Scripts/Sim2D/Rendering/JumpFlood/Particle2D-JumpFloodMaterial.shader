@@ -11,6 +11,7 @@ Shader "Hidden/Particle2DJumpFloodMaterial" {
 
 		CGINCLUDE
 		#include "UnityCG.cginc"
+		#include "../Lighting/Shared/ParticleFluidCommon.hlsl"
 
 struct appdata {
 	float4 vertex : POSITION;
@@ -44,11 +45,6 @@ v2f vert(appdata v)
 	o.vertex = UnityObjectToClipPos(v.vertex);
 	o.uv = v.uv;
 	return o;
-}
-
-float2 WorldFromUV(float2 uv)
-{
-	return jumpFloodWorldCenter + (uv - 0.5) * max(jumpFloodWorldSize, float2(0.0001, 0.0001));
 }
 
 bool TryGetCompositeMaterialUv(float2 screenUv, out float2 materialUv)
@@ -95,7 +91,7 @@ float BoundsMask(float2 worldPos)
 bool ResolveJumpFloodMaterial(v2f i, out float alpha, out float phaseT, out float3 normal, out float3 albedo)
 {
 	float4 seed = tex2D(_ResultTex, i.uv);
-	alpha = seed.w >= 0.0 ? BoundsMask(WorldFromUV(i.uv)) : 0.0;
+	alpha = seed.w >= 0.0 ? BoundsMask(ParticleFluidWorldFromUv(i.uv, jumpFloodWorldCenter, jumpFloodWorldSize)) : 0.0;
 	phaseT = saturate(seed.w);
 	albedo = tex2D(_PayloadTex, i.uv).rgb;
 	normal = normalize(tex2D(_NormalPayloadTex, i.uv).rgb * 2.0 - 1.0);

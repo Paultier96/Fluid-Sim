@@ -1,4 +1,5 @@
 using UnityEngine;
+using Seb.Fluid2D.Simulation;
 
 namespace Seb.Fluid2D.Rendering
 {
@@ -32,41 +33,40 @@ namespace Seb.Fluid2D.Rendering
 		{
 			angleStart = 0f;
 			angleRange = TwoPi;
-			if (display == null || scratchAngles == null || scratchAngles.Length == 0 || !display.sim.useEllipticalBounds)
+			ParticleFluidAnalyticBoundary2D boundary = display != null ? display.sim.analyticBoundary : null;
+			if (boundary == null || scratchAngles == null || scratchAngles.Length == 0 || !boundary.useEllipticalBounds)
 			{
 				return;
 			}
 
 			Vector3 lightPosition = transform.position;
 			Vector2 point = new Vector2(lightPosition.x, lightPosition.y);
-			float expansion = MetaballRenderer2D.GetAnalyticBoundaryExpansion(display);
-			Vector2 center = display.sim.ellipseBoundsCenter;
-			Vector2 radii = new Vector2(Mathf.Abs(display.sim.ellipseBoundsSize.x), Mathf.Abs(display.sim.ellipseBoundsSize.y)) + Vector2.one * expansion;
-			float cutY = display.sim.obstacleY - expansion;
-			if (radii.x <= 0.0001f || radii.y <= 0.0001f || IsInsideAnalyticBoundary(point, center, radii, cutY))
+			if (boundary.IsInsideAnalyticBoundary(point))
 			{
 				return;
 			}
 
+			Vector2 radii = new Vector2(Mathf.Abs(boundary.ellipseBoundsSize.x), Mathf.Abs(boundary.ellipseBoundsSize.y)) + Vector2.one * boundary.analyticBoundaryExpansion;
+			float cutY = boundary.obstacleY - boundary.analyticBoundaryExpansion;
 			int angleCount = 0;
 			for (int i = 0; i < BoundaryEllipseSamples; i++)
 			{
 				float t = i / (float)BoundaryEllipseSamples * TwoPi;
-				Vector2 boundaryPoint = center + new Vector2(Mathf.Cos(t) * radii.x, Mathf.Sin(t) * radii.y);
+				Vector2 boundaryPoint = boundary.ellipseBoundsCenter + new Vector2(Mathf.Cos(t) * radii.x, Mathf.Sin(t) * radii.y);
 				if (boundaryPoint.y >= cutY)
 				{
 					AddBoundaryAngle(scratchAngles, point, boundaryPoint, ref angleCount);
 				}
 			}
 
-			float cutRelY = cutY - center.y;
+			float cutRelY = cutY - boundary.ellipseBoundsCenter.y;
 			if (Mathf.Abs(cutRelY) <= radii.y)
 			{
 				float cutHalfWidth = radii.x * Mathf.Sqrt(Mathf.Max(0f, 1f - cutRelY * cutRelY / (radii.y * radii.y)));
 				for (int i = 0; i < BoundaryCutSamples; i++)
 				{
 					float t = BoundaryCutSamples > 1 ? i / (float)(BoundaryCutSamples - 1) : 0.5f;
-					AddBoundaryAngle(scratchAngles, point, new Vector2(center.x + Mathf.Lerp(-cutHalfWidth, cutHalfWidth, t), cutY), ref angleCount);
+					AddBoundaryAngle(scratchAngles, point, new Vector2(boundary.ellipseBoundsCenter.x + Mathf.Lerp(-cutHalfWidth, cutHalfWidth, t), cutY), ref angleCount);
 				}
 			}
 
@@ -98,18 +98,6 @@ namespace Seb.Fluid2D.Rendering
 		protected override void DrawLightGizmos()
 		{
 			DrawWireCircleXY(transform.position, Mathf.Max(range, 0.0001f), 48);
-		}
-		
-		static bool IsInsideAnalyticBoundary(Vector2 point, Vector2 center, Vector2 radii, float cutY)
-		{
-			if (point.y < cutY)
-			{
-				return false;
-			}
-
-			Vector2 rel = point - center;
-			float ellipseValue = rel.x * rel.x / (radii.x * radii.x) + rel.y * rel.y / (radii.y * radii.y);
-			return ellipseValue <= 1f;
 		}
 
 		static void AddBoundaryAngle(float[] scratchAngles, Vector2 lightPoint, Vector2 boundaryPoint, ref int angleCount)

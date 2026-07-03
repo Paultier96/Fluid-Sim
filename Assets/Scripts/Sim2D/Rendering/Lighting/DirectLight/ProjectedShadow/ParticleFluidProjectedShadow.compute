@@ -6,6 +6,9 @@ Texture2D<float4> CombinedTex;
 RWStructuredBuffer<uint> ProjectedShadowMapAccum;
 RWTexture2D<float4> ProjectedShadowMapResult;
 
+#include "../../Shared/ParticleFluidCommon.hlsl"
+#include "../../Shared/ParticleFluidPhaseClassification.hlsl"
+#include "../../Shared/ParticleFluidCombinedSamplingCompute.hlsl"
 int combinedWidth;
 int combinedHeight;
 float densityThreshold;
@@ -16,27 +19,6 @@ float2 projectedShadowSourceWorldCenter;
 float2 projectedShadowSourceWorldSize;
 float2 projectedShadowWorldCenter;
 float2 projectedShadowWorldSize;
-
-float4 LoadCombinedPixel(int2 pixel)
-{
-	pixel = clamp(pixel, int2(0, 0), int2(combinedWidth - 1, combinedHeight - 1));
-	return CombinedTex.Load(int3(pixel, 0));
-}
-
-float MaxPhaseDensity(float4 combined)
-{
-	return max(combined.g, combined.a);
-}
-
-float PhaseRatio(float4 combined)
-{
-	return combined.a / max(combined.g + combined.a, 0.0001);
-}
-
-float PhaseBoundary()
-{
-	return saturate(0.5 + phase0RenderBias * 0.5);
-}
 
 float ProjectedShadowHalfExtent(float2 axis, float2 worldSize)
 {
@@ -49,7 +31,7 @@ float2 ProjectedShadowSourceWorldFromPixel(int2 pixel)
 		combinedWidth > 1 ? (float)pixel.x / (combinedWidth - 1.0) : 0.5,
 		combinedHeight > 1 ? (float)pixel.y / (combinedHeight - 1.0) : 0.5
 	);
-	return projectedShadowSourceWorldCenter + (uv - 0.5) * projectedShadowSourceWorldSize;
+	return ParticleFluidWorldFromUv(uv, projectedShadowSourceWorldCenter, projectedShadowSourceWorldSize);
 }
 
 [numthreads(64, 1, 1)]
@@ -71,13 +53,13 @@ void BuildProjectedShadowMap(uint3 id : SV_DispatchThreadID)
 		return;
 	}
 
-	float4 combined = LoadCombinedPixel(int2(id.xy));
-	if (MaxPhaseDensity(combined) < densityThreshold)
+	float4 combined = ParticleFluidLoadCombinedPixel(CombinedTex, int2(id.xy), int2(combinedWidth, combinedHeight));
+	if (ParticleFluidMaxPhaseDensity(combined) < densityThreshold)
 	{
 		return;
 	}
 
-	bool phase0CastsShadow = PhaseRatio(combined) < PhaseBoundary();
+	bool phase0CastsShadow = ParticleFluidPhase0Mask(combined, densityThreshold, phase0RenderBias) > 0.5;
 	if (!phase0CastsShadow)
 	{
 		return;

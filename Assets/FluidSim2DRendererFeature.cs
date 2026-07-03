@@ -114,7 +114,7 @@ namespace Seb.Fluid2D.Simulation
                 return;
             }
 
-            ParticleFluidLighting2D lighting = display.GetComponent<ParticleFluidLighting2D>();
+            ParticleFluidLighting2D lighting = display.Lighting;
             if (lighting != null && !lighting.isActiveAndEnabled)
             {
                 lighting = null;
@@ -123,7 +123,7 @@ namespace Seb.Fluid2D.Simulation
             TextureHandle combinedBlurHandle = combinedBlur.Import(renderGraph, metaballRenderer.combinedBlurTexture, "FluidSim2D Combined Blur");
             TextureHandle normalHandle = normalAccumulation.Import(renderGraph, metaballRenderer.normalAccumulationTexture, "FluidSim2D Normal Accumulation");
             TextureHandle normalBlurHandle = normalBlur.Import(renderGraph, metaballRenderer.normalBlurTexture, "FluidSim2D Normal Blur");
-            bool renderCaustics = lighting != null && lighting.lightingMode == ParticleFluidLighting2D.LightingMode.FullCaustics;
+            bool renderCaustics = lighting != null && lighting.directLight.lightingMode == ParticleFluidLighting2D.LightingMode.Caustics;
             bool renderVelocityTextures = metaballRenderer.ShouldRenderVelocityTextures(display);
             TextureHandle velocity0Handle = renderVelocityTextures ? velocityPhase0Accumulation.Import(renderGraph, metaballRenderer.velocityPhase0AccumulationTexture, "FluidSim2D Velocity Phase 0") : TextureHandle.nullHandle;
             TextureHandle velocity0BlurHandle = renderVelocityTextures ? velocityPhase0Blur.Import(renderGraph, metaballRenderer.velocityPhase0BlurTexture, "FluidSim2D Velocity Phase 0 Blur") : TextureHandle.nullHandle;
@@ -135,8 +135,8 @@ namespace Seb.Fluid2D.Simulation
             TextureHandle velocity1TraceHandle = renderCaustics
                 ? (renderVelocityTextures ? velocity1Handle : velocityPhase1Accumulation.Import(renderGraph, Texture2D.blackTexture, "FluidSim2D Velocity Phase 1 Fallback"))
                 : TextureHandle.nullHandle;
-            TextureHandle materialAlbedoHandle = materialAlbedo.Import(renderGraph, metaballRenderer.materialRenderer.MaterialMaps.AlbedoRenderTexture, "FluidSim2D Material Albedo");
-            TextureHandle materialNormalHandle = materialNormal.Import(renderGraph, metaballRenderer.materialRenderer.MaterialMaps.NormalRenderTexture, "FluidSim2D Material Normal");
+            TextureHandle materialAlbedoHandle = materialAlbedo.Import(renderGraph, metaballRenderer.materialRenderer.MaterialMaps.albedoTexture, "FluidSim2D Material Albedo");
+            TextureHandle materialNormalHandle = materialNormal.Import(renderGraph, metaballRenderer.materialRenderer.MaterialMaps.normalTexture, "FluidSim2D Material Normal");
 
             RecordMetaballAccumulationPass(renderGraph, "Fluid Sim 2D Combined Accumulation", display, metaballRenderer, combinedHandle, 0);
             RecordMetaballAccumulationPass(renderGraph, "Fluid Sim 2D Normal Accumulation", display, metaballRenderer, normalHandle, 1);
@@ -175,33 +175,33 @@ namespace Seb.Fluid2D.Simulation
                 }
             }
 
-            TextureHandle causticResolvedHandle = renderCaustics ? causticResolved.Import(renderGraph, lighting.causticResolvedTexture, "FluidSim2D Caustic Resolved") : TextureHandle.nullHandle;
-            TextureHandle causticBlurHandle = renderCaustics ? causticBlur.Import(renderGraph, lighting.causticBlurTexture, "FluidSim2D Caustic Blur") : TextureHandle.nullHandle;
-            TextureHandle causticTemporalHandle = renderCaustics && lighting.denoisingEnabled ? causticTemporal.Import(renderGraph, lighting.causticTemporalTexture, "FluidSim2D Caustic Temporal") : TextureHandle.nullHandle;
-            TextureHandle causticHistoryHandle = renderCaustics && lighting.denoisingEnabled ? causticHistory.Import(renderGraph, lighting.causticHistoryTexture, "FluidSim2D Caustic History") : TextureHandle.nullHandle;
-            TextureHandle causticMotionHandle = renderCaustics ? causticMotion.Import(renderGraph, lighting.causticMotionTexture, "FluidSim2D Caustic Motion") : TextureHandle.nullHandle;
-            TextureHandle causticMotionDilatedHandle = renderCaustics ? causticMotionDilated.Import(renderGraph, lighting.causticMotionDilatedTexture, "FluidSim2D Caustic Motion Dilated") : TextureHandle.nullHandle;
-            TextureHandle causticMotionDilationScratchHandle = renderCaustics ? causticMotionDilationScratch.Import(renderGraph, lighting.causticMotionDilationScratchTexture, "FluidSim2D Caustic Motion Dilation Scratch") : TextureHandle.nullHandle;
+            TextureHandle causticResolvedHandle = renderCaustics ? causticResolved.Import(renderGraph, lighting.directLight.traceCaustics.causticResolvedTexture, "FluidSim2D Caustic Resolved") : TextureHandle.nullHandle;
+            TextureHandle causticBlurHandle = renderCaustics ? causticBlur.Import(renderGraph, lighting.directLight.traceCaustics.temporalCaustics.causticBlurTexture, "FluidSim2D Caustic Blur") : TextureHandle.nullHandle;
+            TextureHandle causticTemporalHandle = renderCaustics && lighting.directLight.denoisingEnabled ? causticTemporal.Import(renderGraph, lighting.directLight.traceCaustics.temporalCaustics.causticTemporalTexture, "FluidSim2D Caustic Temporal") : TextureHandle.nullHandle;
+            TextureHandle causticHistoryHandle = renderCaustics && lighting.directLight.denoisingEnabled ? causticHistory.Import(renderGraph, lighting.directLight.traceCaustics.temporalCaustics.causticHistoryTexture, "FluidSim2D Caustic History") : TextureHandle.nullHandle;
+            TextureHandle causticMotionHandle = renderCaustics ? causticMotion.Import(renderGraph, lighting.directLight.traceCaustics.causticMotionTexture, "FluidSim2D Caustic Motion") : TextureHandle.nullHandle;
+            TextureHandle causticMotionDilatedHandle = renderCaustics ? causticMotionDilated.Import(renderGraph, lighting.directLight.traceCaustics.temporalCaustics.causticMotionDilatedTexture, "FluidSim2D Caustic Motion Dilated") : TextureHandle.nullHandle;
+            TextureHandle causticMotionDilationScratchHandle = renderCaustics ? causticMotionDilationScratch.Import(renderGraph, lighting.directLight.traceCaustics.temporalCaustics.causticMotionDilationScratchTexture, "FluidSim2D Caustic Motion Dilation Scratch") : TextureHandle.nullHandle;
             TextureHandle gradientHandle = gradient.Import(renderGraph, display.gradientTexture != null ? display.gradientTexture : Texture2D.blackTexture, "FluidSim2D Gradient");
             TextureHandle gradient2Handle = gradient2.Import(renderGraph, display.gradientTexture2 != null ? display.gradientTexture2 : Texture2D.blackTexture, "FluidSim2D Gradient 2");
-            bool renderPhaseDiffuseLight = lighting != null && lighting.ShouldRenderPhaseDiffuseLight();
-            bool renderRadianceCascadeLight = lighting != null && lighting.radianceCascadeEnabled;
+            bool renderPhaseDiffuseLight = lighting != null && lighting.gaussianSss.ShouldRender();
+            bool renderRadianceCascadeLight = lighting != null && lighting.radianceCascadeGi.radianceCascadeEnabled;
             bool renderSoftLight = renderPhaseDiffuseLight || renderRadianceCascadeLight;
-            TextureHandle gaussianSoftLight0Handle = renderPhaseDiffuseLight ? softLight0.Import(renderGraph, lighting.gaussianSoftLightTexture0, "FluidSim2D Gaussian Soft Light 0") : TextureHandle.nullHandle;
-            TextureHandle gaussianSoftLight1Handle = renderPhaseDiffuseLight ? softLight1.Import(renderGraph, lighting.gaussianSoftLightTexture1, "FluidSim2D Gaussian Soft Light 1") : TextureHandle.nullHandle;
-            TextureHandle radianceCascade0Handle = renderRadianceCascadeLight ? radianceCascade0.Import(renderGraph, lighting.radianceCascadeTexture0, "FluidSim2D Radiance Cascade 0") : TextureHandle.nullHandle;
-            TextureHandle radianceCascade1Handle = renderRadianceCascadeLight ? radianceCascade1.Import(renderGraph, lighting.radianceCascadeTexture1, "FluidSim2D Radiance Cascade 1") : TextureHandle.nullHandle;
-            bool renderSdfRadianceCascade = renderSoftLight && lighting.radianceCascadeEnabled;
-            TextureHandle radianceCascadeSdfSeedAHandle = renderSdfRadianceCascade ? radianceCascadeSdfSeedA.Import(renderGraph, lighting.radianceCascadeSdfSeedA, "FluidSim2D RC SDF Seed A") : TextureHandle.nullHandle;
-            TextureHandle radianceCascadeSdfSeedBHandle = renderSdfRadianceCascade ? radianceCascadeSdfSeedB.Import(renderGraph, lighting.radianceCascadeSdfSeedB, "FluidSim2D RC SDF Seed B") : TextureHandle.nullHandle;
-            TextureHandle radianceCascadeSdfPayloadAHandle = renderSdfRadianceCascade ? radianceCascadeSdfPayloadA.Import(renderGraph, lighting.radianceCascadeSdfPayloadA, "FluidSim2D RC SDF Payload A") : TextureHandle.nullHandle;
-            TextureHandle radianceCascadeSdfPayloadBHandle = renderSdfRadianceCascade ? radianceCascadeSdfPayloadB.Import(renderGraph, lighting.radianceCascadeSdfPayloadB, "FluidSim2D RC SDF Payload B") : TextureHandle.nullHandle;
-            TextureHandle radianceCascadeSdfResolvedHandle = renderSdfRadianceCascade ? radianceCascadeSdfResolved.Import(renderGraph, lighting.radianceCascadeSdfNormalA, "FluidSim2D RC SDF Resolved") : TextureHandle.nullHandle;
-            TextureHandle radianceCascadeSdfResolvedPayloadHandle = renderSdfRadianceCascade ? radianceCascadeSdfResolvedPayload.Import(renderGraph, lighting.radianceCascadeSdfNormalB, "FluidSim2D RC SDF Resolved Payload") : TextureHandle.nullHandle;
+            TextureHandle gaussianSoftLight0Handle = renderPhaseDiffuseLight ? softLight0.Import(renderGraph, lighting.gaussianSss.gaussianSoftLightTexture0, "FluidSim2D Gaussian Soft Light 0") : TextureHandle.nullHandle;
+            TextureHandle gaussianSoftLight1Handle = renderPhaseDiffuseLight ? softLight1.Import(renderGraph, lighting.gaussianSss.gaussianSoftLightTexture1, "FluidSim2D Gaussian Soft Light 1") : TextureHandle.nullHandle;
+            TextureHandle radianceCascade0Handle = renderRadianceCascadeLight ? radianceCascade0.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeTexture0, "FluidSim2D Radiance Cascade 0") : TextureHandle.nullHandle;
+            TextureHandle radianceCascade1Handle = renderRadianceCascadeLight ? radianceCascade1.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeTexture1, "FluidSim2D Radiance Cascade 1") : TextureHandle.nullHandle;
+            bool renderSdfRadianceCascade = renderSoftLight && lighting.radianceCascadeGi.radianceCascadeEnabled;
+            TextureHandle radianceCascadeSdfSeedAHandle = renderSdfRadianceCascade ? radianceCascadeSdfSeedA.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfSeedA, "FluidSim2D RC SDF Seed A") : TextureHandle.nullHandle;
+            TextureHandle radianceCascadeSdfSeedBHandle = renderSdfRadianceCascade ? radianceCascadeSdfSeedB.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfSeedB, "FluidSim2D RC SDF Seed B") : TextureHandle.nullHandle;
+            TextureHandle radianceCascadeSdfPayloadAHandle = renderSdfRadianceCascade ? radianceCascadeSdfPayloadA.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfPayloadA, "FluidSim2D RC SDF Payload A") : TextureHandle.nullHandle;
+            TextureHandle radianceCascadeSdfPayloadBHandle = renderSdfRadianceCascade ? radianceCascadeSdfPayloadB.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfPayloadB, "FluidSim2D RC SDF Payload B") : TextureHandle.nullHandle;
+            TextureHandle radianceCascadeSdfResolvedHandle = renderSdfRadianceCascade ? radianceCascadeSdfResolved.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfNormalA, "FluidSim2D RC SDF Resolved") : TextureHandle.nullHandle;
+            TextureHandle radianceCascadeSdfResolvedPayloadHandle = renderSdfRadianceCascade ? radianceCascadeSdfResolvedPayload.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfNormalB, "FluidSim2D RC SDF Resolved Payload") : TextureHandle.nullHandle;
             ParticleFluidLighting2D.FrameContext lightingContext = lighting != null
                 ? metaballRenderer.CreateLightingContext(display, camera)
                 : default;
-            int causticsFrameIndex = renderCaustics ? lighting.causticFrameIndex++ : 0;
+            int causticsFrameIndex = renderCaustics ? lighting.directLight.traceCaustics.causticFrameIndex++ : 0;
             bool useMaterialPipeline = metaballRenderer.UsesMaterialPipeline(display) && metaballRenderer.materialRenderer.IsReady;
 
             if (renderCaustics)
@@ -219,7 +219,7 @@ namespace Seb.Fluid2D.Simulation
                     builder.AllowPassCulling(false);
                     builder.SetRenderFunc(static (CausticsComputePassData data, ComputeGraphContext context) =>
                     {
-                        data.lighting.traceCaustics.RecordComputeClear(data.context, context.cmd, data.combinedTexture, data.frameIndex, data.causticResolved, data.causticMotion);
+                        data.lighting.directLight.traceCaustics.RecordComputeClear(data.context, context.cmd, data.combinedTexture, data.frameIndex, data.causticResolved, data.causticMotion);
                     });
                 }
 
@@ -242,7 +242,7 @@ namespace Seb.Fluid2D.Simulation
                     builder.AllowPassCulling(false);
                     builder.SetRenderFunc(static (CausticsComputePassData data, ComputeGraphContext context) =>
                     {
-                        data.lighting.traceCaustics.RecordComputeTrace(data.context, context.cmd, data.combinedTexture, data.frameIndex, data.combined, data.velocity0, data.velocity1, data.gradient, data.gradient2);
+                        data.lighting.directLight.traceCaustics.RecordComputeTrace(data.context, context.cmd, data.combinedTexture, data.frameIndex, data.combined, data.velocity0, data.velocity1, data.gradient, data.gradient2);
                     });
                 }
 
@@ -259,7 +259,7 @@ namespace Seb.Fluid2D.Simulation
                     builder.AllowPassCulling(false);
                     builder.SetRenderFunc(static (CausticsComputePassData data, ComputeGraphContext context) =>
                     {
-                        data.lighting.traceCaustics.RecordComputeResolve(data.context, context.cmd, data.combinedTexture, data.frameIndex, data.causticResolved, data.causticMotion);
+                        data.lighting.directLight.traceCaustics.RecordComputeResolve(data.context, context.cmd, data.combinedTexture, data.frameIndex, data.causticResolved, data.causticMotion);
                     });
                 }
 
@@ -281,7 +281,7 @@ namespace Seb.Fluid2D.Simulation
                     builder.SetRenderFunc(static (CausticsBlurPassData data, UnsafeGraphContext context) =>
                     {
                         CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-                        data.lighting.temporalCaustics.RecordBlurAndMotion(data.context, nativeCommandBuffer);
+                        data.lighting.directLight.traceCaustics.temporalCaustics.RecordBlurAndMotion(data.context, nativeCommandBuffer);
                     });
                 }
 
@@ -305,7 +305,8 @@ namespace Seb.Fluid2D.Simulation
                     builder.SetRenderFunc(static (CausticsTemporalPassData data, UnsafeGraphContext context) =>
                     {
                         CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-                        data.lighting.temporalCaustics.RecordTemporal(data.context, nativeCommandBuffer, data.lighting.temporalCaustics.GetTemporalMotionTextureAfterBlur());
+                        RenderTexture temporalMotionTexture = data.lighting.directLight.traceCaustics.temporalCaustics.GetTemporalMotionTextureAfterBlur();
+                        data.lighting.directLight.traceCaustics.temporalCaustics.RecordTemporal(data.context, nativeCommandBuffer, temporalMotionTexture);
                     });
                 }
 
@@ -348,7 +349,7 @@ namespace Seb.Fluid2D.Simulation
                     builder.SetRenderFunc(static (CausticsSoftLightPassData data, UnsafeGraphContext context) =>
                     {
                         CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-                        data.lighting.softLightCaustics.RecordSoftLight(data.context, nativeCommandBuffer, data.lighting.GetSharpCausticsTexture(), data.combinedTexture);
+                        data.lighting.RecordSoftLight(data.context, nativeCommandBuffer, data.lighting.directLight.traceCaustics.GetSharpCausticsTexture(), data.combinedTexture);
                     });
                 }
             }

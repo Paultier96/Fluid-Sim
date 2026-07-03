@@ -10,6 +10,7 @@ Shader "Hidden/Particle2DMetaballMaterial" {
 
 		CGINCLUDE
 		#include "UnityCG.cginc"
+		#include "../Lighting/Shared/ParticleFluidCommon.hlsl"
 
 struct appdata {
 	float4 vertex : POSITION;
@@ -46,6 +47,7 @@ float2 metaballWorldCenter;
 float2 metaballWorldSize;
 float4 metaballSourceUvRect;
 float analyticBoundaryExpansion;
+#include "../Lighting/Shared/ParticleFluidAnalyticBoundary.hlsl"
 float metaballGhostBoundaryNormalStrength;
 float metaballRefractionStrength;
 float metaballRefractionEdgeFade;
@@ -151,11 +153,6 @@ float3 ReorientedNormal(float3 baseNormal, float3 detailNormal)
 	));
 }
 
-float2 WorldPosFromUv(float2 uv)
-{
-	return metaballWorldCenter + (uv - 0.5) * max(metaballWorldSize, float2(0.0001, 0.0001));
-}
-
 float2 SourceUvFromMaterialUv(float2 uv)
 {
 	return metaballSourceUvRect.xy + uv * metaballSourceUvRect.zw;
@@ -172,62 +169,6 @@ bool TryGetCompositeMaterialUv(float2 screenUv, out float2 materialUv)
 	float2 localUv = (screenUv - metaballCompositeUvRect.xy) / max(metaballCompositeUvRect.zw, float2(0.000001, 0.000001));
 	materialUv = localUv;
 	return all(localUv >= 0.0) && all(localUv <= 1.0);
-}
-
-float2 BoundaryDistances(float2 worldPos)
-{
-	float2 radii = max(abs(ellipseBoundsSize), 0.0001);
-	float2 rel = worldPos - ellipseBoundsCenter;
-	float2 q = rel / radii;
-	float qLen = max(length(q), 0.0001);
-	float ellipseGradientLength = length(float2(q.x / radii.x, q.y / radii.y)) / qLen;
-	float ellipseDistance = (qLen - 1.0) / max(ellipseGradientLength, 0.0001);
-	float cutDistance = obstacleY - worldPos.y;
-	return float2(ellipseDistance, cutDistance);
-}
-
-float AnalyticBoundaryDistance(float2 worldPos)
-{
-	float2 distances = BoundaryDistances(worldPos);
-	return max(distances.x, distances.y);
-}
-
-float OuterAnalyticBoundaryDistance(float2 worldPos)
-{
-	float2 distances = BoundaryDistances(worldPos);
-	float outsideDistance = length(max(distances, 0.0)) + min(max(distances.x, distances.y), 0.0);
-	return outsideDistance - max(analyticBoundaryExpansion, 0.0);
-}
-
-float2 EllipseBoundaryNormal(float2 worldPos)
-{
-	float2 radii = max(abs(ellipseBoundsSize), 0.0001);
-	float2 rel = worldPos - ellipseBoundsCenter;
-	float2 q = rel / radii;
-	return length(q) > 0.0001
-		? normalize(float2(q.x / radii.x, q.y / radii.y))
-		: float2(0.0, 1.0);
-}
-
-float2 AnalyticBoundaryNormal(float2 worldPos)
-{
-	float2 distances = BoundaryDistances(worldPos);
-	float2 ellipseNormal = EllipseBoundaryNormal(worldPos);
-	float2 cutNormal = float2(0.0, -1.0);
-	return distances.x > distances.y ? ellipseNormal : cutNormal;
-}
-
-float2 OuterAnalyticBoundaryNormal(float2 worldPos)
-{
-	float2 distances = BoundaryDistances(worldPos);
-	float2 ellipseNormal = EllipseBoundaryNormal(worldPos);
-	float2 cutNormal = float2(0.0, -1.0);
-	float2 outsideDistances = max(distances, 0.0);
-	if (outsideDistances.x > 0.0 && outsideDistances.y > 0.0)
-	{
-		return normalize(ellipseNormal * outsideDistances.x + cutNormal * outsideDistances.y);
-	}
-	return AnalyticBoundaryNormal(worldPos);
 }
 
 float3 ApplyAnalyticBoundaryNormal(float3 particleNormal, float2 worldPos)
@@ -327,36 +268,8 @@ float NormalizedData(float weightedData, float weight, float fallback)
 	return weight > 0.0001 ? weightedData / weight : fallback;
 }
 
-float3 SampleGradientColour(float2 uv, float fallbackData0, float fallbackData1, float fallbackPhaseT, float noise)
-{
-	float4 combined = tex2D(CombinedTex, uv);
-	float density0 = Phase0Density(combined);
-	float density1 = combined.a;
-	float sampleDensity = max(density0, density1);
-	float phaseRatio = density1 / max(density0 + density1, 0.0001);
-	float phaseBoundary = saturate(0.5 + phase0RenderBias * 0.5);
-	float samplePhaseT = screenSpaceRefractionCanCrossPhases != 0 && sampleDensity >= densityThreshold ? step(phaseBoundary, phaseRatio) : fallbackPhaseT;
-	float data0 = NormalizedData(combined.r, density0, fallbackData0);
-	float data1 = NormalizedData(combined.b, density1, fallbackData1);
-	float3 colour0 = tex2D(ColourMap,  float2(saturate(data0), 0.5)).rgb;
-	float3 colour1 = tex2D(ColourMap2, float2(saturate(data1), 0.5)).rgb;
-	return lerp(colour0, colour1, samplePhaseT);
-}
-
-float3 SamplePhaseGradientColour(float data, bool usePhase1, float noise)
-{
-	return usePhase1
-		? tex2D(ColourMap2, float2(saturate(data), 0.5)).rgb
-		: tex2D(ColourMap,  float2(saturate(data), 0.5)).rgb;
-}
-float ShiftedPhaseT(float density0, float density1)
-{
-	float phaseRatio = density1 / max(density0 + density1, 0.0001);
-	float phaseBoundary = saturate(0.5 + phase0RenderBias * 0.5);
-	float phaseDelta = phaseRatio - phaseBoundary;
-	float phaseAA = max(0.5 * fwidth(phaseRatio) * max(phaseBlendWidth, 0.0001), 0.00001);
-	return smoothstep(-phaseAA, phaseAA, phaseDelta);
-}
+#include "../Lighting/Shared/ParticleFluidGradientSampling.cginc"
+#include "../Lighting/Shared/ParticleFluidPhaseAA.cginc"
 
 bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float3 normal0, out float3 normal1, out float3 albedo)
 {
@@ -369,7 +282,7 @@ bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float
 	float particleAlpha = smoothstep(max(densityThreshold - edgeSoftness, 0), densityThreshold + edgeSoftness, density);
 	if (useEllipticalBounds != 0)
 	{
-		float boundsDistance = OuterAnalyticBoundaryDistance(WorldPosFromUv(materialUv));
+		float boundsDistance = OuterAnalyticBoundaryDistance(ParticleFluidWorldFromUv(materialUv, metaballWorldCenter, metaballWorldSize));
 		float boundsAA = max(fwidth(boundsDistance), 0.0001);
 		float boundsAlpha = smoothstep(boundsAA, -boundsAA, boundsDistance);
 		alpha = min(particleAlpha, boundsAlpha);
@@ -388,12 +301,12 @@ bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float
 		return false;
 	}
 
-	phaseT = ShiftedPhaseT(density0, density1);
+	phaseT = ParticleFluidShiftedPhaseT(density0, density1, phase0RenderBias, phaseBlendWidth);
 	float data0 = combined.r / max(density0, 0.0001);
 	float data1 = combined.b / max(density1, 0.0001);
 	float noise = InterleavedGradientNoise(i.vertex.xy);
 	float4 normalPacked = tex2D(NormalTex, sourceUv);
-	float2 worldPos = WorldPosFromUv(materialUv);
+	float2 worldPos = ParticleFluidWorldFromUv(materialUv, metaballWorldCenter, metaballWorldSize);
 	normal0 = GetPhaseNormal(normalPacked, density0, density1, false);
 	normal1 = GetPhaseNormal(normalPacked, density0, density1, true);
 	normal0 = ApplyAnalyticBoundaryNormal(normal0, worldPos);
@@ -401,7 +314,10 @@ bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float
 	float3 blendedNormal = normalize(lerp(normal0, normal1, phaseT));
 	float refractionMask = smoothstep(0.0, max(metaballRefractionEdgeFade, 0.0001), density - densityThreshold);
 	float2 refractedSourceUv = saturate(sourceUv - blendedNormal.xy * metaballRefractionStrength * refractionMask);
-	albedo = SampleGradientColour(refractedSourceUv, data0, data1, phaseT, noise);
+	float4 refractedCombined = tex2D(CombinedTex, refractedSourceUv);
+	float refractedDensity0 = Phase0Density(refractedCombined);
+	float refractedDensity1 = refractedCombined.a;
+	albedo = ParticleFluidSampleGradientColour(refractedCombined, refractedDensity0, refractedDensity1, data0, data1, phaseT, screenSpaceRefractionCanCrossPhases, densityThreshold, phase0RenderBias);
 	return true;
 }
 

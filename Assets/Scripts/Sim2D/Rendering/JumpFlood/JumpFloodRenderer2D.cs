@@ -32,7 +32,7 @@ namespace Seb.Fluid2D.Rendering
 				return false;
 			}
 
-			EnsureMaterial(ref displayMaterial, display.jumpFlood.displayShader);
+			ParticleFluidRenderUtils.EnsureMaterial(ref displayMaterial, display.jumpFlood.displayShader);
 			if (displayMaterial == null)
 			{
 				return false;
@@ -67,32 +67,8 @@ namespace Seb.Fluid2D.Rendering
 			payloadResult = null;
 			normalPayloadResult = null;
 
-			if (displayMaterial != null)
-			{
-				Object.DestroyImmediate(displayMaterial);
-				displayMaterial = null;
-			}
-
-			if (materialMapMaterial != null)
-			{
-				Object.DestroyImmediate(materialMapMaterial);
-				materialMapMaterial = null;
-			}
-		}
-
-		static void EnsureMaterial(ref Material material, Shader shader)
-		{
-			if (shader == null || (material != null && material.shader == shader))
-			{
-				return;
-			}
-
-			if (material != null)
-			{
-				Object.DestroyImmediate(material);
-			}
-
-			material = new Material(shader);
+			ParticleFluidRenderUtils.DestroyMaterial(ref displayMaterial);
+			ParticleFluidRenderUtils.DestroyMaterial(ref materialMapMaterial);
 		}
 
 		void RunJumpFlood(ParticleDisplay2D display, Camera cam)
@@ -227,17 +203,12 @@ namespace Seb.Fluid2D.Rendering
 
 			displayMaterial.SetTexture("_PayloadTex", payloadResult != null ? payloadResult : payloadA);
 			displayMaterial.SetMatrix("_InverseViewProjection", (cam.projectionMatrix * cam.worldToCameraMatrix).inverse);
-			displayMaterial.SetVector("jumpFloodWorldCenter", new Vector4(currentRenderLayout.Source.WorldCenter.x, currentRenderLayout.Source.WorldCenter.y, 0f, 0f));
-			displayMaterial.SetVector("jumpFloodWorldSize", new Vector4(currentRenderLayout.Source.WorldSize.x, currentRenderLayout.Source.WorldSize.y, 0f, 0f));
 			displayMaterial.SetInt("jumpFloodCompositeRegionEnabled", currentRenderLayout.Source.IsCropped ? 1 : 0);
-			displayMaterial.SetVector("jumpFloodCompositeUvRect", currentRenderLayout.Source.SourceUvRect);
-			displayMaterial.SetInt("useEllipticalBounds", display.sim.useEllipticalBounds ? 1 : 0);
-			displayMaterial.SetVector("ellipseBoundsCenter", new Vector4(display.sim.ellipseBoundsCenter.x, display.sim.ellipseBoundsCenter.y, 0f, 0f));
-			displayMaterial.SetVector("ellipseBoundsSize", new Vector4(display.sim.ellipseBoundsSize.x, display.sim.ellipseBoundsSize.y, 0f, 0f));
 			displayMaterial.SetVector("boundsSize", new Vector4(display.sim.boundsSize.x, display.sim.boundsSize.y, 0f, 0f));
-			displayMaterial.SetFloat("obstacleY", display.sim.obstacleY);
 
 			targetCommandBuffer.BeginSample("Jump Flood/Display Fallback");
+			ParticleFluidAnalyticBoundaryBindings.ApplyGlobals(targetCommandBuffer, display.sim != null ? display.sim.analyticBoundary : null);
+			ParticleFluidRasterLayoutBindings.ApplyJumpFloodGlobals(targetCommandBuffer, currentRenderLayout.Source);
 			targetCommandBuffer.SetRenderTarget(finalTarget);
 			targetCommandBuffer.ClearRenderTarget(false, true, Color.black);
 			targetCommandBuffer.Blit(result != null ? result : seedA, finalTarget, displayMaterial);
@@ -257,7 +228,7 @@ namespace Seb.Fluid2D.Rendering
 				return false;
 			}
 
-			EnsureMaterial(ref materialMapMaterial, materialShader);
+			ParticleFluidRenderUtils.EnsureMaterial(ref materialMapMaterial, materialShader);
 			if (materialMapMaterial == null)
 			{
 				return false;
@@ -266,6 +237,8 @@ namespace Seb.Fluid2D.Rendering
 			ApplyMaterialMapSettings(display, cam);
 			ParticleFluidRenderRegion2D renderRegion = currentRenderLayout.Material;
 			targetCommandBuffer.BeginSample("Jump Flood/Material Pipeline");
+			ParticleFluidAnalyticBoundaryBindings.ApplyGlobals(targetCommandBuffer, display.sim != null ? display.sim.analyticBoundary : null);
+			ParticleFluidRasterLayoutBindings.ApplyJumpFloodGlobals(targetCommandBuffer, currentRenderLayout.Source);
 			materialMaps.Render(targetCommandBuffer, materialMapMaterial, AlbedoPass, NormalPass);
 			ClearFinalTarget(targetCommandBuffer, finalTarget);
 
@@ -298,33 +271,31 @@ namespace Seb.Fluid2D.Rendering
 			lighting.combinedSourceTexture = null;
 			Vector2 projectedShadowDirection = Vector2.zero;
 			ParticleFluidProjectedShadow.RecordParams projectedShadowParams = default;
-			if (lighting.ShouldRenderProjectedShadows()
-			    && lighting.lightSlots[0] != null
-			    && lighting.lightSlots[0] is ParticleFluidDirectionalLight2D directionalLight
-			    && directionalLight.isActiveAndEnabled)
+			if (lighting.directLight.projectedShadow.ShouldRender(lighting.directLight)
+			    && lighting.lightManager.GetMainDirectionalLight() is ParticleFluidDirectionalLight2D directionalLight)
 			{
-				Vector3 effectiveLightDirection = directionalLight.GetDirectLightingDirection(lighting, display);
+				Vector3 effectiveLightDirection = directionalLight.GetDirectLightingDirection(lighting, display.sim.analyticBoundary);
 				projectedShadowParams = new ParticleFluidProjectedShadow.RecordParams(
-					lighting.projectedShadowCompute,
-					lighting.projectedShadowMapBuffer,
-					lighting.projectedShadowMapTexture,
+					lighting.directLight.projectedShadowCompute,
+					lighting.directLight.projectedShadow.projectedShadowMapBuffer,
+					lighting.directLight.projectedShadow.projectedShadowMapTexture,
 					lighting.combinedSourceTexture,
-					lighting.projectedShadowMapBins,
+					lighting.directLight.projectedShadowMapBins,
 					display.metaballs.densityThreshold,
 					display.metaballs.phase0RenderBias,
 					effectiveLightDirection,
 					lightingContext.renderLayout.Source,
 					lightingContext.renderLayout.Caustic);
 			}
-			bool useProjectedShadow = lighting.ShouldRenderProjectedShadows()
-			                          && lighting.projectedShadow.RecordCurrentShadowMap(targetCommandBuffer, projectedShadowParams, out projectedShadowDirection);
+			bool useProjectedShadow = lighting.directLight.projectedShadow.ShouldRender(lighting.directLight)
+			                          && lighting.directLight.projectedShadow.RecordCurrentShadowMap(targetCommandBuffer, projectedShadowParams, out projectedShadowDirection);
 			lighting.ApplySettings(
 				lightingContext,
 				false,
 				false,
 				Texture2D.blackTexture
 			);
-			lighting.ApplyProjectedShadowSettings(useProjectedShadow, projectedShadowDirection);
+			lighting.directLight.projectedShadow.ApplyToMaterial(lighting.lightingMaterial, useProjectedShadow, projectedShadowDirection, lighting.directLight.projectedShadowOffset, lighting.directLight.projectedShadowExpansion);
 			lighting.lightingMaterial.SetTexture("SoftLightTex", Texture2D.blackTexture);
 			lighting.lightingMaterial.SetTexture("SoftLightTexPhase1", Texture2D.blackTexture);
 			lighting.Render(targetCommandBuffer, finalTarget, cam);
@@ -353,13 +324,7 @@ namespace Seb.Fluid2D.Rendering
 				resultTexture.height
 			));
 			materialMapMaterial.SetMatrix("_InverseViewProjection", (cam.projectionMatrix * cam.worldToCameraMatrix).inverse);
-			materialMapMaterial.SetVector("jumpFloodWorldCenter", new Vector4(currentRenderLayout.Source.WorldCenter.x, currentRenderLayout.Source.WorldCenter.y, 0f, 0f));
-			materialMapMaterial.SetVector("jumpFloodWorldSize", new Vector4(currentRenderLayout.Source.WorldSize.x, currentRenderLayout.Source.WorldSize.y, 0f, 0f));
-			materialMapMaterial.SetInt("useEllipticalBounds", display.sim.useEllipticalBounds ? 1 : 0);
-			materialMapMaterial.SetVector("ellipseBoundsCenter", new Vector4(display.sim.ellipseBoundsCenter.x, display.sim.ellipseBoundsCenter.y, 0f, 0f));
-			materialMapMaterial.SetVector("ellipseBoundsSize", new Vector4(display.sim.ellipseBoundsSize.x, display.sim.ellipseBoundsSize.y, 0f, 0f));
 			materialMapMaterial.SetVector("boundsSize", new Vector4(display.sim.boundsSize.x, display.sim.boundsSize.y, 0f, 0f));
-			materialMapMaterial.SetFloat("obstacleY", display.sim.obstacleY);
 		}
 
 		ParticleFluidRenderLayout2D GetRenderLayout(ParticleDisplay2D display, Camera cam)
@@ -376,21 +341,21 @@ namespace Seb.Fluid2D.Rendering
 		ParticleFluidRenderRegion2D GetRenderRegion(ParticleDisplay2D display, Camera cam, int fullWidth, int fullHeight)
 		{
 			ParticleFluidRenderRegion2D fullRegion = ParticleFluidRenderRegion2D.Full(cam, fullWidth, fullHeight);
-			if (display == null || cam == null || !display.sim.useEllipticalBounds || display.debugMode != ParticleDisplay2D.DebugVisualization.None)
+			if (display == null || cam == null || !display.sim.analyticBoundary.useEllipticalBounds || display.debugMode != ParticleDisplay2D.DebugVisualization.None)
 			{
 				return fullRegion;
 			}
 
-			float expansion = display.metaballs.analyticBoundaryPadding;
+			float expansion = display.sim.analyticBoundary.analyticBoundaryExpansion;
 			float cameraWorldUnitsPerPixel = fullRegion.WorldSize.y / Mathf.Max(fullHeight, 1);
-			Vector2 center = display.sim.ellipseBoundsCenter;
-			Vector2 radii = new Vector2(Mathf.Abs(display.sim.ellipseBoundsSize.x), Mathf.Abs(display.sim.ellipseBoundsSize.y)) + Vector2.one * expansion;
+			Vector2 center = display.sim.analyticBoundary.ellipseBoundsCenter;
+			Vector2 radii = new Vector2(Mathf.Abs(display.sim.analyticBoundary.ellipseBoundsSize.x), Mathf.Abs(display.sim.analyticBoundary.ellipseBoundsSize.y)) + Vector2.one * expansion;
 			if (radii.x <= 0.0001f || radii.y <= 0.0001f)
 			{
 				return fullRegion;
 			}
 
-			float cutY = display.sim.obstacleY - expansion;
+			float cutY = display.sim.analyticBoundary.obstacleY - expansion;
 			Vector2 cameraMin = fullRegion.WorldCenter - fullRegion.WorldSize * 0.5f;
 			Vector2 cameraMax = fullRegion.WorldCenter + fullRegion.WorldSize * 0.5f;
 			Vector2 boundsMin = new Vector2(center.x - radii.x, Mathf.Max(center.y - radii.y, cutY));
@@ -436,7 +401,7 @@ namespace Seb.Fluid2D.Rendering
 				return null;
 			}
 
-			ParticleFluidLighting2D lighting = display.GetComponent<ParticleFluidLighting2D>();
+			ParticleFluidLighting2D lighting = display.Lighting;
 			return lighting != null && lighting.isActiveAndEnabled ? lighting : null;
 		}
 	}
