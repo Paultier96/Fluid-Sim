@@ -94,14 +94,12 @@ namespace Seb.Fluid2D.Rendering
 			return (eta * rayDirection + (eta * cosI - cosT) * normal).normalized;
 		}
 
-		static bool TryGetAnalyticBoundaryHitFromCenter(ParticleFluidAnalyticBoundary2D analyticBoundary, Vector2 directionToLight, out Vector2 outwardNormal)
+		bool TryGetAnalyticBoundaryHitFromCenter(ParticleFluidAnalyticBoundary2D analyticBoundary, Vector2 directionToLight, out Vector2 outwardNormal)
 		{
-			float expansion = analyticBoundary.analyticBoundaryExpansion;
 			Vector2 center = analyticBoundary.ellipseBoundsCenter;
-			Vector2 radii = new Vector2(Mathf.Abs(analyticBoundary.ellipseBoundsSize.x), Mathf.Abs(analyticBoundary.ellipseBoundsSize.y)) + Vector2.one * expansion;
-			float cutY = analyticBoundary.obstacleY - expansion;
-			float topY = center.y + radii.y;
-			Vector2 start = new Vector2(center.x, (topY + cutY) * 0.5f);
+			Vector2 radii = analyticBoundary.Radii;
+			float cutY = analyticBoundary.CutY;
+			Vector2 start = new Vector2(center.x, (analyticBoundary.BoundsMax.y + cutY) * 0.5f);
 			outwardNormal = Vector2.up;
 			if (radii.x <= 0.0001f || radii.y <= 0.0001f)
 			{
@@ -121,27 +119,30 @@ namespace Seb.Fluid2D.Rendering
 			if (discriminant >= 0f && a > 0.000001f)
 			{
 				float sqrtDiscriminant = Mathf.Sqrt(discriminant);
-				TryUseAnalyticBoundaryCandidate(start, (-b - sqrtDiscriminant) / (2f * a), directionToLight, center, radii, cutY, false, ref bestT, ref outwardNormal, ref hasHit);
-				TryUseAnalyticBoundaryCandidate(start, (-b + sqrtDiscriminant) / (2f * a), directionToLight, center, radii, cutY, false, ref bestT, ref outwardNormal, ref hasHit);
+				TryUseAnalyticBoundaryCandidate(analyticBoundary, (-b - sqrtDiscriminant) / (2f * a), directionToLight, false, ref bestT, ref outwardNormal, ref hasHit);
+				TryUseAnalyticBoundaryCandidate(analyticBoundary, (-b + sqrtDiscriminant) / (2f * a), directionToLight, false, ref bestT, ref outwardNormal, ref hasHit);
 			}
 
 			if (directionToLight.y < -0.0001f)
 			{
 				float cutT = (cutY - start.y) / directionToLight.y;
-				TryUseAnalyticBoundaryCandidate(start, cutT, directionToLight, center, radii, cutY, true, ref bestT, ref outwardNormal, ref hasHit);
+				TryUseAnalyticBoundaryCandidate(analyticBoundary, cutT, directionToLight, true, ref bestT, ref outwardNormal, ref hasHit);
 			}
 
 			return hasHit;
 		}
 
-		static void TryUseAnalyticBoundaryCandidate(Vector2 start, float t, Vector2 direction, Vector2 center, Vector2 radii, float cutY, bool isCut, ref float bestT, ref Vector2 outwardNormal, ref bool hasHit)
+		static void TryUseAnalyticBoundaryCandidate(ParticleFluidAnalyticBoundary2D analyticBoundary, float t, Vector2 direction, bool isCut, ref float bestT, ref Vector2 outwardNormal, ref bool hasHit)
 		{
 			if (t <= 0.0001f || t >= bestT)
 			{
 				return;
 			}
+			Vector2 center = analyticBoundary.ellipseBoundsCenter;
+			float cutY = analyticBoundary.CutY;
+			Vector2 radii = analyticBoundary.Radii;
 
-			Vector2 point = start + direction * t;
+			Vector2 point = new Vector2(center.x, (analyticBoundary.BoundsMax.y + cutY) * 0.5f) + direction * t;
 			Vector2 rel = point - center;
 			float ellipseValue = rel.x * rel.x / (radii.x * radii.x) + rel.y * rel.y / (radii.y * radii.y);
 			if (isCut)

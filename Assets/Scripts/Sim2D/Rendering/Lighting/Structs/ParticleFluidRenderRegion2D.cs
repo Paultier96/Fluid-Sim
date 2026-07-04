@@ -21,12 +21,12 @@ namespace Seb.Fluid2D.Rendering
 			PixelSize = new Vector2Int(Mathf.Max(pixelWidth, 1), Mathf.Max(pixelHeight, 1));
 		}
 
-		public static ParticleFluidRenderRegion2D Full(Camera cam, int pixelWidth, int pixelHeight)
+		public static ParticleFluidRenderRegion2D Full(Camera cam)
 		{
 			float worldHeight = Mathf.Max(cam.orthographicSize * 2f, 0.0001f);
 			float worldWidth = Mathf.Max(worldHeight * cam.aspect, 0.0001f);
 			Vector2 worldCenter = new Vector2(cam.transform.position.x, cam.transform.position.y);
-			return new ParticleFluidRenderRegion2D(worldCenter, new Vector2(worldWidth, worldHeight), pixelWidth, pixelHeight);
+			return new ParticleFluidRenderRegion2D(worldCenter, new Vector2(worldWidth, worldHeight), Mathf.Max(cam.pixelWidth, 1), Mathf.Max(cam.pixelHeight, 1));
 		}
 	}
 }

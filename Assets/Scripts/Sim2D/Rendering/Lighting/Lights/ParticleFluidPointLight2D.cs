@@ -29,11 +29,10 @@ namespace Seb.Fluid2D.Rendering
 			return Mathf.Max(1, Mathf.CeilToInt(Mathf.PI * 2 * radiusPixels));
 		}
 
-		public void GetCausticRaySpan(ParticleDisplay2D display, float[] scratchAngles, out float angleStart, out float angleRange)
+		public void GetCausticRaySpan(ParticleFluidAnalyticBoundary2D boundary, float[] scratchAngles, out float angleStart, out float angleRange)
 		{
 			angleStart = 0f;
 			angleRange = TwoPi;
-			ParticleFluidAnalyticBoundary2D boundary = display != null ? display.sim.analyticBoundary : null;
 			if (boundary == null || scratchAngles == null || scratchAngles.Length == 0 || !boundary.useEllipticalBounds)
 			{
 				return;
@@ -41,13 +40,13 @@ namespace Seb.Fluid2D.Rendering
 
 			Vector3 lightPosition = transform.position;
 			Vector2 point = new Vector2(lightPosition.x, lightPosition.y);
-			if (boundary.IsInsideAnalyticBoundary(point))
+			if (boundary.Contains(point))
 			{
 				return;
 			}
 
-			Vector2 radii = new Vector2(Mathf.Abs(boundary.ellipseBoundsSize.x), Mathf.Abs(boundary.ellipseBoundsSize.y)) + Vector2.one * boundary.analyticBoundaryExpansion;
-			float cutY = boundary.obstacleY - boundary.analyticBoundaryExpansion;
+			Vector2 radii = boundary.Radii;
+			float cutY = boundary.CutY;
 			int angleCount = 0;
 			for (int i = 0; i < BoundaryEllipseSamples; i++)
 			{

@@ -186,7 +186,7 @@ namespace Seb.Fluid2D.Rendering
 				cam,
 				currentRenderLayout,
 				display.GetZoomScale(cam),
-				GetAnalyticBoundaryExpansion(display)
+				display.sim.analyticBoundary.analyticBoundaryExpansion
 			);
 		}
 
@@ -379,7 +379,7 @@ namespace Seb.Fluid2D.Rendering
 		void ApplyMaterialSettings(ParticleDisplay2D display, Camera cam)
 		{
 			float effectiveNormalStrength = display.GetEffectiveNormalStrength(display.EffectiveConfiguredBlurRadius);
-			materialRenderer.ApplySharedSettings(display, cam, GetAnalyticBoundaryExpansion(display), effectiveNormalStrength, GetActiveLighting(display));
+			materialRenderer.ApplySharedSettings(display, cam, display.sim.analyticBoundary.analyticBoundaryExpansion, effectiveNormalStrength, GetActiveLighting(display));
 		}
 
 		public void RecordMotionPyramid(CommandBuffer targetCommandBuffer, float effectiveMotionBlurRadius)
@@ -525,14 +525,10 @@ namespace Seb.Fluid2D.Rendering
 			display.AppendVectorFieldDraw(targetCommandBuffer);
 			targetCommandBuffer.EndSample("Particle Fluid/Vector Field");
 		}
-		public static float GetAnalyticBoundaryExpansion(ParticleDisplay2D display)
-		{
-			return display.sim != null ? display.sim.analyticBoundary.analyticBoundaryExpansion : 0f;
-		}
 
 		ParticleFluidRenderLayout2D GetRenderLayout(ParticleDisplay2D display, Camera cam)
 		{
-			ParticleFluidRenderRegion2D cropRegion = GetMaterialRenderRegion(display, cam, Mathf.Max(cam.pixelWidth, 1), Mathf.Max(cam.pixelHeight, 1));
+			ParticleFluidRenderRegion2D cropRegion = GetMaterialRenderRegion(display, cam);
 			ParticleFluidLighting2D lighting = GetActiveLighting(display);
 			float sourceScale = Mathf.Max(display.metaballs.renderTextureScale, 0.0001f);
 			float materialScale = lighting != null ? lighting.materialMapTextureScale : 1f;
@@ -550,30 +546,22 @@ namespace Seb.Fluid2D.Rendering
 				ParticleFluidRenderLayout2D.ScaledSize(cropRegion, causticScale));
 		}
 
-		ParticleFluidRenderRegion2D GetMaterialRenderRegion(ParticleDisplay2D display, Camera cam, int fullWidth, int fullHeight)
+		ParticleFluidRenderRegion2D GetMaterialRenderRegion(ParticleDisplay2D display, Camera cam)
 		{
-			ParticleFluidRenderRegion2D fullRegion = ParticleFluidRenderRegion2D.Full(cam, fullWidth, fullHeight);
+			int fullWidth = Mathf.Max(cam.pixelWidth, 1);
+			int fullHeight = Mathf.Max(cam.pixelHeight, 1); 
+			ParticleFluidRenderRegion2D fullRegion = ParticleFluidRenderRegion2D.Full(cam);
 			if (display == null || cam == null || !display.sim.analyticBoundary.useEllipticalBounds || !ShouldUseCroppedRenderRegion(display))
 			{
 				return fullRegion;
 			}
 
-			float expansion = GetAnalyticBoundaryExpansion(display);
 			float cameraWorldUnitsPerPixel = fullRegion.WorldSize.y / Mathf.Max(fullHeight, 1);
-			Vector2 center = display.sim.analyticBoundary.ellipseBoundsCenter;
-			Vector2 radii = new Vector2(Mathf.Abs(display.sim.analyticBoundary.ellipseBoundsSize.x), Mathf.Abs(display.sim.analyticBoundary.ellipseBoundsSize.y)) + Vector2.one * expansion;
-			if (radii.x <= 0.0001f || radii.y <= 0.0001f)
-			{
-				return fullRegion;
-			}
 
-			float cutY = display.sim.analyticBoundary.obstacleY - expansion;
 			Vector2 cameraMin = fullRegion.WorldBounds.min;
 			Vector2 cameraMax = fullRegion.WorldBounds.max;
-			Vector2 boundsMin = new Vector2(center.x - radii.x, Mathf.Max(center.y - radii.y, cutY));
-			Vector2 boundsMax = new Vector2(center.x + radii.x, center.y + radii.y);
-			Vector2 cropMin = Vector2.Max(cameraMin, boundsMin);
-			Vector2 cropMax = Vector2.Min(cameraMax, boundsMax);
+			Vector2 cropMin = Vector2.Max(cameraMin, display.sim.analyticBoundary.BoundsMin);
+			Vector2 cropMax = Vector2.Min(cameraMax, display.sim.analyticBoundary.BoundsMax);
 			if (cropMax.x <= cropMin.x || cropMax.y <= cropMin.y)
 			{
 				return new ParticleFluidRenderRegion2D(new Bounds(fullRegion.WorldBounds.center, new Vector3(cameraWorldUnitsPerPixel, cameraWorldUnitsPerPixel, 0f)), 1, 1);

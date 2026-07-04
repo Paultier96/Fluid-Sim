@@ -17,7 +17,6 @@ namespace Seb.Fluid2D.Rendering
 		internal RenderTexture causticResolvedTexture;
 		internal RenderTexture causticMotionTexture;
 		internal int causticFrameIndex;
-		const int LightSlotCount = 3;
 		const int MaterialSlotCount = 3;
 		readonly Vector4[] materialParams = new Vector4[MaterialSlotCount * 2];
 
@@ -111,9 +110,6 @@ namespace Seb.Fluid2D.Rendering
 		{
 			ParticleDisplay2D display = context.display;
 			ParticleFluidLighting2D lightingOwner = owner.Owner;
-			Vector2 currentWorldCenter = context.renderLayout.CausticRegion.WorldCenter;
-			Vector2 currentWorldSize = context.renderLayout.CausticRegion.WorldSize;
-			float analyticBoundaryExpansion = context.analyticBoundaryExpansion;
 			ComputeShader compute = owner.computeShader;
 			bool renderCausticMotion = owner.lightingMode == ParticleFluidLighting2D.LightingMode.Caustics && (owner.temporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.CausticMotion || lightingOwner.debugMode == ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion);
 			int clearKernel = compute.FindKernel("Clear");
@@ -129,7 +125,7 @@ namespace Seb.Fluid2D.Rendering
 				context,
 				width,
 				height,
-				currentWorldSize,
+				context.renderLayout.CausticRegion.WorldSize,
 				raysPerPixel);
 
 			Texture transportTexture = lightingOwner.materialTransportTexture != null ? lightingOwner.materialTransportTexture : Texture2D.blackTexture;
@@ -168,9 +164,9 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsCenter", new Vector4(display.sim.analyticBoundary.ellipseBoundsCenter.x, display.sim.analyticBoundary.ellipseBoundsCenter.y, 0f, 0f));
 			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsSize", new Vector4(display.sim.analyticBoundary.ellipseBoundsSize.x, display.sim.analyticBoundary.ellipseBoundsSize.y, 0f, 0f));
 			targetCommandBuffer.SetComputeFloatParam(compute, "obstacleY", display.sim.analyticBoundary.obstacleY);
-			targetCommandBuffer.SetComputeFloatParam(compute, "analyticBoundaryExpansion", analyticBoundaryExpansion);
-			targetCommandBuffer.SetComputeVectorParam(compute, "causticsWorldCenter", new Vector4(currentWorldCenter.x, currentWorldCenter.y, 0f, 0f));
-			targetCommandBuffer.SetComputeVectorParam(compute, "causticsWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
+			targetCommandBuffer.SetComputeFloatParam(compute, "analyticBoundaryExpansion", context.analyticBoundaryExpansion);
+			targetCommandBuffer.SetComputeVectorParam(compute, "causticsWorldCenter", context.renderLayout.CausticRegion.WorldCenter);
+			targetCommandBuffer.SetComputeVectorParam(compute, "causticsWorldSize", context.renderLayout.CausticRegion.WorldSize);
 
 			return new CausticsComputePassState(compute, clearKernel, traceKernel, resolveKernel, width, height, totalRayBudget, raysPerPixel);
 		}

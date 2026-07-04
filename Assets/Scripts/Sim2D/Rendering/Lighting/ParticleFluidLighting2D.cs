@@ -267,7 +267,12 @@ using UnityEngine.Serialization;
 			CurrentSoftLightPhase1Texture = Texture2D.blackTexture;
 			CurrentGaussianInitTexture = Texture2D.blackTexture;
 			CurrentGaussianBlurTexture = Texture2D.blackTexture;
-			gaussianSss?.ResetDebugOutputs();
+			ParticleFluidGaussianSss tempQualifier = gaussianSss;
+			if (tempQualifier != null)
+			{
+				tempQualifier.currentInitTexture = Texture2D.blackTexture;
+			}
+
 			radianceCascadeGi?.ResetDebugOutputs();
 		}
 
@@ -319,7 +324,7 @@ using UnityEngine.Serialization;
 				cam,
 				renderLayout,
 				display.GetZoomScale(cam),
-				MetaballRenderer2D.GetAnalyticBoundaryExpansion(display)
+				display.sim.analyticBoundary.analyticBoundaryExpansion
 			);
 
 			directLight.ApplyTemporalSettings(context, velocityPhase0AccumulationTexture, velocityPhase1AccumulationTexture);
@@ -439,7 +444,7 @@ using UnityEngine.Serialization;
 			bool renderGaussian = gaussianSss.ShouldRender();
 			bool renderRadianceCascade = radianceCascadeGi.radianceCascadeEnabled;
 			Texture phase0SoftLightTexture = Texture2D.blackTexture;
-			Texture phase1SoftLightTexture = Texture2D.blackTexture;
+			Texture phase1GITexture = Texture2D.blackTexture;
 			Texture gaussianBlurredTexture = Texture2D.blackTexture;
 			ResetSoftLightDebugOutputs();
 
@@ -456,15 +461,15 @@ using UnityEngine.Serialization;
 
 			if (renderRadianceCascade)
 			{
-				phase1SoftLightTexture = radianceCascadeGi.Render(context, targetCommandBuffer, sharpCaustics, renderGaussian && gaussianSss.gaussianDiffuseEnabled);
+				phase1GITexture = radianceCascadeGi.Render(context, targetCommandBuffer, sharpCaustics, renderGaussian && gaussianSss.gaussianDiffuseEnabled);
 			}
 
-			CurrentGaussianInitTexture = gaussianSss != null ? gaussianSss.CurrentInitTexture : Texture2D.blackTexture;
+			CurrentGaussianInitTexture = gaussianSss != null ? gaussianSss.currentInitTexture : Texture2D.blackTexture;
 			CurrentGaussianBlurTexture = gaussianBlurredTexture;
 			CurrentSoftLightPhase0Texture = phase0SoftLightTexture;
-			CurrentSoftLightPhase1Texture = phase1SoftLightTexture;
+			CurrentSoftLightPhase1Texture = phase1GITexture;
 			lightingMaterial.SetTexture("SoftLightTex", phase0SoftLightTexture);
-			lightingMaterial.SetTexture("SoftLightTexPhase1", phase1SoftLightTexture);
+			lightingMaterial.SetTexture("SoftLightTexPhase1", phase1GITexture);
 		}
 
 		internal static ParticleFluidRenderRegion2D GetCameraScaledRenderRegion(Camera cam, ParticleFluidRenderRegion2D source, float scale)

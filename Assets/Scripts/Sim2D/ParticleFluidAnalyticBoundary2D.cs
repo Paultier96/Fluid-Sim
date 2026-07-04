@@ -16,22 +16,20 @@ namespace Seb.Fluid2D.Simulation
 		[Tooltip("World-space expansion applied to the analytic boundary. 0 uses the original, non-expanded analytic boundary.")]
 		[Min(0f)] public float analyticBoundaryExpansion = 0.175f;
 
-		public bool IsInsideAnalyticBoundary(Vector2 point)
-		{
-			Vector2 radii = new Vector2(Mathf.Abs(ellipseBoundsSize.x), Mathf.Abs(ellipseBoundsSize.y)) + Vector2.one * analyticBoundaryExpansion;
-			float cutY = obstacleY - analyticBoundaryExpansion;
-			if (radii.x <= 0.0001f || radii.y <= 0.0001f)
-			{
-				return false;
-			}
+		public Vector2 Radii => new Vector2(Mathf.Abs(ellipseBoundsSize.x), Mathf.Abs(ellipseBoundsSize.y)) + Vector2.one * analyticBoundaryExpansion;
+		public float CutY => obstacleY - analyticBoundaryExpansion;
+		public Vector2 BoundsMin => new(ellipseBoundsCenter.x - Radii.x, Mathf.Max(ellipseBoundsCenter.y - Radii.y, CutY));
+		public Vector2 BoundsMax => ellipseBoundsCenter + Radii;
 
-			if (point.y < cutY)
+		public bool Contains(Vector2 point)
+		{
+			if (point.y < CutY)
 			{
 				return false;
 			}
 
 			Vector2 rel = point - ellipseBoundsCenter;
-			float ellipseValue = rel.x * rel.x / (radii.x * radii.x) + rel.y * rel.y / (radii.y * radii.y);
+			float ellipseValue = rel.x * rel.x / (Radii.x * Radii.x) + rel.y * rel.y / (Radii.y * Radii.y);
 			return ellipseValue <= 1f;
 		}
 
