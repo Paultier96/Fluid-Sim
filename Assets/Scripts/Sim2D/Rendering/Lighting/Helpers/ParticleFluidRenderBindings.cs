@@ -20,41 +20,35 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.SetGlobalFloat("densityThreshold", settings.densityThreshold);
 			commandBuffer.SetGlobalFloat("edgeSoftness", settings.edgeSoftness);
 			commandBuffer.SetGlobalFloat("phaseBlendWidth", settings.phaseBlendWidth);
+			commandBuffer.SetGlobalFloat("transportPhaseBlendWidth", settings.transportPhaseBlendWidth);
 			commandBuffer.SetGlobalFloat("phase0RenderBias", settings.phase0RenderBias);
 		}
 	}
 
 	internal static class ParticleFluidRasterLayoutBindings
 	{
-		internal static void ApplyMetaballGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D region, Vector4 sourceUvRect)
+		internal static void ApplyMetaballGlobals(CommandBuffer commandBuffer, Vector2 worldCenter, Vector2 worldSize)
 		{
-			commandBuffer.SetGlobalVector("metaballWorldCenter", region.WorldCenter);
-			commandBuffer.SetGlobalVector("metaballWorldSize", region.WorldSize);
-			commandBuffer.SetGlobalVector("metaballSourceUvRect", sourceUvRect);
+			commandBuffer.SetGlobalVector("metaballWorldCenter", worldCenter);
+			commandBuffer.SetGlobalVector("metaballWorldSize", worldSize);
 		}
 
-		internal static void ApplyJumpFloodGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D region)
+		internal static void ApplyJumpFloodGlobals(CommandBuffer commandBuffer, Vector2 worldCenter, Vector2 worldSize)
 		{
-			commandBuffer.SetGlobalVector("jumpFloodWorldCenter", region.WorldCenter);
-			commandBuffer.SetGlobalVector("jumpFloodWorldSize", region.WorldSize);
-			commandBuffer.SetGlobalVector("jumpFloodCompositeUvRect", region.SourceUvRect);
+			commandBuffer.SetGlobalVector("jumpFloodWorldCenter", worldCenter);
+			commandBuffer.SetGlobalVector("jumpFloodWorldSize", worldSize);
 		}
 
-		internal static void ApplySoftLightGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D region, Vector4 sourceUvRect)
+		internal static void ApplySoftLightGlobals(CommandBuffer commandBuffer, Vector2 worldCenter, Vector2 worldSize)
 		{
-			commandBuffer.SetGlobalVector("softLightWorldCenter", region.WorldCenter);
-			commandBuffer.SetGlobalVector("softLightWorldSize", region.WorldSize);
-			commandBuffer.SetGlobalVector("softLightSourceUvRect", sourceUvRect);
+			commandBuffer.SetGlobalVector("softLightWorldCenter", worldCenter);
+			commandBuffer.SetGlobalVector("softLightWorldSize", worldSize);
 		}
 
-		internal static void ApplyLightingGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D materialRegion, ParticleFluidRenderRegion2D causticRegion)
+		internal static void ApplyLightingGlobals(CommandBuffer commandBuffer, Vector2 worldCenter, Vector2 worldSize)
 		{
-			commandBuffer.SetGlobalVector("particleFluidWorldCenter", materialRegion.WorldCenter);
-			commandBuffer.SetGlobalVector("particleFluidWorldSize", materialRegion.WorldSize);
-			commandBuffer.SetGlobalVector("particleFluidCompositeUvRect", materialRegion.SourceUvRect);
-			commandBuffer.SetGlobalVector("particleFluidCameraUvRect", materialRegion.SourceUvRect);
-			commandBuffer.SetGlobalVector("particleFluidClipRect", materialRegion.SourceUvRect);
-			commandBuffer.SetGlobalVector("particleFluidCausticUvRect", causticRegion.SourceUvRect);
+			commandBuffer.SetGlobalVector("particleFluidWorldCenter", worldCenter);
+			commandBuffer.SetGlobalVector("particleFluidWorldSize", worldSize);
 		}
 
 		internal static void ApplyCausticCurrentGlobals(CommandBuffer commandBuffer, Vector2 currentWorldCenter, Vector2 currentWorldSize)

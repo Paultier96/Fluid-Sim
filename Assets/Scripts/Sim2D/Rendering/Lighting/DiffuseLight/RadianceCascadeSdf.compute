@@ -3,7 +3,7 @@
 #pragma kernel JumpFlood
 #pragma kernel ResolveDistance
 
-Texture2D<float4> CombinedTex;
+Texture2D<float4> MaterialTransportTex;
 Texture2D<float4> ColourMap;
 RWTexture2D<float4> Result;
 RWTexture2D<float4> ResultPayload;
@@ -13,54 +13,31 @@ RWTexture2D<float4> _DstTex;
 RWTexture2D<float4> _DstPayloadTex;
 
 #include "../Shared/ParticleFluidCommon.hlsl"
-#include "../Shared/ParticleFluidPhaseClassification.hlsl"
-#include "../Shared/ParticleFluidCombinedSamplingCompute.hlsl"
 int _Width;
 int _Height;
-int combinedWidth;
-int combinedHeight;
+int transportWidth;
+int transportHeight;
 int _Step;
-float densityThreshold;
-float edgeSoftness;
-float phase0RenderBias;
-int useEllipticalBounds;
-float2 ellipseBoundsCenter;
-float2 ellipseBoundsSize;
-float obstacleY;
-float analyticBoundaryExpansion;
 float2 metaballWorldCenter;
 float2 metaballWorldSize;
 
-#include "../Shared/ParticleFluidAnalyticBoundary.hlsl"
-
-float SampleBoundsMask(float2 uv, float density)
+float4 LoadTransportAtUv(float2 uv)
 {
-	float particleAlpha = smoothstep(max(densityThreshold - edgeSoftness, 0.0), densityThreshold + edgeSoftness, density);
-	if (useEllipticalBounds == 0)
-	{
-		return particleAlpha;
-	}
-
-	float boundsDistance = OuterAnalyticBoundaryDistance(ParticleFluidWorldFromUv(uv, metaballWorldCenter, metaballWorldSize));
-	float2 worldTexel = max(metaballWorldSize / max(float2(_Width, _Height), float2(1.0, 1.0)), float2(0.0001, 0.0001));
-	float boundsAA = max(max(worldTexel.x, worldTexel.y), 0.0001);
-	float boundsAlpha = smoothstep(boundsAA, -boundsAA, boundsDistance);
-	return min(particleAlpha, boundsAlpha);
+	int2 resolution = int2(max(transportWidth, 1), max(transportHeight, 1));
+	int2 pixel = (int2)round(saturate(uv) * (resolution - 1));
+	return MaterialTransportTex.Load(int3(clamp(pixel, int2(0, 0), resolution - 1), 0));
 }
 
 int ClassifyPixel(float2 uv, out float3 payloadColour)
 {
-	float4 combined = ParticleFluidLoadCombinedAtUv(CombinedTex, uv, int2(combinedWidth, combinedHeight));
-	float2 densities = ParticleFluidPhaseDensities(combined);
-	float density0 = densities.x;
-	float density1 = densities.y;
-	float density = ParticleFluidMaxPhaseDensity(combined);
-	float mask = SampleBoundsMask(uv, density);
+	float4 transport = LoadTransportAtUv(uv);
+	float data0 = transport.r;
+	float mask = transport.b;
+	float phaseT = transport.a;
 	payloadColour = 0.0;
 
-	if (mask > 0.5 && ParticleFluidPhase0Mask(combined, densityThreshold, phase0RenderBias) > 0.5)
+	if (mask > 0.5 && phaseT < 0.5)
 	{
-		float data0 = density0 > 0.0001 ? combined.r / density0 : 0.0;
 		uint gradientWidth;
 		uint gradientHeight;
 		ColourMap.GetDimensions(gradientWidth, gradientHeight);

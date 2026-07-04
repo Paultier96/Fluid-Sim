@@ -34,9 +34,7 @@ sampler2D _MainTex;
 sampler2D DebugTex0;
 sampler2D DebugTex1;
 float4 _MainTex_TexelSize;
-int particleCausticRegionEnabled;
 int particleCausticTemporalDebugEnabled;
-float4 particleCausticUvRect;
 float causticMotionDilationRadius;
 float densityThreshold;
 float edgeSoftness;
@@ -257,14 +255,15 @@ float NormalizedData(float weightedData, float weight, float fallback)
 
 bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density0, out float density1, out float3 litColour, out float3 albedoColour)
 {
-	float4 combined = tex2D(CombinedTex, i.uv);
+	float2 materialUv = i.uv;
+	float4 combined = tex2D(CombinedTex, materialUv);
 	density0 = Phase0Density(combined);
 	density1 = combined.a;
 	float density = max(density0, density1);
 	float particleAlpha = smoothstep(max(densityThreshold - edgeSoftness, 0), densityThreshold + edgeSoftness, density);
 	if (useEllipticalBounds != 0)
 	{
-		float boundsDistance = OuterAnalyticBoundaryDistance(ParticleFluidWorldFromUv(i.uv, metaballWorldCenter, metaballWorldSize));
+		float boundsDistance = OuterAnalyticBoundaryDistance(ParticleFluidWorldFromUv(materialUv, metaballWorldCenter, metaballWorldSize));
 		float boundsAA = max(fwidth(boundsDistance), 0.0001);
 		float boundsAlpha = smoothstep(boundsAA, -boundsAA, boundsDistance);
 		alpha = min(particleAlpha, boundsAlpha);
@@ -300,8 +299,8 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 
 		if (debugMode == 1)
 		{
-			float4 normalPacked = tex2D(NormalTex, i.uv);
-			float2 worldPos = ParticleFluidWorldFromUv(i.uv, metaballWorldCenter, metaballWorldSize);
+			float4 normalPacked = tex2D(NormalTex, materialUv);
+			float2 worldPos = ParticleFluidWorldFromUv(materialUv, metaballWorldCenter, metaballWorldSize);
 			float3 normal = GetBlendedPhaseNormal(normalPacked, density0, density1, phaseT);
 			normal = ApplyAnalyticBoundaryNormal(normal, worldPos);
 			float3 encodedNormal = saturate(0.5 + normal / 2.0);
@@ -378,30 +377,26 @@ float3 ApplyMotionClipMarker(float rawMotionMagnitude, float3 colour)
 
 float4 frag(v2f i) : SV_Target
 {
-	float2 causticUv = particleCausticRegionEnabled != 0
-		? (i.uv - particleCausticUvRect.xy) / max(particleCausticUvRect.zw, float2(0.000001, 0.000001))
-		: i.uv;
-	float2 causticLocalUv = particleCausticRegionEnabled != 0 ? causticUv : i.uv;
-	bool insideCausticRegion = particleCausticRegionEnabled == 0 || all(causticUv >= 0.0) && all(causticUv <= 1.0);
+	float2 causticUv = i.uv;
 	if (debugMode == 7)
 	{
-		return insideCausticRegion ? float4(tex2D(DebugTex0, causticUv).rgb / max(particleCausticDebugExposure, 0.0001), 1.0) : float4(0.0, 0.0, 0.0, 1.0);
+		return float4(tex2D(DebugTex0, causticUv).rgb / max(particleCausticDebugExposure, 0.0001), 1.0);
 	}
 	if (debugMode == 8)
 	{
-		return insideCausticRegion ? float4(tex2D(DebugTex0, causticUv).rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
+		return float4(tex2D(DebugTex0, causticUv).rgb, 1.0);
 	}
 	if (debugMode == 18)
 	{
-		return insideCausticRegion ? float4(tex2D(DebugTex0, causticUv).rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
+		return float4(tex2D(DebugTex0, causticUv).rgb, 1.0);
 	}
 	if (debugMode == 17)
 	{
-		return insideCausticRegion ? float4(tex2D(DebugTex0, causticUv).rgb, 1.0) : float4(0.0, 0.0, 0.0, 1.0);
+		return float4(tex2D(DebugTex0, causticUv).rgb, 1.0);
 	}
 	if (debugMode == 10)
 	{
-		float4 motionDebug = insideCausticRegion ? tex2D(DebugTex0, causticUv) : 0.0;
+		float4 motionDebug = tex2D(DebugTex0, causticUv);
 		float2 debugMotion = motionDebug.xy * max(causticCurrentWorldSize, float2(0.0001, 0.0001));
 		float motionConfidence = saturate(motionDebug.z);
 		float motionScale = max(debugGradientMax, 0.0001);
@@ -421,7 +416,7 @@ float4 frag(v2f i) : SV_Target
 			return float4(0.0, 0.1, 0.35, 1.0);
 		}
 
-		float historyWeight = insideCausticRegion ? saturate(tex2D(DebugTex0, causticUv).a) : 0.0;
+		float historyWeight = saturate(tex2D(DebugTex0, causticUv).a);
 		float3 rejected = float3(1.0, 0.05, 0.0);
 		float3 accepted = float3(0.0, 1.0, 0.15);
 		return float4(lerp(rejected, accepted, historyWeight), 1.0);
@@ -433,7 +428,7 @@ float4 frag(v2f i) : SV_Target
 			return float4(0.0, 0.1, 0.35, 1.0);
 		}
 
-		float clampAmount = insideCausticRegion ? saturate(tex2D(DebugTex0, causticUv).a) : 0.0;
+		float clampAmount = saturate(tex2D(DebugTex0, causticUv).a);
 		float3 unclamped = float3(0.0, 0.0, 0.0);
 		float3 clamped = float3(0.0, 0.35, 1.0);
 		return float4(lerp(unclamped, clamped, clampAmount), 1.0);
@@ -445,14 +440,15 @@ float4 frag(v2f i) : SV_Target
 			return float4(0.0, 0.1, 0.35, 1.0);
 		}
 
-		float projectedShadow = insideCausticRegion ? saturate(tex2D(DebugTex0, causticUv).a) : 0.0;
+		float projectedShadow = saturate(tex2D(DebugTex0, causticUv).a);
 		float3 unshadowed = float3(0.0, 0.0, 0.0);
 		float3 shadowed = float3(1.0, 0.6, 0.0);
 		return float4(lerp(unshadowed, shadowed, projectedShadow), 1.0);
 	}
 	if (debugMode == 11)
 	{
-		float4 combined = tex2D(CombinedTex, i.uv);
+		float2 materialUv = i.uv;
+		float4 combined = tex2D(CombinedTex, materialUv);
 		float density0 = Phase0Density(combined);
 		float density1 = combined.a;
 		float density = max(density0, density1);
@@ -460,7 +456,7 @@ float4 frag(v2f i) : SV_Target
 		float alpha = particleAlpha;
 		if (useEllipticalBounds != 0)
 		{
-			float boundsDistance = OuterAnalyticBoundaryDistance(ParticleFluidWorldFromUv(i.uv, metaballWorldCenter, metaballWorldSize));
+			float boundsDistance = OuterAnalyticBoundaryDistance(ParticleFluidWorldFromUv(materialUv, metaballWorldCenter, metaballWorldSize));
 			float boundsAA = max(fwidth(boundsDistance), 0.0001);
 			float boundsAlpha = smoothstep(boundsAA, -boundsAA, boundsDistance);
 			alpha = min(particleAlpha, boundsAlpha);
@@ -470,8 +466,8 @@ float4 frag(v2f i) : SV_Target
 			return float4(0.0, 0.0, 0.0, 1.0);
 		}
 
-		float4 packedVelocity0 = tex2D(VelocityTex0, i.uv);
-		float4 packedVelocity1 = tex2D(VelocityTex1, i.uv);
+		float4 packedVelocity0 = tex2D(VelocityTex0, materialUv);
+		float4 packedVelocity1 = tex2D(VelocityTex1, materialUv);
 		float phaseT = ParticleFluidShiftedPhaseT(density0, density1, phase0RenderBias, phaseBlendWidth);
 		float2 weightedVelocity = lerp(packedVelocity0.rg, packedVelocity1.rg, phaseT);
 		float weight = lerp(packedVelocity0.b, packedVelocity1.b, phaseT);

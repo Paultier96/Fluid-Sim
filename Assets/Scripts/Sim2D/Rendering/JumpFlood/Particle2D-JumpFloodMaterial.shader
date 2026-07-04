@@ -36,8 +36,6 @@ float2 ellipseBoundsSize;
 float2 boundsSize;
 float obstacleY;
 int useEllipticalBounds;
-int metaballCompositeRegionEnabled;
-float4 metaballCompositeUvRect;
 
 v2f vert(appdata v)
 {
@@ -45,19 +43,6 @@ v2f vert(appdata v)
 	o.vertex = UnityObjectToClipPos(v.vertex);
 	o.uv = v.uv;
 	return o;
-}
-
-bool TryGetCompositeMaterialUv(float2 screenUv, out float2 materialUv)
-{
-	if (metaballCompositeRegionEnabled == 0)
-	{
-		materialUv = screenUv;
-		return true;
-	}
-
-	float2 localUv = (screenUv - metaballCompositeUvRect.xy) / max(metaballCompositeUvRect.zw, float2(0.000001, 0.000001));
-	materialUv = localUv;
-	return all(localUv >= 0.0) && all(localUv <= 1.0);
 }
 
 float EllipseCutSignedDistance(float2 worldPos)
@@ -126,14 +111,24 @@ float4 fragMaterialNormal(v2f i) : SV_Target
 	return float4(saturate(normal * 0.5 + 0.5), phaseT);
 }
 
-float4 fragUnlitAlbedo(v2f i) : SV_Target
+float4 fragMaterialTransport(v2f i) : SV_Target
 {
-	float2 materialUv;
-	if (!TryGetCompositeMaterialUv(i.uv, materialUv))
+	float alpha;
+	float phaseT;
+	float3 normal;
+	float3 albedo;
+	if (!ResolveJumpFloodMaterial(i, alpha, phaseT, normal, albedo))
 	{
-		discard;
+		return 0.0;
 	}
 
+	float scalarData = dot(albedo, float3(0.2126, 0.7152, 0.0722));
+	return float4(scalarData, scalarData, alpha, phaseT);
+}
+
+float4 fragUnlitAlbedo(v2f i) : SV_Target
+{
+	float2 materialUv = i.uv;
 	float4 materialAlbedo = tex2D(MaterialAlbedoTex, materialUv);
 	if (materialAlbedo.a <= 0.0001)
 	{
@@ -157,6 +152,14 @@ float4 fragUnlitAlbedo(v2f i) : SV_Target
 			CGPROGRAM
 			#pragma vertex vert
 			#pragma fragment fragMaterialNormal
+			ENDCG
+		}
+
+		Pass {
+			Blend One Zero
+			CGPROGRAM
+			#pragma vertex vert
+			#pragma fragment fragMaterialTransport
 			ENDCG
 		}
 

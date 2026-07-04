@@ -24,22 +24,17 @@ struct v2f {
 
 sampler2D MaterialAlbedoTex;
 sampler2D MaterialNormalTex;
+sampler2D MaterialTransportTex;
 sampler2D CausticTex;
 sampler2D SoftLightTex;
 sampler2D SoftLightTexPhase1;
 sampler2D ProjectedShadowTex;
-sampler2D CombinedTex;
 sampler2D ColourMap;
 sampler2D ColourMap2;
 #include "Shared/ParticleFluidGradientSampling.cginc"
 float4 MaterialAlbedoTex_TexelSize;
 float2 particleFluidWorldCenter;
 float2 particleFluidWorldSize;
-int particleFluidCompositeRegionEnabled;
-float4 particleFluidCompositeUvRect;
-float4 particleFluidCameraUvRect;
-int particleFluidClipRegionEnabled;
-float4 particleFluidClipRect;
 int useEllipticalBounds;
 float2 ellipseBoundsCenter;
 float2 ellipseBoundsSize;
@@ -47,8 +42,6 @@ float obstacleY;
 float analyticBoundaryExpansion;
 #include "Shared/ParticleFluidAnalyticBoundary.hlsl"
 int particleFluidCausticsEnabled;
-int particleFluidCausticRegionEnabled;
-float4 particleFluidCausticUvRect;
 int particleFluidPhaseDiffuseLightEnabled;
 int particleGaussianPhase0Only;
 int particleFluidProjectedShadowEnabled;
@@ -86,12 +79,6 @@ v2f vert(appdata v)
 	v2f o;
 	o.vertex = UnityObjectToClipPos(v.vertex);
 	o.uv = v.uv;
-	if (particleFluidClipRegionEnabled != 0)
-	{
-		float2 clipMin = particleFluidClipRect.xy * 2.0 - 1.0;
-		float2 clipMax = (particleFluidClipRect.xy + particleFluidClipRect.zw) * 2.0 - 1.0;
-		o.vertex.xy = lerp(clipMin, clipMax, v.uv) * o.vertex.w;
-	}
 	return o;
 }
 
@@ -99,34 +86,6 @@ float InterleavedGradientNoise(float2 pixel)
 {
 	float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
 	return frac(magic.z * frac(dot(pixel, magic.xy)));
-}
-
-bool TryGetMaterialUv(float2 screenUv, out float2 materialUv)
-{
-	if (particleFluidCompositeRegionEnabled == 0)
-	{
-		materialUv = screenUv;
-		return true;
-	}
-
-	float2 localUv = (screenUv - particleFluidCompositeUvRect.xy) / max(particleFluidCompositeUvRect.zw, float2(0.000001, 0.000001));
-	materialUv = localUv;
-	return all(localUv >= 0.0) && all(localUv <= 1.0);
-}
-
-float2 CameraUvFromMaterialUv(float2 materialUv)
-{
-	return particleFluidCameraUvRect.xy + materialUv * particleFluidCameraUvRect.zw;
-}
-
-float2 CausticUvFromCameraUv(float2 cameraUv)
-{
-	if (particleFluidCausticRegionEnabled == 0)
-	{
-		return cameraUv;
-	}
-
-	return (cameraUv - particleFluidCausticUvRect.xy) / max(particleFluidCausticUvRect.zw, float2(0.000001, 0.000001));
 }
 
 float ProjectedShadowHalfPerp(float2 direction, float2 regionSize)
@@ -322,8 +281,7 @@ float3 SampleSpecularCausticIrradiance(float2 materialUv, float3 normal, float p
 		return 1.0;
 	}
 
-	float2 causticUv = CausticUvFromCameraUv(CameraUvFromMaterialUv(materialUv));
-	float3 baseIrradiance = tex2D(CausticTex, causticUv).rgb;
+	float3 baseIrradiance = tex2D(CausticTex, materialUv).rgb;
 	float normalXYLength = length(normal.xy);
 	if (particleSpecularCausticSampleOffset <= 0.0001 || normalXYLength <= 0.0001)
 	{
@@ -334,14 +292,9 @@ float3 SampleSpecularCausticIrradiance(float2 materialUv, float3 normal, float p
 	float virtualCapDistance = min(normal.z / max(normalXYLength, 0.02), 128.0);
 	float2 outwardOffset = outwardDir * MaterialAlbedoTex_TexelSize.xy * particleSpecularCausticSampleOffset * max(phaseScale, 0.0001) * virtualCapDistance;
 	float2 specularUv = saturate(materialUv + outwardOffset);
-	float3 offsetIrradiance = tex2D(CausticTex, CausticUvFromCameraUv(CameraUvFromMaterialUv(specularUv))).rgb;
+	float3 offsetIrradiance = tex2D(CausticTex, specularUv).rgb;
 	float offsetBlend = smoothstep(0.05, 0.35, normalXYLength);
 	return lerp(baseIrradiance, offsetIrradiance, offsetBlend);
-}
-
-float Phase0Density(float4 combined)
-{
-	return combined.g;
 }
 
 float3 ApplyScreenSpaceReflection(float3 colour, float3 normal, float2 uv, float roughness, float metallic, float strength, float noise)
@@ -356,7 +309,7 @@ float3 ApplyScreenSpaceReflection(float3 colour, float3 normal, float2 uv, float
 	float2 reflectionOffset = reflectedView.xy * MaterialAlbedoTex_TexelSize.xy * screenSpaceReflectionDistance;
 	float2 reflectedUv = uv + reflectionOffset;
 	float3 reflectedColour = SampleMetaballAlbedo(reflectedUv, noise);
-	float3 reflectedIrradiance = particleFluidCausticsEnabled != 0 ? tex2D(CausticTex, CausticUvFromCameraUv(CameraUvFromMaterialUv(saturate(reflectedUv)))).rgb : 1.0;
+	float3 reflectedIrradiance = particleFluidCausticsEnabled != 0 ? tex2D(CausticTex, saturate(reflectedUv)).rgb : 1.0;
 	reflectedColour *= particleFluidCausticsEnabled != 0
 		? reflectedIrradiance
 		: particleLightColors[0].rgb * reflectedIrradiance * ParticleLightIntensity(0);
@@ -466,13 +419,7 @@ float3 ApplyParticleAdditionalLighting(float3 colour, float3 normal, float phase
 }
 float4 fragSplitLighting(v2f i) : SV_Target
 {
-	float2 materialUv;
-	if (!TryGetMaterialUv(i.uv, materialUv))
-	{
-		discard;
-	}
-
-	float2 cameraUv = CameraUvFromMaterialUv(materialUv);
+	float2 materialUv = i.uv;
 	float4 materialAlbedo = tex2D(MaterialAlbedoTex, materialUv);
 	float alpha = materialAlbedo.a;
 	if (alpha <= 0.0001)
@@ -484,13 +431,14 @@ float4 fragSplitLighting(v2f i) : SV_Target
 	float3 materialSurfaceNormal = normalize(materialNormal.rgb * 2.0 - 1.0);
 	float3 normal0 = materialSurfaceNormal;
 	float3 normal1 = materialSurfaceNormal;
+	float4 materialTransport = tex2D(MaterialTransportTex, materialUv);
 	float phaseT = saturate(materialNormal.a);
 	float2 worldPos = ParticleFluidWorldFromUv(materialUv, particleFluidWorldCenter, particleFluidWorldSize);
 	float3 directLightIrradiance0 = 1.0;
 	float3 directLightIrradiance1 = 1.0;
 	if (particleFluidCausticsEnabled != 0)
 	{
-		float3 lightField = tex2D(CausticTex, CausticUvFromCameraUv(cameraUv)).rgb;
+		float3 lightField = tex2D(CausticTex, materialUv).rgb;
 		float softLightDirectCausticStrength = particleFluidPhaseDiffuseLightEnabled != 0 ? saturate(particleFluidRadianceCascadeDirectCausticStrength) : 1.0;
 		float phase0DirectCausticStrength = softLightDirectCausticStrength;
 		float phase1DirectCausticStrength = 1.0;
@@ -541,15 +489,12 @@ float4 fragSplitLighting(v2f i) : SV_Target
 
 	if (particleFluidPhaseDiffuseLightEnabled != 0)
 	{
-		float2 softLightUv = CausticUvFromCameraUv(cameraUv);
+		float2 softLightUv = materialUv;
 		float4 gaussianSoftLight = tex2D(SoftLightTex, softLightUv);
 		float3 softLightPhase0 = gaussianSoftLight.rgb;
 		float3 softLightPhase1 = tex2D(SoftLightTexPhase1, softLightUv).rgb;
-		float4 combined = tex2D(CombinedTex, materialUv);
-		float density0 = Phase0Density(combined);
-		float density1 = combined.a;
-		float data0 = density0 >= densityThreshold ? combined.r / max(density0, 0.0001) : 0.0;
-		float data1 = density1 >= densityThreshold ? combined.b / max(density1, 0.0001) : 0.0;
+		float data0 = materialTransport.r;
+		float data1 = materialTransport.g;
 		float3 diffuseAlbedo0 = ParticleFluidSamplePhaseGradientColour(data0, false);
 		float3 diffuseAlbedo1 = ParticleFluidSamplePhaseGradientColour(data1, true);
 		float additiveBlend0 = saturate(ParticlePhaseDiffuseAdditiveBlend(0));

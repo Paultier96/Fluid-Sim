@@ -24,7 +24,7 @@ struct v2f {
 };
 
 sampler2D _MainTex;
-sampler2D CombinedTex;
+sampler2D MaterialTransportTex;
 sampler2D VelocityTex0;
 sampler2D VelocityTex1;
 sampler2D CausticHistoryTex;
@@ -33,9 +33,6 @@ sampler2D CausticProjectedShadowMapTex;
 sampler2D CausticProjectedShadowHistoryTex;
 float4 _MainTex_TexelSize;
 float causticMotionDilationRadius;
-float densityThreshold;
-float phaseBlendWidth;
-float phase0RenderBias;
 int debugMode;
 float motionDebugDeltaTime;
 float causticTemporalHistoryWeight;
@@ -59,16 +56,6 @@ v2f vert(appdata v)
 	o.vertex = UnityObjectToClipPos(v.vertex);
 	o.uv = v.uv;
 	return o;
-}
-
-float BlobColourWeight(float3 blobColourSum)
-{
-	return max(max(blobColourSum.r, blobColourSum.g), blobColourSum.b);
-}
-
-float Phase0Density(float4 combined)
-{
-	return debugMode == 6 ? BlobColourWeight(combined.rgb) : combined.g;
 }
 
 void CurrentNeighbourhoodBounds(float2 uv, out float3 minColour, out float3 maxColour)
@@ -195,10 +182,7 @@ float4 fragCausticTemporal(v2f i) : SV_Target
 	float2 historyUv = stationaryHistoryUv;
 	if (causticTemporalMotionSource == 1)
 	{
-		float4 combined = tex2D(CombinedTex, i.uv);
-		float density0 = Phase0Density(combined);
-		float density1 = combined.a;
-		float phaseT = ParticleFluidShiftedPhaseT(density0, density1, phase0RenderBias, phaseBlendWidth);
+		float phaseT = tex2D(MaterialTransportTex, i.uv).a;
 		float4 packedVelocity0 = tex2D(VelocityTex0, i.uv);
 		float4 packedVelocity1 = tex2D(VelocityTex1, i.uv);
 		float2 weightedVelocity = lerp(packedVelocity0.rg, packedVelocity1.rg, phaseT);

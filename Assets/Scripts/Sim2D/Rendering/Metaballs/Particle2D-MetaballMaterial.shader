@@ -23,8 +23,10 @@ struct v2f {
 };
 
 sampler2D CombinedTex;
+float4 CombinedTex_TexelSize;
 sampler2D NormalTex;
 sampler2D MaterialAlbedoTex;
+sampler2D MaterialTransportTex;
 sampler2D VelocityTex0;
 sampler2D VelocityTex1;
 sampler2D ColourMap;
@@ -37,6 +39,7 @@ float causticMotionDilationRadius;
 float densityThreshold;
 float edgeSoftness;
 float phaseBlendWidth;
+float transportPhaseBlendWidth;
 float phase0RenderBias;
 float phaseBiasNormalStrength;
 int useEllipticalBounds;
@@ -45,7 +48,6 @@ float2 ellipseBoundsSize;
 float obstacleY;
 float2 metaballWorldCenter;
 float2 metaballWorldSize;
-float4 metaballSourceUvRect;
 float analyticBoundaryExpansion;
 #include "../Lighting/Shared/ParticleFluidAnalyticBoundary.hlsl"
 float metaballGhostBoundaryNormalStrength;
@@ -54,10 +56,6 @@ float metaballRefractionEdgeFade;
 int screenSpaceRefractionCanCrossPhases;
 int debugMode;
 int debugShowClipping;
-int metaballCompositeRegionEnabled;
-float4 metaballCompositeUvRect;
-int metaballClipRegionEnabled;
-float4 metaballClipRect;
 float debugGradientMax;
 float motionDebugDeltaTime;
 float particleNormalStrength;
@@ -67,12 +65,6 @@ v2f vert(appdata v)
 	v2f o;
 	o.vertex = UnityObjectToClipPos(v.vertex);
 	o.uv = v.uv;
-	if (metaballClipRegionEnabled != 0)
-	{
-		float2 clipMin = metaballClipRect.xy * 2.0 - 1.0;
-		float2 clipMax = (metaballClipRect.xy + metaballClipRect.zw) * 2.0 - 1.0;
-		o.vertex.xy = lerp(clipMin, clipMax, v.uv) * o.vertex.w;
-	}
 	return o;
 }
 
@@ -151,24 +143,6 @@ float3 ReorientedNormal(float3 baseNormal, float3 detailNormal)
 		baseNormal.xy + detailNormal.xy,
 		baseNormal.z * detailNormal.z - dot(baseNormal.xy, detailNormal.xy)
 	));
-}
-
-float2 SourceUvFromMaterialUv(float2 uv)
-{
-	return metaballSourceUvRect.xy + uv * metaballSourceUvRect.zw;
-}
-
-bool TryGetCompositeMaterialUv(float2 screenUv, out float2 materialUv)
-{
-	if (metaballCompositeRegionEnabled == 0)
-	{
-		materialUv = screenUv;
-		return true;
-	}
-
-	float2 localUv = (screenUv - metaballCompositeUvRect.xy) / max(metaballCompositeUvRect.zw, float2(0.000001, 0.000001));
-	materialUv = localUv;
-	return all(localUv >= 0.0) && all(localUv <= 1.0);
 }
 
 float3 ApplyAnalyticBoundaryNormal(float3 particleNormal, float2 worldPos)
@@ -271,11 +245,36 @@ float NormalizedData(float weightedData, float weight, float fallback)
 #include "../Lighting/Shared/ParticleFluidGradientSampling.cginc"
 #include "../Lighting/Shared/ParticleFluidPhaseAA.cginc"
 
-bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float3 normal0, out float3 normal1, out float3 albedo)
+float SamplePhase0DensityAtUv(float2 uv)
+{
+	float4 combined = tex2Dlod(CombinedTex, float4(saturate(uv), 0, 0));
+	return Phase0Density(combined);
+}
+
+float SamplePhase1DensityAtUv(float2 uv)
+{
+	float4 combined = tex2Dlod(CombinedTex, float4(saturate(uv), 0, 0));
+	return combined.a;
+}
+
+float SampleAntiAliasedPhaseT(float2 uv, float density0, float density1, float blendWidth)
+{
+	float2 texel = max(CombinedTex_TexelSize.xy, float2(0.0001, 0.0001));
+	float phaseRatio = ParticleFluidPhaseRatio(density0, density1);
+	float phaseBoundary = ParticleFluidPhaseBoundary(phase0RenderBias);
+	float phaseRatioRight = ParticleFluidPhaseRatio(SamplePhase0DensityAtUv(uv + float2(texel.x, 0.0)), SamplePhase1DensityAtUv(uv + float2(texel.x, 0.0)));
+	float phaseRatioLeft = ParticleFluidPhaseRatio(SamplePhase0DensityAtUv(uv - float2(texel.x, 0.0)), SamplePhase1DensityAtUv(uv - float2(texel.x, 0.0)));
+	float phaseRatioUp = ParticleFluidPhaseRatio(SamplePhase0DensityAtUv(uv + float2(0.0, texel.y)), SamplePhase1DensityAtUv(uv + float2(0.0, texel.y)));
+	float phaseRatioDown = ParticleFluidPhaseRatio(SamplePhase0DensityAtUv(uv - float2(0.0, texel.y)), SamplePhase1DensityAtUv(uv - float2(0.0, texel.y)));
+	float phaseGradient = abs(phaseRatioRight - phaseRatioLeft) + abs(phaseRatioUp - phaseRatioDown);
+	float phaseAA = max(0.25 * phaseGradient * max(blendWidth, 0.0001), 0.00001);
+	return smoothstep(-phaseAA, phaseAA, phaseRatio - phaseBoundary);
+}
+
+bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float data0, out float data1, out float3 normal0, out float3 normal1, out float3 albedo)
 {
 	float2 materialUv = i.uv;
-	float2 sourceUv = SourceUvFromMaterialUv(materialUv);
-	float4 combined = tex2D(CombinedTex, sourceUv);
+	float4 combined = tex2D(CombinedTex, materialUv);
 	float density0 = Phase0Density(combined);
 	float density1 = combined.a;
 	float density = max(density0, density1);
@@ -295,17 +294,19 @@ bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float
 	if (alpha <= 0.0001)
 	{
 		phaseT = 0.0;
+		data0 = 0.0;
+		data1 = 0.0;
 		normal0 = float3(0.0, 0.0, 1.0);
 		normal1 = float3(0.0, 0.0, 1.0);
 		albedo = 0.0;
 		return false;
 	}
 
-	phaseT = ParticleFluidShiftedPhaseT(density0, density1, phase0RenderBias, phaseBlendWidth);
-	float data0 = combined.r / max(density0, 0.0001);
-	float data1 = combined.b / max(density1, 0.0001);
+	phaseT = SampleAntiAliasedPhaseT(materialUv, density0, density1, phaseBlendWidth);
+	data0 = combined.r / max(density0, 0.0001);
+	data1 = combined.b / max(density1, 0.0001);
 	float noise = InterleavedGradientNoise(i.vertex.xy);
-	float4 normalPacked = tex2D(NormalTex, sourceUv);
+	float4 normalPacked = tex2D(NormalTex, materialUv);
 	float2 worldPos = ParticleFluidWorldFromUv(materialUv, metaballWorldCenter, metaballWorldSize);
 	normal0 = GetPhaseNormal(normalPacked, density0, density1, false);
 	normal1 = GetPhaseNormal(normalPacked, density0, density1, true);
@@ -313,7 +314,7 @@ bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float
 	normal1 = ApplyAnalyticBoundaryNormal(normal1, worldPos);
 	float3 blendedNormal = normalize(lerp(normal0, normal1, phaseT));
 	float refractionMask = smoothstep(0.0, max(metaballRefractionEdgeFade, 0.0001), density - densityThreshold);
-	float2 refractedSourceUv = saturate(sourceUv - blendedNormal.xy * metaballRefractionStrength * refractionMask);
+	float2 refractedSourceUv = saturate(materialUv - blendedNormal.xy * metaballRefractionStrength * refractionMask);
 	float4 refractedCombined = tex2D(CombinedTex, refractedSourceUv);
 	float refractedDensity0 = Phase0Density(refractedCombined);
 	float refractedDensity1 = refractedCombined.a;
@@ -325,10 +326,12 @@ float4 fragMaterialAlbedo(v2f i) : SV_Target
 {
 	float alpha;
 	float phaseT;
+	float data0;
+	float data1;
 	float3 normal0;
 	float3 normal1;
 	float3 albedo;
-	if (!ResolveMetaballMaterial(i, alpha, phaseT, normal0, normal1, albedo))
+	if (!ResolveMetaballMaterial(i, alpha, phaseT, data0, data1, normal0, normal1, albedo))
 	{
 		return 0.0;
 	}
@@ -340,10 +343,12 @@ float4 fragMaterialNormal(v2f i) : SV_Target
 {
 	float alpha;
 	float phaseT;
+	float data0;
+	float data1;
 	float3 normal0;
 	float3 normal1;
 	float3 albedo;
-	if (!ResolveMetaballMaterial(i, alpha, phaseT, normal0, normal1, albedo))
+	if (!ResolveMetaballMaterial(i, alpha, phaseT, data0, data1, normal0, normal1, albedo))
 	{
 		return 0.0;
 	}
@@ -352,14 +357,31 @@ float4 fragMaterialNormal(v2f i) : SV_Target
 	return float4(saturate(normal * 0.5 + 0.5), phaseT);
 }
 
-float4 fragUnlitAlbedo(v2f i) : SV_Target
+float4 fragMaterialTransport(v2f i) : SV_Target
 {
-	float2 materialUv;
-	if (!TryGetCompositeMaterialUv(i.uv, materialUv))
+	float alpha;
+	float phaseT;
+	float data0;
+	float data1;
+	float3 normal0;
+	float3 normal1;
+	float3 albedo;
+	if (!ResolveMetaballMaterial(i, alpha, phaseT, data0, data1, normal0, normal1, albedo))
 	{
-		discard;
+		return 0.0;
 	}
 
+	float2 materialUv = i.uv;
+	float4 combined = tex2D(CombinedTex, materialUv);
+	float density0 = Phase0Density(combined);
+	float density1 = combined.a;
+	phaseT = SampleAntiAliasedPhaseT(materialUv, density0, density1, transportPhaseBlendWidth);
+	return float4(data0, data1, alpha, phaseT);
+}
+
+float4 fragUnlitAlbedo(v2f i) : SV_Target
+{
+	float2 materialUv = i.uv;
 	float4 materialAlbedo = tex2D(MaterialAlbedoTex, materialUv);
 	if (materialAlbedo.a <= 0.0001)
 	{
@@ -383,6 +405,14 @@ float4 fragUnlitAlbedo(v2f i) : SV_Target
 			CGPROGRAM
 			#pragma vertex vert
 			#pragma fragment fragMaterialNormal
+			ENDCG
+		}
+
+		Pass {
+			Blend One Zero
+			CGPROGRAM
+			#pragma vertex vert
+			#pragma fragment fragMaterialTransport
 			ENDCG
 		}
 

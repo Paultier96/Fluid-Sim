@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using System.Collections.Generic;
 using System;

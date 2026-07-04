@@ -54,10 +54,8 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
-		internal void EnsureTemporalResources(ParticleFluidRenderRegion2D causticRegion, bool denoisingEnabled, bool useProjectedShadowMap)
+		internal void EnsureTemporalResources(int causticWidth, int causticHeight, Vector2 causticWorldCenter, Vector2 causticWorldSize, bool denoisingEnabled, bool useProjectedShadowMap)
 		{
-			int causticWidth = causticRegion.PixelWidth;
-			int causticHeight = causticRegion.PixelHeight;
 			bool hadCausticHistory = causticHistoryTexture != null && causticHistoryTexture.IsCreated();
 			bool causticHistoryResize = hadCausticHistory
 				&& (causticHistoryTexture.width != causticWidth || causticHistoryTexture.height != causticHeight);
@@ -78,8 +76,8 @@ namespace Seb.Fluid2D.Rendering
 						causticHistoryTexture,
 						previousCausticWorldCenter,
 						previousCausticWorldSize,
-						causticRegion.WorldCenter,
-						causticRegion.WorldSize);
+						causticWorldCenter,
+						causticWorldSize);
 				}
 
 				ComputeHelper.Release(causticHistoryBackup);
@@ -87,8 +85,8 @@ namespace Seb.Fluid2D.Rendering
 				bool historyMigrationFailed = historyChanged && !migratedHistory;
 				if (migratedHistory && !historyMigrationFailed)
 				{
-					previousCausticWorldCenter = causticRegion.WorldCenter;
-					previousCausticWorldSize = causticRegion.WorldSize;
+					previousCausticWorldCenter = causticWorldCenter;
+					previousCausticWorldSize = causticWorldSize;
 				}
 				clearCausticHistory |= historyMigrationFailed;
 			}
@@ -127,7 +125,7 @@ namespace Seb.Fluid2D.Rendering
 			ParticleFluidRenderUtils.DestroyMaterial(ref causticMotionBlurMaterial);
 		}
 
-		public void ApplyTemporalSettings(ParticleFluidLighting2D.FrameContext context, RenderTexture combinedAccumulationTexture, Texture velocityPhase0AccumulationTexture, Texture velocityPhase1AccumulationTexture)
+		public void ApplyTemporalSettings(ParticleFluidLighting2D.FrameContext context, Texture velocityPhase0AccumulationTexture, Texture velocityPhase1AccumulationTexture)
 		{
 			if (temporalMaterial == null)
 			{
@@ -137,7 +135,6 @@ namespace Seb.Fluid2D.Rendering
 			ParticleFluidDirectLight owner = trace.owner;
 			ParticleFluidLighting2D lightingOwner = owner.Owner;
 			ParticleDisplay2D display = context.display;
-			temporalMaterial.SetTexture("CombinedTex", combinedAccumulationTexture);
 			temporalMaterial.SetTexture("VelocityTex0", velocityPhase0AccumulationTexture != null ? velocityPhase0AccumulationTexture : Texture2D.blackTexture);
 			temporalMaterial.SetTexture("VelocityTex1", velocityPhase1AccumulationTexture != null ? velocityPhase1AccumulationTexture : Texture2D.blackTexture);
 			temporalMaterial.SetTexture("CausticMotionTex", trace.causticMotionTexture != null ? trace.causticMotionTexture : Texture2D.blackTexture);
@@ -148,6 +145,7 @@ namespace Seb.Fluid2D.Rendering
 			temporalMaterial.SetFloat("causticTemporalClampRejection", owner.temporalClampRejection);
 			temporalMaterial.SetFloat("causticTemporalRejectedSpatialFilter", owner.temporalRejectedSpatialFilter);
 			temporalMaterial.SetInt("causticTemporalMotionSource", (int)owner.temporalMotionSource);
+			temporalMaterial.SetTexture("MaterialTransportTex", lightingOwner.materialTransportTexture != null ? lightingOwner.materialTransportTexture : Texture2D.blackTexture);
 		}
 
 		public bool TryMigrateHistoryOnResize(RenderTexture oldHistory, RenderTexture newHistory, Vector2 oldWorldCenter, Vector2 oldWorldSize, Vector2 newWorldCenter, Vector2 newWorldSize)
@@ -203,8 +201,8 @@ namespace Seb.Fluid2D.Rendering
 			{
 				int dilationIterations = Mathf.Max(1, owner.temporalMotionDilationIterations);
 				float motionDilationRadius = owner.temporalMotionDilationRadius * rayTextureBlurScale / dilationIterations;
-				Vector2 currentWorldSize = context.renderLayout.Caustic.WorldSize;
-				ParticleFluidRasterLayoutBindings.ApplyCausticCurrentGlobals(targetCommandBuffer, context.renderLayout.Caustic.WorldCenter, currentWorldSize);
+				Vector2 currentWorldSize = context.renderLayout.CausticRegion.WorldSize;
+				ParticleFluidRasterLayoutBindings.ApplyCausticCurrentGlobals(targetCommandBuffer, context.renderLayout.CausticRegion.WorldCenter, currentWorldSize);
 				RenderTexture dilationSource = trace.causticMotionTexture;
 				RenderTexture dilationTarget = causticMotionDilatedTexture;
 				for (int i = 0; i < dilationIterations; i++)
@@ -253,12 +251,13 @@ namespace Seb.Fluid2D.Rendering
 			ParticleFluidDirectLight owner = trace.owner;
 			ParticleFluidLighting2D lightingOwner = owner.Owner;
 			ParticleDisplay2D display = context.display;
-			Vector2 currentWorldCenter = context.renderLayout.Caustic.WorldCenter;
-			Vector2 currentWorldSize = context.renderLayout.Caustic.WorldSize;
+			Vector2 currentWorldCenter = context.renderLayout.CausticRegion.WorldCenter;
+			Vector2 currentWorldSize = context.renderLayout.CausticRegion.WorldSize;
 			bool wantsProjectedShadowMap =
 				(owner.projectedShadowHistoryRejection || owner.temporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.ProjectedShadow);
 			Vector2 projectedShadowDirection = Vector2.zero;
 			bool useProjectedShadowMap = false;
+			temporalMaterial?.SetTexture("MaterialTransportTex", lightingOwner.materialTransportTexture != null ? lightingOwner.materialTransportTexture : Texture2D.blackTexture);
 			if (wantsProjectedShadowMap
 			    && lightingOwner.lightManager.GetMainDirectionalLight() is ParticleFluidDirectionalLight2D directionalLight)
 			{
@@ -267,13 +266,11 @@ namespace Seb.Fluid2D.Rendering
 					owner.projectedShadowCompute,
 					owner.projectedShadow.projectedShadowMapBuffer,
 					owner.projectedShadow.projectedShadowMapTexture,
-					lightingOwner.combinedSourceTexture,
+					lightingOwner.materialTransportTexture,
 					owner.projectedShadowMapBins,
-					display.metaballs.densityThreshold,
-					display.metaballs.phase0RenderBias,
 					effectiveLightDirection,
-					context.renderLayout.Source,
-					context.renderLayout.Caustic);
+					context.renderLayout.SourceRegion,
+					context.renderLayout.CausticRegion);
 				useProjectedShadowMap = owner.projectedShadow.RecordCurrentShadowMap(targetCommandBuffer, projectedShadowParams, out projectedShadowDirection);
 			}
 

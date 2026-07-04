@@ -9,31 +9,43 @@ namespace Seb.Fluid2D.Rendering
 	{
 		public RenderTexture albedoTexture;
 		public RenderTexture normalTexture;
+		public RenderTexture transportTexture;
 		
-		public bool IsAllocated => albedoTexture != null && normalTexture != null;
+		public bool IsAllocated => albedoTexture != null && normalTexture != null && transportTexture != null;
 
-		public void EnsureRenderTextures(int width, int height, string namePrefix)
+		public void EnsureRenderTextures(int materialWidth, int materialHeight, int transportWidth, int transportHeight, string namePrefix)
 		{
-			ComputeHelper.CreateRenderTexture(ref albedoTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, $"{namePrefix} Material Albedo");
-			ComputeHelper.CreateRenderTexture(ref normalTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, $"{namePrefix} Material Normal");
+			ComputeHelper.CreateRenderTexture(ref albedoTexture, materialWidth, materialHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, $"{namePrefix} Material Albedo");
+			ComputeHelper.CreateRenderTexture(ref normalTexture, materialWidth, materialHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, $"{namePrefix} Material Normal");
+			ComputeHelper.CreateRenderTexture(ref transportTexture, transportWidth, transportHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, $"{namePrefix} Material Transport");
 		}
 
-		public void Render(CommandBuffer commandBuffer, Material material, int albedoPass, int normalPass)
+		public void RenderSurfaceMaps(CommandBuffer commandBuffer, Material material, int albedoPass, int normalPass, ParticleFluidRenderRegion2D materialRegion, Camera camera)
 		{
-			if (!IsAllocated || commandBuffer == null || material == null)
+			if (!IsAllocated || commandBuffer == null || material == null || camera == null)
 			{
 				return;
 			}
 
-			commandBuffer.BeginSample("Particle Fluid/Build Material Maps");
-			material.SetInt("metaballCompositeRegionEnabled", 0);
-			material.SetInt("metaballClipRegionEnabled", 0);
-			commandBuffer.Blit(null, albedoTexture, material, albedoPass);
-			commandBuffer.Blit(null, normalTexture, material, normalPass);
-			commandBuffer.EndSample("Particle Fluid/Build Material Maps");
+			commandBuffer.BeginSample("Particle Fluid/Build Surface Maps");
+			ParticleFluidRenderUtils.DrawRegionQuad(commandBuffer, albedoTexture, material, albedoPass, materialRegion, camera, true, Color.clear);
+			ParticleFluidRenderUtils.DrawRegionQuad(commandBuffer, normalTexture, material, normalPass, materialRegion, camera, true, Color.clear);
+			commandBuffer.EndSample("Particle Fluid/Build Surface Maps");
 		}
 
-		public void RenderUnlit(CommandBuffer commandBuffer, Material material, RenderTargetIdentifier finalTarget, int unlitPass, ParticleFluidRenderRegion2D renderRegion)
+		public void RenderTransportMap(CommandBuffer commandBuffer, Material material, int transportPass, ParticleFluidRenderRegion2D transportRegion, Camera camera)
+		{
+			if (!IsAllocated || commandBuffer == null || material == null || camera == null)
+			{
+				return;
+			}
+
+			commandBuffer.BeginSample("Particle Fluid/Build Transport Map");
+			ParticleFluidRenderUtils.DrawRegionQuad(commandBuffer, transportTexture, material, transportPass, transportRegion, camera, true, Color.clear);
+			commandBuffer.EndSample("Particle Fluid/Build Transport Map");
+		}
+
+		public void RenderUnlit(CommandBuffer commandBuffer, Material material, RenderTargetIdentifier finalTarget, int unlitPass, ParticleFluidRenderRegion2D region)
 		{
 			if (!IsAllocated || commandBuffer == null || material == null)
 			{
@@ -41,16 +53,13 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			material.SetTexture("MaterialAlbedoTex", albedoTexture);
-			material.SetInt("metaballCompositeRegionEnabled", renderRegion.IsCropped ? 1 : 0);
-			material.SetVector("metaballCompositeUvRect", renderRegion.SourceUvRect);
-			material.SetInt("metaballClipRegionEnabled", 0);
-			material.SetVector("metaballClipRect", renderRegion.SourceUvRect);
 			commandBuffer.BeginSample("Particle Fluid/Unlit Fallback");
-			commandBuffer.Blit(null, finalTarget, material, unlitPass);
+			commandBuffer.SetRenderTarget(finalTarget);
+			commandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), ParticleFluidRenderUtils.CreateRegionMatrix(region), material, 0, unlitPass);
 			commandBuffer.EndSample("Particle Fluid/Unlit Fallback");
 		}
 
-		public void BindTo(ParticleFluidLighting2D lighting, ParticleFluidRenderRegion2D renderRegion)
+		public void BindTo(ParticleFluidLighting2D lighting)
 		{
 			if (lighting == null)
 			{
@@ -58,15 +67,16 @@ namespace Seb.Fluid2D.Rendering
 			}
 			lighting.materialAlbedoTexture = albedoTexture;
 			lighting.materialNormalTexture = normalTexture;
-			lighting.materialRenderRegion = renderRegion;
+			lighting.materialTransportTexture = transportTexture;
 			lighting.BindMaterialTextures();
 		}
 
 		public void Release()
 		{
-			ComputeHelper.Release(albedoTexture, normalTexture);
+			ComputeHelper.Release(albedoTexture, normalTexture, transportTexture);
 			albedoTexture = null;
 			normalTexture = null;
+			transportTexture = null;
 		}
 	}
 }

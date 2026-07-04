@@ -2,17 +2,13 @@
 #pragma kernel BuildProjectedShadowMap
 #pragma kernel ResolveProjectedShadowMap
 
-Texture2D<float4> CombinedTex;
+Texture2D<float4> MaterialTransportTex;
 RWStructuredBuffer<uint> ProjectedShadowMapAccum;
 RWTexture2D<float4> ProjectedShadowMapResult;
 
 #include "../../Shared/ParticleFluidCommon.hlsl"
-#include "../../Shared/ParticleFluidPhaseClassification.hlsl"
-#include "../../Shared/ParticleFluidCombinedSamplingCompute.hlsl"
 int combinedWidth;
 int combinedHeight;
-float densityThreshold;
-float phase0RenderBias;
 int projectedShadowMapBinCount;
 float2 projectedShadowMapDirection;
 float2 projectedShadowSourceWorldCenter;
@@ -53,13 +49,13 @@ void BuildProjectedShadowMap(uint3 id : SV_DispatchThreadID)
 		return;
 	}
 
-	float4 combined = ParticleFluidLoadCombinedPixel(CombinedTex, int2(id.xy), int2(combinedWidth, combinedHeight));
-	if (ParticleFluidMaxPhaseDensity(combined) < densityThreshold)
+	float4 transport = MaterialTransportTex.Load(int3(int2(id.xy), 0));
+	if (transport.b <= 0.5)
 	{
 		return;
 	}
 
-	bool phase0CastsShadow = ParticleFluidPhase0Mask(combined, densityThreshold, phase0RenderBias) > 0.5;
+	bool phase0CastsShadow = transport.a < 0.5;
 	if (!phase0CastsShadow)
 	{
 		return;

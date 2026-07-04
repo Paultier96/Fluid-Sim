@@ -54,12 +54,12 @@ namespace Seb.Fluid2D.Rendering
 			ParticleFluidRenderUtils.EnsureMaterial(ref radianceCascadeSdfMaterial, radianceCascadeSdfShader);
 		}
 
-		internal void EnsureResources(ParticleFluidRenderRegion2D causticRegion, bool renderRadianceCascade)
+		internal void EnsureResources(Vector2Int causticSize, bool renderRadianceCascade)
 		{
 			if (renderRadianceCascade)
 			{
-				int width = Mathf.Max(1, Mathf.RoundToInt(causticRegion.PixelWidth * radianceCascadeTextureScale));
-				int height = Mathf.Max(1, Mathf.RoundToInt(causticRegion.PixelHeight * radianceCascadeTextureScale));
+				int width = Mathf.Max(1, Mathf.RoundToInt(causticSize.x * radianceCascadeTextureScale));
+				int height = Mathf.Max(1, Mathf.RoundToInt(causticSize.y * radianceCascadeTextureScale));
 				ComputeHelper.CreateRenderTexture(ref radianceCascadeTexture0, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Radiance Cascade 0");
 				ComputeHelper.CreateRenderTexture(ref radianceCascadeTexture1, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Radiance Cascade 1");
 				ComputeHelper.CreateRenderTexture(ref softLightPhase0Texture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Soft Light Phase 0");
@@ -110,7 +110,7 @@ namespace Seb.Fluid2D.Rendering
 
 		Texture RenderRadianceCascadeSdfLight(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, Texture sharpCaustics, bool useGaussianBoundarySource)
 		{
-			if (radianceCascadeSdfMaterial == null || !BuildRadianceCascadeSdfField(context, targetCommandBuffer, context.display.metaballs, out RenderTexture sdfResult, out RenderTexture sdfPayload))
+			if (radianceCascadeSdfMaterial == null || !BuildRadianceCascadeSdfField(context, targetCommandBuffer, out RenderTexture sdfResult, out RenderTexture sdfPayload))
 			{
 				return Texture2D.blackTexture;
 			}
@@ -132,14 +132,15 @@ namespace Seb.Fluid2D.Rendering
 			int cascadeCount = Mathf.Clamp(radianceCascadeCount, 1, 6);
 			RenderTexture source = radianceCascadeTexture0;
 			RenderTexture target = radianceCascadeTexture1;
-			targetCommandBuffer.Blit(Texture2D.blackTexture, source);
+			targetCommandBuffer.SetRenderTarget(source);
+			targetCommandBuffer.ClearRenderTarget(false, true, Color.black);
 
 			SetCommonParams(context, targetCommandBuffer, width, height, sharpCaustics, sdfResult, sdfPayload, useGaussianBoundarySource);
 			for (int level = cascadeCount - 1; level >= 0; level--)
 			{
 				targetCommandBuffer.SetGlobalInt("_CascadeLevel", level);
 				targetCommandBuffer.SetGlobalTexture("_UpperCascadeTex", source);
-				targetCommandBuffer.Blit(source, target, material, 0);
+				ParticleFluidRenderUtils.DrawRegionQuad(targetCommandBuffer, target, material, 0, context.renderLayout.CausticRegion, context.cam, false);
 				ParticleFluidRenderUtils.Swap(ref source, ref target);
 			}
 
@@ -147,7 +148,7 @@ namespace Seb.Fluid2D.Rendering
 			return source;
 		}
 
-		bool BuildRadianceCascadeSdfField(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ParticleDisplay2D.MetaballSettings surface, out RenderTexture resultTexture, out RenderTexture payloadTexture)
+		bool BuildRadianceCascadeSdfField(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, out RenderTexture resultTexture, out RenderTexture payloadTexture)
 		{
 			resultTexture = null;
 			payloadTexture = null;
@@ -157,7 +158,7 @@ namespace Seb.Fluid2D.Rendering
 			    || radianceCascadeSdfSeedB == null
 			    || radianceCascadeSdfPayloadA == null
 			    || radianceCascadeSdfPayloadB == null
-			    || owner.combinedSourceTexture == null)
+			    || owner.materialTransportTexture == null)
 			{
 				return false;
 			}
@@ -172,14 +173,10 @@ namespace Seb.Fluid2D.Rendering
 
 			targetCommandBuffer.SetComputeIntParam(compute, "_Width", width);
 			targetCommandBuffer.SetComputeIntParam(compute, "_Height", height);
-			targetCommandBuffer.SetComputeIntParam(compute, "combinedWidth", owner.combinedSourceTexture.width);
-			targetCommandBuffer.SetComputeIntParam(compute, "combinedHeight", owner.combinedSourceTexture.height);
-			targetCommandBuffer.SetComputeFloatParam(compute, "densityThreshold", surface.densityThreshold);
-			targetCommandBuffer.SetComputeFloatParam(compute, "edgeSoftness", surface.edgeSoftness);
-			targetCommandBuffer.SetComputeFloatParam(compute, "phase0RenderBias", surface.phase0RenderBias);
-			SetSharedBoundsComputeParams(context, targetCommandBuffer, compute);
-			targetCommandBuffer.SetComputeVectorParam(compute, "metaballWorldCenter", new Vector4(context.renderLayout.Caustic.WorldCenter.x, context.renderLayout.Caustic.WorldCenter.y, 0f, 0f));
-			targetCommandBuffer.SetComputeVectorParam(compute, "metaballWorldSize", new Vector4(context.renderLayout.Caustic.WorldSize.x, context.renderLayout.Caustic.WorldSize.y, 0f, 0f));
+			targetCommandBuffer.SetComputeIntParam(compute, "transportWidth", owner.materialTransportTexture.width);
+			targetCommandBuffer.SetComputeIntParam(compute, "transportHeight", owner.materialTransportTexture.height);
+			targetCommandBuffer.SetComputeVectorParam(compute, "metaballWorldCenter", context.renderLayout.CausticRegion.WorldCenter);
+			targetCommandBuffer.SetComputeVectorParam(compute, "metaballWorldSize", context.renderLayout.CausticRegion.WorldSize);
 
 			targetCommandBuffer.SetComputeTextureParam(compute, clearKernel, "Result", radianceCascadeSdfSeedA);
 			targetCommandBuffer.SetComputeTextureParam(compute, clearKernel, "ResultPayload", radianceCascadeSdfPayloadA);
@@ -187,11 +184,11 @@ namespace Seb.Fluid2D.Rendering
 			int gy = (height + 15) / 16;
 			targetCommandBuffer.DispatchCompute(compute, clearKernel, gx, gy, 1);
 
-			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "CombinedTex", owner.combinedSourceTexture);
+			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "MaterialTransportTex", owner.materialTransportTexture);
 			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "Result", radianceCascadeSdfSeedA);
 			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "ResultPayload", radianceCascadeSdfPayloadA);
 			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "ColourMap", display.gradientTexture);
-			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "CombinedTex", owner.combinedSourceTexture);
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "MaterialTransportTex", owner.materialTransportTexture);
 			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "ColourMap", display.gradientTexture);
 			targetCommandBuffer.DispatchCompute(compute, seedKernel, gx, gy, 1);
 
@@ -233,8 +230,8 @@ namespace Seb.Fluid2D.Rendering
 		{
 			ParticleDisplay2D display = context.display;
 			ParticleFluidLighting2D.PhaseMaterialSettings[] materials = owner.PhaseMaterials;
-			Vector2 currentWorldCenter = context.renderLayout.Caustic.WorldCenter;
-			Vector2 currentWorldSize = context.renderLayout.Caustic.WorldSize;
+			Vector2 currentWorldCenter = context.renderLayout.CausticRegion.WorldCenter;
+			Vector2 currentWorldSize = context.renderLayout.CausticRegion.WorldSize;
 			bool useBoundarySourceTexture = false;
 			Texture boundarySourceTexture = Texture2D.blackTexture;
 			if (owner.directLight != null && owner.directLight.lightingMode == ParticleFluidLighting2D.LightingMode.Caustics)
@@ -290,14 +287,5 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetGlobalFloat("_DirectionalLightIntensity", intensity);
 		}
 
-		static void SetSharedBoundsComputeParams(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, ComputeShader compute)
-		{
-			ParticleDisplay2D display = context.display;
-			targetCommandBuffer.SetComputeIntParam(compute, "useEllipticalBounds", display.sim.analyticBoundary.useEllipticalBounds ? 1 : 0);
-			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsCenter", new Vector4(display.sim.analyticBoundary.ellipseBoundsCenter.x, display.sim.analyticBoundary.ellipseBoundsCenter.y, 0f, 0f));
-			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsSize", new Vector4(display.sim.analyticBoundary.ellipseBoundsSize.x, display.sim.analyticBoundary.ellipseBoundsSize.y, 0f, 0f));
-			targetCommandBuffer.SetComputeFloatParam(compute, "obstacleY", display.sim.analyticBoundary.obstacleY);
-			targetCommandBuffer.SetComputeFloatParam(compute, "analyticBoundaryExpansion", context.analyticBoundaryExpansion);
-		}
 	}
 }

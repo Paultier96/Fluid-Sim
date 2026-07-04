@@ -7,7 +7,8 @@ namespace Seb.Fluid2D.Rendering
 	{
 		const int AlbedoPass = 0;
 		const int NormalPass = 1;
-		const int UnlitPass = 2;
+		const int TransportPass = 2;
+		const int UnlitPass = 3;
 
 		Material material;
 		readonly ParticleFluidMaterialMapSet materialMaps = new ();
@@ -30,17 +31,14 @@ namespace Seb.Fluid2D.Rendering
 			material = new Material(shader);
 		}
 
-		public void EnsureRenderTextures(ParticleFluidRenderRegion2D renderRegion)
+		public void EnsureRenderTextures(Vector2Int materialSize, Vector2Int transportSize)
 		{
-			materialMaps.EnsureRenderTextures(renderRegion.PixelWidth, renderRegion.PixelHeight, "Particle2D");
+			materialMaps.EnsureRenderTextures(materialSize.x, materialSize.y, transportSize.x, transportSize.y, "Particle2D");
 		}
 
-		public void ApplySettings(
+		public void ApplySharedSettings(
 			ParticleDisplay2D display,
 			Camera cam,
-			RenderTexture combinedTexture,
-			RenderTexture normalTexture,
-			ParticleFluidRenderRegion2D renderRegion,
 			float analyticBoundaryExpansion,
 			float effectiveNormalStrength,
 			ParticleFluidLighting2D lighting)
@@ -50,27 +48,45 @@ namespace Seb.Fluid2D.Rendering
 				return;
 			}
 
-			material.SetTexture("CombinedTex", combinedTexture);
-			material.SetTexture("NormalTex", normalTexture);
 			material.SetFloat("analyticBoundaryExpansion", analyticBoundaryExpansion);
 		}
 
-		public void Render(CommandBuffer commandBuffer)
+		public void SetSourceTextures(Texture combinedTexture, Texture normalTexture)
 		{
-			if (!IsReady || commandBuffer == null)
+			if (material == null)
 			{
 				return;
 			}
-			materialMaps.Render(commandBuffer, material, AlbedoPass, NormalPass);
+
+			material.SetTexture("CombinedTex", combinedTexture != null ? combinedTexture : Texture2D.blackTexture);
+			material.SetTexture("NormalTex", normalTexture != null ? normalTexture : Texture2D.blackTexture);
 		}
 
-		public void RenderUnlit(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, ParticleFluidRenderRegion2D renderRegion)
+		public void RenderSurfaceMaps(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D materialRegion, Camera camera)
+		{
+			if (!IsReady || commandBuffer == null || camera == null)
+			{
+				return;
+			}
+			materialMaps.RenderSurfaceMaps(commandBuffer, material, AlbedoPass, NormalPass, materialRegion, camera);
+		}
+
+		public void RenderTransportMap(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D transportRegion, Camera camera)
+		{
+			if (!IsReady || commandBuffer == null || camera == null)
+			{
+				return;
+			}
+			materialMaps.RenderTransportMap(commandBuffer, material, TransportPass, transportRegion, camera);
+		}
+
+		public void RenderUnlit(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, ParticleFluidRenderRegion2D region)
 		{
 			if (!IsReady || commandBuffer == null)
 			{
 				return;
 			}
-			materialMaps.RenderUnlit(commandBuffer, material, finalTarget, UnlitPass, renderRegion);
+			materialMaps.RenderUnlit(commandBuffer, material, finalTarget, UnlitPass, region);
 		}
 
 		public void Release()

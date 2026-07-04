@@ -265,9 +265,9 @@ namespace Seb.Fluid2D.Rendering
 
 		static void GetCausticRayRange(ParticleFluidLighting2D.FrameContext context, int width, int height, Vector3 lightDirection, float angularRadiusDegrees, out float startOffset, out int rayCount)
 		{
-			ParticleDisplay2D display = context.display;
-			Vector2 worldCenter = context.renderLayout.Caustic.WorldCenter;
-			Vector2 worldSize = context.renderLayout.Caustic.WorldSize;
+			ParticleFluidAnalyticBoundary2D analyticBoundary = context.display.sim.analyticBoundary;
+			Vector2 worldCenter = context.renderLayout.CausticRegion.WorldCenter;
+			Vector2 worldSize = context.renderLayout.CausticRegion.WorldSize;
 			float analyticBoundaryExpansion = context.analyticBoundaryExpansion;
 			Vector2 lightXY = new Vector2(-lightDirection.x, -lightDirection.y);
 			Vector2 rayDir = lightXY.sqrMagnitude > 0.0001f ? lightXY.normalized : Vector2.right;
@@ -278,14 +278,14 @@ namespace Seb.Fluid2D.Rendering
 			startOffset = screenMinOffset;
 			rayCount = Mathf.Max(1, Mathf.CeilToInt(fullSpan));
 
-			if (!display.sim.analyticBoundary.useEllipticalBounds)
+			if (!analyticBoundary.useEllipticalBounds)
 			{
 				return;
 			}
 
 			float minOffset = float.PositiveInfinity;
 			float maxOffset = float.NegativeInfinity;
-			Vector2 radii = new Vector2(Mathf.Abs(display.sim.analyticBoundary.ellipseBoundsSize.x), Mathf.Abs(display.sim.analyticBoundary.ellipseBoundsSize.y)) + Vector2.one * analyticBoundaryExpansion;
+			Vector2 radii = new Vector2(Mathf.Abs(analyticBoundary.ellipseBoundsSize.x), Mathf.Abs(analyticBoundary.ellipseBoundsSize.y)) + Vector2.one * analyticBoundaryExpansion;
 			if (radii.x <= 0.0001f || radii.y <= 0.0001f)
 			{
 				return;
@@ -294,20 +294,20 @@ namespace Seb.Fluid2D.Rendering
 			for (int i = 0; i < 128; i++)
 			{
 				float angle = i * Mathf.PI * 2f / 128f;
-				Vector2 world = display.sim.analyticBoundary.ellipseBoundsCenter + new Vector2(Mathf.Cos(angle) * radii.x, Mathf.Sin(angle) * radii.y);
-				if (world.y >= display.sim.analyticBoundary.obstacleY - analyticBoundaryExpansion)
+				Vector2 world = analyticBoundary.ellipseBoundsCenter + new Vector2(Mathf.Cos(angle) * radii.x, Mathf.Sin(angle) * radii.y);
+				if (world.y >= analyticBoundary.obstacleY - analyticBoundaryExpansion)
 				{
 					IncludeCausticLaunchPoint(world, worldCenter, worldSize, width, height, tangent, ref minOffset, ref maxOffset);
 				}
 			}
 
-			float expandedObstacleY = display.sim.analyticBoundary.obstacleY - analyticBoundaryExpansion;
-			float cutRelY = (expandedObstacleY - display.sim.analyticBoundary.ellipseBoundsCenter.y) / radii.y;
+			float expandedObstacleY = analyticBoundary.obstacleY - analyticBoundaryExpansion;
+			float cutRelY = (expandedObstacleY - analyticBoundary.ellipseBoundsCenter.y) / radii.y;
 			if (Mathf.Abs(cutRelY) <= 1f)
 			{
 				float cutX = radii.x * Mathf.Sqrt(Mathf.Max(0f, 1f - cutRelY * cutRelY));
-				IncludeCausticLaunchPoint(new Vector2(display.sim.analyticBoundary.ellipseBoundsCenter.x - cutX, expandedObstacleY), worldCenter, worldSize, width, height, tangent, ref minOffset, ref maxOffset);
-				IncludeCausticLaunchPoint(new Vector2(display.sim.analyticBoundary.ellipseBoundsCenter.x + cutX, expandedObstacleY), worldCenter, worldSize, width, height, tangent, ref minOffset, ref maxOffset);
+				IncludeCausticLaunchPoint(new Vector2(analyticBoundary.ellipseBoundsCenter.x - cutX, expandedObstacleY), worldCenter, worldSize, width, height, tangent, ref minOffset, ref maxOffset);
+				IncludeCausticLaunchPoint(new Vector2(analyticBoundary.ellipseBoundsCenter.x + cutX, expandedObstacleY), worldCenter, worldSize, width, height, tangent, ref minOffset, ref maxOffset);
 			}
 
 			if (float.IsNaN(minOffset) || float.IsInfinity(minOffset) || float.IsNaN(maxOffset) || float.IsInfinity(maxOffset))

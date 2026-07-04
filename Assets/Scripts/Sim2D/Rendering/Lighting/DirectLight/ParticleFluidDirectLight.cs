@@ -63,9 +63,9 @@ namespace Seb.Fluid2D.Rendering
 			traceCaustics.temporalCaustics.EnsureMaterials();
 		}
 
-		internal void ApplyTemporalSettings(ParticleFluidLighting2D.FrameContext context, RenderTexture combinedAccumulationTexture, Texture velocityPhase0AccumulationTexture, Texture velocityPhase1AccumulationTexture)
+		internal void ApplyTemporalSettings(ParticleFluidLighting2D.FrameContext context, Texture velocityPhase0AccumulationTexture, Texture velocityPhase1AccumulationTexture)
 		{
-			traceCaustics.temporalCaustics.ApplyTemporalSettings(context, combinedAccumulationTexture, velocityPhase0AccumulationTexture, velocityPhase1AccumulationTexture);
+			traceCaustics.temporalCaustics.ApplyTemporalSettings(context, velocityPhase0AccumulationTexture, velocityPhase1AccumulationTexture);
 		}
 
 		internal Texture GetCurrentDirectLightTexture()
@@ -83,7 +83,7 @@ namespace Seb.Fluid2D.Rendering
 			projectedShadow.ApplyToMaterial(material, false, Vector2.zero, projectedShadowOffset, projectedShadowExpansion);
 		}
 
-		internal void EnsureResources(ParticleFluidRenderRegion2D causticRegion)
+		internal void EnsureResources(Vector2Int causticSize, Vector2 causticWorldCenter, Vector2 causticWorldSize)
 		{
 			bool useProjectedShadowMap =
 				(projectedShadow.ShouldRender(this)
@@ -98,19 +98,19 @@ namespace Seb.Fluid2D.Rendering
 				projectedShadow.EnsureResources(useProjectedShadowMap, projectedShadowMapBins);
 			}
 
-			int causticWidth = causticRegion.PixelWidth;
-			int causticHeight = causticRegion.PixelHeight;
+			int causticWidth = causticSize.x;
+			int causticHeight = causticSize.y;
 			if (lightingMode == ParticleFluidLighting2D.LightingMode.Caustics)
 			{
 				traceCaustics.EnsureResources(causticWidth, causticHeight, true);
 				if (denoisingEnabled)
 				{
 					EnsureProjectedShadowResources();
-					traceCaustics.temporalCaustics.EnsureTemporalResources(causticRegion, true, useProjectedShadowMap);
+					traceCaustics.temporalCaustics.EnsureTemporalResources(causticWidth, causticHeight, causticWorldCenter, causticWorldSize, true, useProjectedShadowMap);
 				}
 				else
 				{
-					traceCaustics.temporalCaustics.EnsureTemporalResources(causticRegion, false, false);
+					traceCaustics.temporalCaustics.EnsureTemporalResources(causticWidth, causticHeight, causticWorldCenter, causticWorldSize, false, false);
 					projectedShadow.Release();
 				}
 			}

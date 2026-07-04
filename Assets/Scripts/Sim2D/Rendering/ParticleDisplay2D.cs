@@ -119,6 +119,8 @@ namespace Seb.Fluid2D.Rendering
 			[Header("Shape - Phase Boundary")]
 			[Tooltip("Screen-space width in pixels for anti-aliased blending between fluid phases.")]
 			[Min(0.0001f)] public float phaseBlendWidth = 1f;
+			[Tooltip("Separate screen-space width in pixels for the transport map phase blending used by raymarched lighting. Increase to soften transport-derived phase gradients without changing the visible surface transition.")]
+			[Min(0.0001f)] public float transportPhaseBlendWidth = 1f;
 			[Tooltip("Render-only phase boundary bias. 0 is neutral, positive values make phase 0 visually expand, negative values make phase 1 expand.")]
 			[Range(-0.99f, 0.99f)] public float phase0RenderBias = 0f;
 			[Tooltip("How strongly phase boundary bias redistributes normal strength. The compressed phase is boosted strongly while the visually expanded phase is weakened mildly.")]

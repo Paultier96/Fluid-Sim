@@ -138,12 +138,13 @@ using UnityEngine.Serialization;
 		[SerializeField] internal ParticleFluidDirectLight directLight;
 		internal Texture materialAlbedoTexture;
 		internal Texture materialNormalTexture;
-		internal RenderTexture combinedSourceTexture;
-		internal ParticleFluidRenderRegion2D materialRenderRegion;
-		ParticleFluidRenderRegion2D causticRenderRegion;
+		internal Texture materialTransportTexture;
+		ParticleFluidRenderRegion2D domainRenderRegion;
+		ParticleFluidRenderRegion2D compositeRenderRegion;
 		internal float currentZoomScale = 1f;
 		
-		internal ParticleFluidRenderRegion2D currentCausticRenderRegion;
+		internal Vector2 currentCausticWorldCenter;
+		internal Vector2 currentCausticWorldSize;
 		internal Texture CurrentSoftLightPhase0Texture;
 		internal Texture CurrentSoftLightPhase1Texture;
 		internal Texture CurrentGaussianInitTexture;
@@ -275,9 +276,10 @@ using UnityEngine.Serialization;
 		{
 			Texture albedoTexture = materialAlbedoTexture != null ? materialAlbedoTexture : Texture2D.blackTexture;
 			Texture normalTexture = materialNormalTexture != null ? materialNormalTexture : Texture2D.blackTexture;
+			Texture transportTexture = materialTransportTexture != null ? materialTransportTexture : Texture2D.blackTexture;
 			lightingMaterial.SetTexture("MaterialAlbedoTex", albedoTexture);
 			lightingMaterial.SetTexture("MaterialNormalTex", normalTexture);
-			lightingMaterial.SetTexture("CombinedTex", combinedSourceTexture != null ? combinedSourceTexture : Texture2D.blackTexture);
+			lightingMaterial.SetTexture("MaterialTransportTex", transportTexture);
 			lightingMaterial.SetVector("MaterialAlbedoTex_TexelSize", new Vector4(1f / albedoTexture.width, 1f / albedoTexture.height, albedoTexture.width, albedoTexture.height));
 		}
 
@@ -309,11 +311,9 @@ using UnityEngine.Serialization;
 			ParticleDisplay2D display,
 			Camera cam,
 			ParticleFluidRenderLayout2D renderLayout,
-			RenderTexture combinedAccumulationTexture,
 			Texture velocityPhase0AccumulationTexture,
 			Texture velocityPhase1AccumulationTexture)
 		{
-			combinedSourceTexture = combinedAccumulationTexture;
 			FrameContext context = new FrameContext(
 				display,
 				cam,
@@ -322,7 +322,7 @@ using UnityEngine.Serialization;
 				MetaballRenderer2D.GetAnalyticBoundaryExpansion(display)
 			);
 
-			directLight.ApplyTemporalSettings(context, combinedAccumulationTexture, velocityPhase0AccumulationTexture, velocityPhase1AccumulationTexture);
+			directLight.ApplyTemporalSettings(context, velocityPhase0AccumulationTexture, velocityPhase1AccumulationTexture);
 			Texture causticTexture = directLight.GetCurrentDirectLightTexture();
 
 			ApplySettings(
@@ -343,14 +343,13 @@ using UnityEngine.Serialization;
 			ParticleDisplay2D display = context.display;
 			PhaseMaterialSettings[] materials = PhaseMaterials;
 
-			materialRenderRegion = context.renderLayout.Material;
-			causticRenderRegion = context.renderLayout.Caustic;
+			domainRenderRegion = context.renderLayout.DomainRegion;
+			compositeRenderRegion = context.renderLayout.CameraRegion;
 			currentZoomScale = context.zoomScale;
 			
 			BindMaterialTextures();
 			lightingMaterial.SetInt("particleFluidCausticsEnabled", renderCaustics ? 1 : 0);
 			lightingMaterial.SetTexture("CausticTex", causticTexture);
-			lightingMaterial.SetInt("particleFluidCausticRegionEnabled", causticRenderRegion.IsCropped ? 1 : 0);
 			lightingMaterial.SetInt("particleFluidPhaseDiffuseLightEnabled", renderSoftLight ? 1 : 0);
 			lightingMaterial.SetInt("particleGaussianPhase0Only", gaussianSss != null && gaussianSss.gaussianDiffuseEnabled ? 1 : 0);
 			lightingMaterial.SetFloat("particleFluidRadianceCascadeDirectCausticStrength", radianceCascadeGi != null ? radianceCascadeGi.radianceCascadeDirectCausticStrength : 0f);
@@ -401,23 +400,23 @@ using UnityEngine.Serialization;
 				ParticleFluidAnalyticBoundaryBindings.ApplyPhaseSplitGlobals(commandBuffer, display.metaballs);
 				ParticleFluidRasterTextureBindings.ApplyGradientGlobals(commandBuffer, display);
 			}
-			ParticleFluidRasterLayoutBindings.ApplyLightingGlobals(commandBuffer, materialRenderRegion, causticRenderRegion);
-			lightingMaterial.SetInt("particleFluidCompositeRegionEnabled", materialRenderRegion.IsCropped ? 1 : 0);
-			lightingMaterial.SetInt("particleFluidClipRegionEnabled", 0);
-			commandBuffer.Blit(null, finalTarget, lightingMaterial, LightingPass);
+			ParticleFluidRasterLayoutBindings.ApplyLightingGlobals(commandBuffer, domainRenderRegion.WorldCenter, domainRenderRegion.WorldSize);
+			commandBuffer.SetRenderTarget(finalTarget);
+			commandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), ParticleFluidRenderUtils.CreateRegionMatrix(domainRenderRegion), lightingMaterial, 0, LightingPass);
 			commandBuffer.EndSample("Particle Fluid/Final Lighting");
 		}
 
 		public void EnsureLightingResources(ParticleFluidRenderLayout2D renderLayout)
 		{
-			currentCausticRenderRegion = renderLayout.Caustic;
+			currentCausticWorldCenter = renderLayout.DomainRegion.WorldCenter;
+			currentCausticWorldSize = renderLayout.DomainRegion.WorldSize;
 			bool renderPhaseDiffuseLight = gaussianSss.ShouldRender();
 			bool renderRadianceCascadeLight = radianceCascadeGi.radianceCascadeEnabled;
 
-			gaussianSss.EnsureResources(currentCausticRenderRegion, renderPhaseDiffuseLight);
-			radianceCascadeGi.EnsureResources(currentCausticRenderRegion, renderRadianceCascadeLight);
+			gaussianSss.EnsureResources(renderLayout.CausticSize, renderPhaseDiffuseLight);
+			radianceCascadeGi.EnsureResources(renderLayout.CausticSize, renderRadianceCascadeLight);
 
-			directLight.EnsureResources(currentCausticRenderRegion);
+			directLight.EnsureResources(renderLayout.CausticSize, currentCausticWorldCenter, currentCausticWorldSize);
 		}
 
 		public void Release()
@@ -435,7 +434,7 @@ using UnityEngine.Serialization;
 
 		internal ParticleDisplay2D Display => ResolveDisplay();
 
-		internal void RecordSoftLight(FrameContext context, CommandBuffer targetCommandBuffer, Texture sharpCaustics, RenderTexture combinedAccumulationTexture)
+		internal void RecordSoftLight(FrameContext context, CommandBuffer targetCommandBuffer, Texture sharpCaustics)
 		{
 			bool renderGaussian = gaussianSss.ShouldRender();
 			bool renderRadianceCascade = radianceCascadeGi.radianceCascadeEnabled;
@@ -446,7 +445,7 @@ using UnityEngine.Serialization;
 
 			if (renderGaussian)
 			{
-				phase0SoftLightTexture = gaussianSss.Render(context, targetCommandBuffer, sharpCaustics, combinedAccumulationTexture, directLight.textureScale);
+				phase0SoftLightTexture = gaussianSss.Render(context, targetCommandBuffer, sharpCaustics, materialTransportTexture, directLight.textureScale);
 				gaussianBlurredTexture = phase0SoftLightTexture;
 				if (renderRadianceCascade && gaussianSss.gaussianDiffuseEnabled && radianceCascadeGi.softLightPhase0Texture != null)
 				{
@@ -471,15 +470,13 @@ using UnityEngine.Serialization;
 		internal static ParticleFluidRenderRegion2D GetCameraScaledRenderRegion(Camera cam, ParticleFluidRenderRegion2D source, float scale)
 		{
 			float clampedScale = Mathf.Max(scale, 0.0001f);
-			int pixelWidth = Mathf.Max(1, Mathf.RoundToInt(source.SourceUvRect.z * cam.pixelWidth * clampedScale));
-			int pixelHeight = Mathf.Max(1, Mathf.RoundToInt(source.SourceUvRect.w * cam.pixelHeight * clampedScale));
+			int pixelWidth = Mathf.Max(1, Mathf.RoundToInt(source.PixelSize.x * clampedScale));
+			int pixelHeight = Mathf.Max(1, Mathf.RoundToInt(source.PixelSize.y * clampedScale));
 			return new ParticleFluidRenderRegion2D(
 				source.WorldCenter,
 				source.WorldSize,
-				source.SourceUvRect,
 				pixelWidth,
-				pixelHeight,
-				source.IsCropped);
+				pixelHeight);
 		}
 
 		void ResolveReferences()

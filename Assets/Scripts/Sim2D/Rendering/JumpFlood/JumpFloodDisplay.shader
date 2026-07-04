@@ -29,8 +29,6 @@ Shader "Custom/JumpFloodDisplay"
             float2 boundsSize;
             float obstacleY;
             int useEllipticalBounds;
-            int jumpFloodCompositeRegionEnabled;
-            float4 jumpFloodCompositeUvRect;
 
             struct appdata
             {
@@ -50,19 +48,6 @@ Shader "Custom/JumpFloodDisplay"
                 o.pos = UnityObjectToClipPos(v.vertex);
                 o.uv = v.uv;
                 return o;
-            }
-
-            bool TryGetMaterialUv(float2 screenUv, out float2 materialUv)
-            {
-                if (jumpFloodCompositeRegionEnabled == 0)
-                {
-                    materialUv = screenUv;
-                    return true;
-                }
-
-                float2 localUv = (screenUv - jumpFloodCompositeUvRect.xy) / max(jumpFloodCompositeUvRect.zw, float2(0.000001, 0.000001));
-                materialUv = localUv;
-                return all(localUv >= 0.0) && all(localUv <= 1.0);
             }
 
             float EllipseCutSignedDistance(float2 worldPos)
@@ -95,12 +80,7 @@ Shader "Custom/JumpFloodDisplay"
 
             float4 frag(v2f i) : SV_Target
             {
-                float2 seedUV;
-                if (!TryGetMaterialUv(i.uv, seedUV))
-                {
-                    return float4(0,0,0,1);
-                }
-
+                float2 seedUV = i.uv;
                 float4 payload = _PayloadTex.Sample(sampler_PayloadTex, seedUV);
                 if (payload.a < 0.0)
                     return float4(0,0,0,1);
