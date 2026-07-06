@@ -17,12 +17,12 @@ namespace Seb.Fluid2D.Rendering
 		public ParticleFluidLighting2D.LightingMode lightingMode = ParticleFluidLighting2D.LightingMode.Caustics;
 		[Range(0.125f, 1f)] public float textureScale = 0.5f;
 
-		[Header("Raymarched Lighting - Refraction")]
+		[Header("Ray marched Lighting - Refraction")]
 		public bool stochasticReflection = true;
 		[Min(0f)] public float dispersionStrength = 0f;
 		[Range(0f, 1f)] public float dispersionRotation = 1f;
 
-		[Header("Raymarched Lighting - Rays")]
+		[Header("Ray marched Lighting - Rays")]
 		[Range(8, 192)] public int extraRayTravelSteps = 64;
 		[Min(0f)] public float rayBrightness = 1f;
 		[Min(1)] public int rayStride = 1;
@@ -30,7 +30,7 @@ namespace Seb.Fluid2D.Rendering
 		[Min(1)] public int colourSampleStride = 8;
 		[Min(0f)] public float blur = 1.5f;
 
-		[Header("Raymarched Lighting - Temporal Denoising")]
+		[Header("Ray marched Lighting - Temporal Denoising")]
 		public bool denoisingEnabled = true;
 		[Range(0f, 0.99f)] public float temporalHistoryWeight = 0.95f;
 		[Range(0f, 1f)] public float temporalHistoryClampStrength = 0.6f;
@@ -85,12 +85,7 @@ namespace Seb.Fluid2D.Rendering
 
 		internal void EnsureResources(Vector2Int causticSize, ParticleFluidRenderRegion2D domainRegion)
 		{
-			bool useProjectedShadowMap =
-				(projectedShadow.ShouldRender(this)
-				 || (denoisingEnabled
-				     && (projectedShadowHistoryRejection || temporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.ProjectedShadow)))
-				&& projectedShadowCompute != null
-				&& Owner.lightManager.GetMainDirectionalLight() is { isActiveAndEnabled: true };
+			bool useProjectedShadowMap = (projectedShadow.ShouldRender(this) || (denoisingEnabled && (projectedShadowHistoryRejection || temporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.ProjectedShadow))) && projectedShadowCompute != null && Owner.lightManager.GetMainDirectionalLight() is { isActiveAndEnabled: true };
 
 			void EnsureProjectedShadowResources()
 			{

@@ -55,7 +55,7 @@ namespace Seb.Fluid2D.Rendering
 			material.SetTexture("MaterialAlbedoTex", albedoTexture);
 			commandBuffer.BeginSample("Particle Fluid/Unlit Fallback");
 			commandBuffer.SetRenderTarget(finalTarget);
-			commandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), ParticleFluidRenderUtils.CreateRegionMatrix(region), material, 0, unlitPass);
+			commandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), region.CreateRegionMatrix(), material, 0, unlitPass);
 			commandBuffer.EndSample("Particle Fluid/Unlit Fallback");
 		}
 

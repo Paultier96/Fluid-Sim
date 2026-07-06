@@ -211,7 +211,7 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetRenderTarget(finalTarget);
 			targetCommandBuffer.ClearRenderTarget(false, true, Color.black);
 			displayMaterial.SetTexture("_ResultTex", result != null ? result : seedA);
-			targetCommandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), ParticleFluidRenderUtils.CreateRegionMatrix(_currentRenderLayout.domainRegion), displayMaterial, 0, 0);
+			targetCommandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _currentRenderLayout.domainRegion.CreateRegionMatrix(), displayMaterial, 0, 0);
 			targetCommandBuffer.EndSample("Jump Flood/Display Fallback");
 			targetCommandBuffer.BeginSample("Particle Fluid/Vector Field");
 			display.AppendVectorFieldDraw(targetCommandBuffer);

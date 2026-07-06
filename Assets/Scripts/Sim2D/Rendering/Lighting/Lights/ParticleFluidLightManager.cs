@@ -73,7 +73,6 @@ namespace Seb.Fluid2D.Rendering
 					return true;
 				}
 			}
-
 			return false;
 		}
 
@@ -136,12 +135,7 @@ namespace Seb.Fluid2D.Rendering
 			material.SetVectorArray("particleLightData", lightData);
 		}
 
-		internal int UploadCausticsLightGpuData(
-			ComputeBuffer buffer,
-			ParticleFluidLighting2D.FrameContext context,
-			Vector2Int resolution,
-			Vector2 currentWorldSize,
-			int raysPerPixel)
+		internal int UploadCausticsLightGpuData(ComputeBuffer buffer, ParticleFluidLighting2D.FrameContext context, Vector2Int resolution, Vector2 currentWorldSize, int raysPerPixel)
 		{
 			Vector3[] lightDirections = new Vector3[lightSlots.Length];
 			bool[] lightEnabled = new bool[lightSlots.Length];
@@ -171,7 +165,7 @@ namespace Seb.Fluid2D.Rendering
 				}
 				else
 				{
-					lightDirections[i] = Vector3.down;
+					lightDirections[i] = Vector3.zero;
 					lightAngularRadiusDegrees[i] = 0f;
 					lightRayStartOffsets[i] = 0f;
 					lightRangeRayCounts[i] = 1;
@@ -224,18 +218,8 @@ namespace Seb.Fluid2D.Rendering
 					lightWeights[i] > 0f && light != null ? light.GetCausticMultiplier() : Vector4.zero,
 					pointLight != null ? 1 : 0,
 					pointLight != null ? pointLight.GetPointLightVector() : Vector4.zero,
-					new Vector4(
-						pointLight != null ? pointLight.falloff : 0f,
-						lightAngularRadiusDegrees[i] * Mathf.Deg2Rad,
-						lightPointAngleStarts[i],
-						lightPointAngleRanges[i]
-					),
-					new Vector4(
-						lightRayBudgets[i],
-						lightSubRaysPerPixel[i],
-						lightRayStartOffsets[i],
-						lightRaySpacings[i]
-					),
+					new Vector4(pointLight != null ? pointLight.falloff : 0f, lightAngularRadiusDegrees[i] * Mathf.Deg2Rad, lightPointAngleStarts[i], lightPointAngleRanges[i]),
+					new Vector4(lightRayBudgets[i], lightSubRaysPerPixel[i], lightRayStartOffsets[i], lightRaySpacings[i]),
 					new Color(light != null ? light.temperatureKelvin : 6500f, light != null ? GetSaturationDispersionScale(light.color) : 1f, 0f, 0f)
 				);
 			}

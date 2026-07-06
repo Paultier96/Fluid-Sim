@@ -393,7 +393,7 @@ using UnityEngine.Serialization;
 			}
 			ParticleFluidRasterLayoutBindings.ApplyLightingGlobals(commandBuffer, _domainRenderRegion);
 			commandBuffer.SetRenderTarget(finalTarget);
-			commandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), ParticleFluidRenderUtils.CreateRegionMatrix(_domainRenderRegion), lightingMaterial, 0, LightingPass);
+			commandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _domainRenderRegion.CreateRegionMatrix(), lightingMaterial, 0, LightingPass);
 			commandBuffer.EndSample("Particle Fluid/Final Lighting");
 		}
 

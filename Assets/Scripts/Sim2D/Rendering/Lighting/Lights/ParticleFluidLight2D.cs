@@ -37,12 +37,7 @@ namespace Seb.Fluid2D.Rendering
 		{
 			Color effectiveColor = EffectiveColor;
 			float clampedIntensity = Mathf.Max(intensity, 0f);
-			return new Vector4(
-				effectiveColor.r * clampedIntensity,
-				effectiveColor.g * clampedIntensity,
-				effectiveColor.b * clampedIntensity,
-				0f
-			);
+			return new Vector4(effectiveColor.r * clampedIntensity, effectiveColor.g * clampedIntensity, effectiveColor.b * clampedIntensity, 0f);
 		}
 
 		protected virtual void OnDrawGizmos()

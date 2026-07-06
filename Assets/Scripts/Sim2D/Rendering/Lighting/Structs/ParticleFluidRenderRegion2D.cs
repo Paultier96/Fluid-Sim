@@ -28,6 +28,23 @@ namespace Seb.Fluid2D.Rendering
 			Vector2 worldCenter = new Vector2(cam.transform.position.x, cam.transform.position.y);
 			return new ParticleFluidRenderRegion2D(worldCenter, new Vector2(worldWidth, worldHeight), new Vector2Int(Mathf.Max(cam.pixelWidth, 1), Mathf.Max(cam.pixelHeight, 1)));
 		}
+
+		public Matrix4x4 CreateRegionMatrix()
+		{
+			return Matrix4x4.TRS(worldBounds.center, Quaternion.identity, worldBounds.size);
+		}
+		
+		public Matrix4x4 CreateRegionProjection()
+		{
+			Vector3 min = worldBounds.min;
+			Vector3 max = worldBounds.max;
+			float left = min.x;
+			float right = max.x;
+			float bottom = min.y;
+			float top = max.y;
+			Matrix4x4 ortho = Matrix4x4.Ortho(left, right, bottom, top, -1f, 1f);
+			return GL.GetGPUProjectionMatrix(ortho, false);
+		}
 		
 		public Vector2 WorldToCenteredPixel(Vector2 worldPoint)
 		{
@@ -38,7 +55,6 @@ namespace Seb.Fluid2D.Rendering
 		{
 			return Vector2Int.Max(Vector2Int.one, Vector2Int.RoundToInt((Vector2)pixelSize * scale));
 		}
-
 
 		private Vector2 WorldToUV(Vector2 worldPoint)
 		{
@@ -91,14 +107,5 @@ namespace Seb.Fluid2D.Rendering
 		        resolution.y
 		    );
 		}
-		
-		
-		
-		
-		
-		
-		
-		
-		
 	}
 }

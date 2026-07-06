@@ -16,8 +16,7 @@ namespace Seb.Fluid2D.Simulation
 		[Tooltip("World-space expansion applied to the analytic boundary. 0 uses the original, non-expanded analytic boundary.")]
 		[Min(0f)] public float analyticBoundaryExpansion = 0.175f;
 
-		public Vector2 Radii => new Vector2(Mathf.Abs(ellipseBoundsSize.x), Mathf.Abs(ellipseBoundsSize.y)) + Vector2.one * analyticBoundaryExpansion;
-		public float CutY => obstacleY - analyticBoundaryExpansion;
+
 		public Vector2 BoundsMin => new(ellipseBoundsCenter.x - Radii.x, Mathf.Max(ellipseBoundsCenter.y - Radii.y, CutY));
 		public Vector2 BoundsMax => ellipseBoundsCenter + Radii;
 		public Bounds GetBounds()
@@ -27,7 +26,8 @@ namespace Seb.Fluid2D.Simulation
 			return cropBounds;
 		}
 		
-		private Vector2 AnalyticCenterPoint => new (ellipseBoundsCenter.x, (BoundsMax.y + CutY) * 0.5f);
+		private Vector2 Radii => new Vector2(Mathf.Abs(ellipseBoundsSize.x), Mathf.Abs(ellipseBoundsSize.y)) + Vector2.one * analyticBoundaryExpansion;
+		private float CutY => obstacleY - analyticBoundaryExpansion;
 
 		public bool TryGetEllipsePoint(float angle, out Vector2 boundaryPoint)
 		{
@@ -35,7 +35,7 @@ namespace Seb.Fluid2D.Simulation
 			return IsAboveCut(boundaryPoint);
 		}
 
-		public bool IsAboveCut(Vector2 point)
+		private bool IsAboveCut(Vector2 point)
 		{
 			return point.y >= CutY;
 		}
@@ -79,10 +79,10 @@ namespace Seb.Fluid2D.Simulation
 
 		public bool TryRaycast(Vector2 direction, out Vector2 outwardNormal)
 		{
-			Vector2 start = AnalyticCenterPoint;
+			Vector2 start = new (ellipseBoundsCenter.x, (BoundsMax.y + CutY) * 0.5f);
 		    outwardNormal = Vector2.up;
 
-		    if (!(Radii is { x: > 0.0001f, y: > 0.0001f }) || direction.sqrMagnitude <= Mathf.Epsilon)
+		    if (Radii is not { x: > 0.0001f, y: > 0.0001f } || direction.sqrMagnitude <= Mathf.Epsilon)
 		    {
 		        return false;
 		    }
@@ -117,7 +117,7 @@ namespace Seb.Fluid2D.Simulation
 		    return hasHit;
 		}
 
-		void TryUseRaycastCandidate(Vector2 start, Vector2 direction, float t, bool isCut, ref float bestT, ref Vector2 outwardNormal, ref bool hasHit)
+		private void TryUseRaycastCandidate(Vector2 start, Vector2 direction, float t, bool isCut, ref float bestT, ref Vector2 outwardNormal, ref bool hasHit)
 		{
 		    if (t <= 0.0001f || t >= bestT)
 		    {
