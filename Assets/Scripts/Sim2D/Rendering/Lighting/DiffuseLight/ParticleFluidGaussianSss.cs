@@ -70,7 +70,7 @@ namespace Seb.Fluid2D.Rendering
 
 		internal Texture Render(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, Texture sharpCaustics, Texture transportTexture, float directLightTextureScale)
 		{
-			ParticleDisplay2D.MetaballSettings surface = context.display.metaballs;
+			ParticleDisplay2D.MetaballSettings metaballSettings = context.display.metaballs;
 			targetCommandBuffer.BeginSample("Metaballs/Phase Diffuse Light");
 			if (_phaseDiffuseLightInitMaterial == null || _gaussianDiffuseBlurMaterial == null || gaussianSoftLightTexture0 == null || gaussianSoftLightTexture1 == null)
 			{
@@ -78,9 +78,9 @@ namespace Seb.Fluid2D.Rendering
 				targetCommandBuffer.EndSample("Metaballs/Phase Diffuse Light");
 				return Texture2D.blackTexture;
 			}
-			ParticleFluidAnalyticBoundaryBindings.ApplyGlobals(targetCommandBuffer, context.display.sim.analyticBoundary);
-			ParticleFluidAnalyticBoundaryBindings.ApplyPhaseSplitGlobals(targetCommandBuffer, surface);
-			ParticleFluidRasterLayoutBindings.ApplySoftLightGlobals(targetCommandBuffer, context.renderLayout.DomainRegion.WorldCenter, context.renderLayout.DomainRegion.WorldSize);
+			ParticleFluidAnalyticBoundaryBindings.ApplyBoundaryGlobals(targetCommandBuffer, context.display.sim.analyticBoundary);
+			ParticleFluidAnalyticBoundaryBindings.ApplyPhaseSplitGlobals(targetCommandBuffer, metaballSettings);
+			ParticleFluidRasterLayoutBindings.ApplySoftLightGlobals(targetCommandBuffer, context.renderLayout.domainRegion);
 			_phaseDiffuseLightInitMaterial.SetTexture("SharpCausticsTex", sharpCaustics);
 			_phaseDiffuseLightInitMaterial.SetTexture("MaterialTransportTex", transportTexture != null ? transportTexture : Texture2D.blackTexture);
 			_phaseDiffuseLightInitMaterial.SetVector("softLightSize", new Vector4(gaussianSoftLightTexture0.width, gaussianSoftLightTexture0.height));
@@ -92,7 +92,7 @@ namespace Seb.Fluid2D.Rendering
 				targetCommandBuffer.Blit(gaussianSoftLightTexture0, _gaussianSoftLightInitTexture);
 			}
 
-			float gaussianRadiusScale = surface.renderTextureScale * directLightTextureScale * gaussianDiffuseTextureScale;
+			float gaussianRadiusScale = metaballSettings.renderTextureScale * directLightTextureScale * gaussianDiffuseTextureScale;
 			ParticleFluidRenderUtils.GaussianBlur(targetCommandBuffer,(gaussianDiffuseRadius * gaussianRadiusScale),_gaussianDiffuseBlurMaterial,gaussianSoftLightTexture0,gaussianSoftLightTexture1);
 			currentInitTexture = _gaussianSoftLightInitTexture != null ? _gaussianSoftLightInitTexture : Texture2D.blackTexture;
 			targetCommandBuffer.EndSample("Metaballs/Phase Diffuse Light");

@@ -6,7 +6,7 @@ namespace Seb.Fluid2D.Rendering
 {
 	internal static class ParticleFluidAnalyticBoundaryBindings
 	{
-		internal static void ApplyGlobals(CommandBuffer commandBuffer, ParticleFluidAnalyticBoundary2D boundary)
+		internal static void ApplyBoundaryGlobals(CommandBuffer commandBuffer, ParticleFluidAnalyticBoundary2D boundary)
 		{
 			commandBuffer.SetGlobalInt("useEllipticalBounds", boundary.useEllipticalBounds ? 1 : 0);
 			commandBuffer.SetGlobalVector("ellipseBoundsCenter", boundary.ellipseBoundsCenter);
@@ -27,39 +27,39 @@ namespace Seb.Fluid2D.Rendering
 
 	internal static class ParticleFluidRasterLayoutBindings
 	{
-		internal static void ApplyMetaballGlobals(CommandBuffer commandBuffer, Vector2 worldCenter, Vector2 worldSize)
+		internal static void ApplyMetaballGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D domainRegion)
 		{
-			commandBuffer.SetGlobalVector("metaballWorldCenter", worldCenter);
-			commandBuffer.SetGlobalVector("metaballWorldSize", worldSize);
+			commandBuffer.SetGlobalVector("metaballWorldCenter", domainRegion.WorldCenter);
+			commandBuffer.SetGlobalVector("metaballWorldSize", domainRegion.WorldSize);
 		}
 
-		internal static void ApplyJumpFloodGlobals(CommandBuffer commandBuffer, Vector2 worldCenter, Vector2 worldSize)
+		internal static void ApplyJumpFloodGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D domainRenderRegion)
 		{
-			commandBuffer.SetGlobalVector("jumpFloodWorldCenter", worldCenter);
-			commandBuffer.SetGlobalVector("jumpFloodWorldSize", worldSize);
+			commandBuffer.SetGlobalVector("jumpFloodWorldCenter", domainRenderRegion.WorldCenter);
+			commandBuffer.SetGlobalVector("jumpFloodWorldSize", domainRenderRegion.WorldSize);
 		}
 
-		internal static void ApplySoftLightGlobals(CommandBuffer commandBuffer, Vector2 worldCenter, Vector2 worldSize)
+		internal static void ApplySoftLightGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D domainRenderRegion)
 		{
-			commandBuffer.SetGlobalVector("softLightWorldCenter", worldCenter);
-			commandBuffer.SetGlobalVector("softLightWorldSize", worldSize);
+			commandBuffer.SetGlobalVector("softLightWorldCenter", domainRenderRegion.WorldCenter);
+			commandBuffer.SetGlobalVector("softLightWorldSize", domainRenderRegion.WorldSize);
 		}
 
-		internal static void ApplyLightingGlobals(CommandBuffer commandBuffer, Vector2 worldCenter, Vector2 worldSize)
+		internal static void ApplyLightingGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D domainRenderRegion)
 		{
-			commandBuffer.SetGlobalVector("particleFluidWorldCenter", worldCenter);
-			commandBuffer.SetGlobalVector("particleFluidWorldSize", worldSize);
+			commandBuffer.SetGlobalVector("particleFluidWorldCenter", domainRenderRegion.WorldCenter);
+			commandBuffer.SetGlobalVector("particleFluidWorldSize", domainRenderRegion.WorldSize);
 		}
 
-		internal static void ApplyCausticCurrentGlobals(CommandBuffer commandBuffer, Vector2 currentWorldCenter, Vector2 currentWorldSize)
+		internal static void ApplyCausticCurrentGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D domainRenderRegion)
 		{
-			commandBuffer.SetGlobalVector("causticCurrentWorldCenter", currentWorldCenter);
-			commandBuffer.SetGlobalVector("causticCurrentWorldSize", currentWorldSize);
+			commandBuffer.SetGlobalVector("causticCurrentWorldCenter", domainRenderRegion.WorldCenter);
+			commandBuffer.SetGlobalVector("causticCurrentWorldSize", domainRenderRegion.WorldSize);
 		}
 
-		internal static void ApplyCausticHistoryGlobals(CommandBuffer commandBuffer, Vector2 currentWorldCenter, Vector2 currentWorldSize, Vector2 historyWorldCenter, Vector2 historyWorldSize)
+		internal static void ApplyCausticHistoryGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D domainRegion, Vector2 historyWorldCenter, Vector2 historyWorldSize)
 		{
-			ApplyCausticCurrentGlobals(commandBuffer, currentWorldCenter, currentWorldSize);
+			ApplyCausticCurrentGlobals(commandBuffer, domainRegion);
 			commandBuffer.SetGlobalVector("causticHistoryWorldCenter", historyWorldCenter);
 			commandBuffer.SetGlobalVector("causticHistoryWorldSize", historyWorldSize);
 		}
@@ -67,16 +67,21 @@ namespace Seb.Fluid2D.Rendering
 
 	internal static class ParticleFluidRasterTextureBindings
 	{
+		private static readonly int ColourMap = Shader.PropertyToID("ColourMap");
+		private static readonly int ColourMap2 = Shader.PropertyToID("ColourMap2");
+		private static readonly int DebugHeatMap = Shader.PropertyToID("DebugHeatMap");
+		private static readonly int DebugSignedHeatMap = Shader.PropertyToID("DebugSignedHeatMap");
+
 		internal static void ApplyGradientGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display)
 		{
-			commandBuffer.SetGlobalTexture("ColourMap", display != null && display.gradientTexture != null ? display.gradientTexture : Texture2D.blackTexture);
-			commandBuffer.SetGlobalTexture("ColourMap2", display != null && display.gradientTexture2 != null ? display.gradientTexture2 : Texture2D.blackTexture);
+			commandBuffer.SetGlobalTexture(ColourMap, display.gradientTexture != null ? display.gradientTexture : Texture2D.blackTexture);
+			commandBuffer.SetGlobalTexture(ColourMap2, display.gradientTexture2 != null ? display.gradientTexture2 : Texture2D.blackTexture);
 		}
 
 		internal static void ApplyDebugGradientGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display)
 		{
-			commandBuffer.SetGlobalTexture("DebugHeatMap", display != null && display.debugHeatMapTexture != null ? display.debugHeatMapTexture : Texture2D.blackTexture);
-			commandBuffer.SetGlobalTexture("DebugSignedHeatMap", display != null && display.debugSignedHeatMapTexture != null ? display.debugSignedHeatMapTexture : Texture2D.blackTexture);
+			commandBuffer.SetGlobalTexture(DebugHeatMap, display.debugHeatMapTexture != null ? display.debugHeatMapTexture : Texture2D.blackTexture);
+			commandBuffer.SetGlobalTexture(DebugSignedHeatMap, display.debugSignedHeatMapTexture != null ? display.debugSignedHeatMapTexture : Texture2D.blackTexture);
 		}
 	}
 

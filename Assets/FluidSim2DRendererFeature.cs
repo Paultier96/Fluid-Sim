@@ -141,7 +141,7 @@ namespace Seb.Fluid2D.Simulation
             TextureHandle materialTransportHandle = materialTransport.Import(renderGraph, metaballRenderer.materialRenderer.MaterialMaps.transportTexture, "FluidSim2D Material Transport");
             TextureHandle gradientHandle = gradient.Import(renderGraph, display.gradientTexture != null ? display.gradientTexture : Texture2D.blackTexture, "FluidSim2D Gradient");
             TextureHandle gradient2Handle = gradient2.Import(renderGraph, display.gradientTexture2 != null ? display.gradientTexture2 : Texture2D.blackTexture, "FluidSim2D Gradient 2");
-            bool useMaterialPipeline = metaballRenderer.UsesMaterialPipeline(display) && metaballRenderer.materialRenderer.IsReady;
+            bool useMaterialPipeline = metaballRenderer.ShouldUseMaterialPipeline(display) && metaballRenderer.materialRenderer.IsReady;
 
             RecordMetaballAccumulationPass(renderGraph, "Fluid Sim 2D Combined Accumulation", display, metaballRenderer, combinedHandle, 0);
             RecordMetaballAccumulationPass(renderGraph, "Fluid Sim 2D Normal Accumulation", display, metaballRenderer, normalHandle, 1);

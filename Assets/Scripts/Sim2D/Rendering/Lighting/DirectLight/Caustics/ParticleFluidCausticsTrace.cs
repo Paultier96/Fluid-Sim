@@ -123,8 +123,7 @@ namespace Seb.Fluid2D.Rendering
 			int totalRayBudget = lightingOwner.lightManager.UploadCausticsLightGpuData(
 				causticLightParamsBuffer,
 				context,
-				width,
-				height,
+				new Vector2Int(width, height),
 				context.renderLayout.CausticRegion.WorldSize,
 				raysPerPixel);
 
@@ -161,10 +160,10 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsDeltaTime", display.sim.CurrentSimulationDeltaTime);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsFrameIndex", frameIndex);
 			targetCommandBuffer.SetComputeIntParam(compute, "useEllipticalBounds", display.sim.analyticBoundary.useEllipticalBounds ? 1 : 0);
-			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsCenter", new Vector4(display.sim.analyticBoundary.ellipseBoundsCenter.x, display.sim.analyticBoundary.ellipseBoundsCenter.y, 0f, 0f));
-			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsSize", new Vector4(display.sim.analyticBoundary.ellipseBoundsSize.x, display.sim.analyticBoundary.ellipseBoundsSize.y, 0f, 0f));
+			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsCenter", display.sim.analyticBoundary.ellipseBoundsCenter);
+			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsSize", display.sim.analyticBoundary.ellipseBoundsSize);
 			targetCommandBuffer.SetComputeFloatParam(compute, "obstacleY", display.sim.analyticBoundary.obstacleY);
-			targetCommandBuffer.SetComputeFloatParam(compute, "analyticBoundaryExpansion", context.analyticBoundaryExpansion);
+			targetCommandBuffer.SetComputeFloatParam(compute, "analyticBoundaryExpansion", context.display.sim.analyticBoundary.analyticBoundaryExpansion);
 			targetCommandBuffer.SetComputeVectorParam(compute, "causticsWorldCenter", context.renderLayout.CausticRegion.WorldCenter);
 			targetCommandBuffer.SetComputeVectorParam(compute, "causticsWorldSize", context.renderLayout.CausticRegion.WorldSize);
 

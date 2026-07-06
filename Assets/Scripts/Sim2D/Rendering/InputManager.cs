@@ -43,7 +43,7 @@ namespace Seb.Fluid2D.Rendering
 
 		static void ApplyMousePosition(ParticleFluidLight2D light, Vector2 mouseWorldPosition)
 		{
-			if (light is ParticleFluidPointLight2D pointLight && pointLight.FollowsMouse)
+			if (light is ParticleFluidPointLight2D pointLight && pointLight.followsMouse)
 			{
 				Vector3 position = light.transform.position;
 				position.x = mouseWorldPosition.x;
@@ -66,7 +66,7 @@ namespace Seb.Fluid2D.Rendering
 
 		static bool PointLightFollowsMouse(ParticleFluidLight2D light)
 		{
-			return light is ParticleFluidPointLight2D pointLight && pointLight.FollowsMouse;
+			return light is ParticleFluidPointLight2D pointLight && pointLight.followsMouse;
 		}
 
 		static bool TryGetMouseWorldPosition(out Vector2 mouseWorldPosition)

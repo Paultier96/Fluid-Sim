@@ -69,14 +69,14 @@ namespace Seb.Fluid2D.Rendering
 			ParticleFluidRenderRegion2D sourceRegion = parameters.sourceRegion;
 			ParticleFluidRenderRegion2D shadowRegion = parameters.shadowRegion;
 
-			targetCommandBuffer.SetComputeIntParam(compute, "combinedWidth", sourceRegion.PixelSize.x);
-			targetCommandBuffer.SetComputeIntParam(compute, "combinedHeight", sourceRegion.PixelSize.y);
+			targetCommandBuffer.SetComputeIntParam(compute, "combinedWidth", sourceRegion.pixelSize.x);
+			targetCommandBuffer.SetComputeIntParam(compute, "combinedHeight", sourceRegion.pixelSize.y);
 			targetCommandBuffer.SetComputeIntParam(compute, "projectedShadowMapBinCount", binCount);
-			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowMapDirection", new Vector4(shadowDirection.x, shadowDirection.y, 0f, 0f));
-			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowSourceWorldCenter", new Vector4(sourceRegion.WorldCenter.x, sourceRegion.WorldCenter.y, 0f, 0f));
-			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowSourceWorldSize", new Vector4(sourceRegion.WorldSize.x, sourceRegion.WorldSize.y, 0f, 0f));
-			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowWorldCenter", new Vector4(shadowRegion.WorldCenter.x, shadowRegion.WorldCenter.y, 0f, 0f));
-			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowWorldSize", new Vector4(shadowRegion.WorldSize.x, shadowRegion.WorldSize.y, 0f, 0f));
+			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowMapDirection", shadowDirection);
+			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowSourceWorldCenter", sourceRegion.WorldCenter);
+			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowSourceWorldSize", sourceRegion.WorldSize);
+			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowWorldCenter",shadowRegion.WorldCenter);
+			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowWorldSize", shadowRegion.WorldSize);
 
 			targetCommandBuffer.SetComputeBufferParam(compute, clearKernel, "ProjectedShadowMapAccum", parameters.projectedShadowMapBuffer);
 			targetCommandBuffer.DispatchCompute(compute, clearKernel, Mathf.CeilToInt(binCount / 64f), 1, 1);
@@ -86,8 +86,8 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.DispatchCompute(
 				compute,
 				buildKernel,
-				Mathf.CeilToInt(sourceRegion.PixelSize.x / 16f),
-				Mathf.CeilToInt(sourceRegion.PixelSize.y / 16f),
+				Mathf.CeilToInt(sourceRegion.pixelSize.x / 16f),
+				Mathf.CeilToInt(sourceRegion.pixelSize.y / 16f),
 				1);
 
 			targetCommandBuffer.SetComputeBufferParam(compute, resolveKernel, "ProjectedShadowMapAccum", parameters.projectedShadowMapBuffer);
@@ -141,7 +141,7 @@ namespace Seb.Fluid2D.Rendering
 
 			material.SetInt("particleFluidProjectedShadowEnabled", enabled ? 1 : 0);
 			material.SetTexture("ProjectedShadowTex", enabled && projectedShadowMapTexture != null ? projectedShadowMapTexture : Texture2D.blackTexture);
-			material.SetVector("particleFluidProjectedShadowDirection", new Vector4(direction.x, direction.y, 0f, 0f));
+			material.SetVector("particleFluidProjectedShadowDirection", direction);
 			material.SetFloat("particleFluidProjectedShadowOffset", offset);
 			material.SetFloat("particleFluidProjectedShadowExpansion", expansion);
 		}

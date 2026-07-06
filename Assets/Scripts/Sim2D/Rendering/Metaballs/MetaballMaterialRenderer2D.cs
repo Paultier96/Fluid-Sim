@@ -36,12 +36,7 @@ namespace Seb.Fluid2D.Rendering
 			materialMaps.EnsureRenderTextures(materialSize.x, materialSize.y, transportSize.x, transportSize.y, "Particle2D");
 		}
 
-		public void ApplySharedSettings(
-			ParticleDisplay2D display,
-			Camera cam,
-			float analyticBoundaryExpansion,
-			float effectiveNormalStrength,
-			ParticleFluidLighting2D lighting)
+		public void ApplySharedSettings(float analyticBoundaryExpansion)
 		{
 			if (material == null)
 			{

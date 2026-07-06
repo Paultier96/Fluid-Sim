@@ -54,7 +54,7 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
-		internal void EnsureTemporalResources(int causticWidth, int causticHeight, Vector2 causticWorldCenter, Vector2 causticWorldSize, bool denoisingEnabled, bool useProjectedShadowMap)
+		internal void EnsureTemporalResources(int causticWidth, int causticHeight, ParticleFluidRenderRegion2D domainRegion, bool denoisingEnabled, bool useProjectedShadowMap)
 		{
 			bool hadCausticHistory = causticHistoryTexture != null && causticHistoryTexture.IsCreated();
 			bool causticHistoryResize = hadCausticHistory
@@ -71,13 +71,7 @@ namespace Seb.Fluid2D.Rendering
 				bool migratedHistory = false;
 				if (causticHistoryBackup != null && historyChanged)
 				{
-					migratedHistory = TryMigrateHistoryOnResize(
-						causticHistoryBackup,
-						causticHistoryTexture,
-						previousCausticWorldCenter,
-						previousCausticWorldSize,
-						causticWorldCenter,
-						causticWorldSize);
+					migratedHistory = TryMigrateHistoryOnResize(causticHistoryBackup, causticHistoryTexture, previousCausticWorldCenter, previousCausticWorldSize, domainRegion);
 				}
 
 				ComputeHelper.Release(causticHistoryBackup);
@@ -85,8 +79,8 @@ namespace Seb.Fluid2D.Rendering
 				bool historyMigrationFailed = historyChanged && !migratedHistory;
 				if (migratedHistory && !historyMigrationFailed)
 				{
-					previousCausticWorldCenter = causticWorldCenter;
-					previousCausticWorldSize = causticWorldSize;
+					previousCausticWorldCenter = domainRegion.WorldCenter;
+					previousCausticWorldSize = domainRegion.WorldSize;
 				}
 				clearCausticHistory |= historyMigrationFailed;
 			}
@@ -148,7 +142,7 @@ namespace Seb.Fluid2D.Rendering
 			temporalMaterial.SetTexture("MaterialTransportTex", lightingOwner.materialTransportTexture != null ? lightingOwner.materialTransportTexture : Texture2D.blackTexture);
 		}
 
-		public bool TryMigrateHistoryOnResize(RenderTexture oldHistory, RenderTexture newHistory, Vector2 oldWorldCenter, Vector2 oldWorldSize, Vector2 newWorldCenter, Vector2 newWorldSize)
+		public bool TryMigrateHistoryOnResize(RenderTexture oldHistory, RenderTexture newHistory, Vector2 oldWorldCenter, Vector2 oldWorldSize, ParticleFluidRenderRegion2D domainRegion)
 		{
 			if (temporalMaterial == null
 				|| oldHistory == null
@@ -162,7 +156,7 @@ namespace Seb.Fluid2D.Rendering
 
 			CommandBuffer commandBuffer = CommandBufferPool.Get("Particle2D Reproject History");
 			ParticleFluidAnalyticBoundaryBindings.ApplyPhaseSplitGlobals(commandBuffer, trace.owner.Owner.Display.metaballs);
-			ParticleFluidRasterLayoutBindings.ApplyCausticHistoryGlobals(commandBuffer, newWorldCenter, newWorldSize, oldWorldCenter, oldWorldSize);
+			ParticleFluidRasterLayoutBindings.ApplyCausticHistoryGlobals(commandBuffer, domainRegion, oldWorldCenter, oldWorldSize);
 			commandBuffer.Blit(oldHistory, newHistory, temporalMaterial, 2);
 			Graphics.ExecuteCommandBuffer(commandBuffer);
 			CommandBufferPool.Release(commandBuffer);
@@ -201,8 +195,7 @@ namespace Seb.Fluid2D.Rendering
 			{
 				int dilationIterations = Mathf.Max(1, owner.temporalMotionDilationIterations);
 				float motionDilationRadius = owner.temporalMotionDilationRadius * rayTextureBlurScale / dilationIterations;
-				Vector2 currentWorldSize = context.renderLayout.CausticRegion.WorldSize;
-				ParticleFluidRasterLayoutBindings.ApplyCausticCurrentGlobals(targetCommandBuffer, context.renderLayout.CausticRegion.WorldCenter, currentWorldSize);
+				ParticleFluidRasterLayoutBindings.ApplyCausticCurrentGlobals(targetCommandBuffer, context.renderLayout.CausticRegion);
 				RenderTexture dilationSource = trace.causticMotionTexture;
 				RenderTexture dilationTarget = causticMotionDilatedTexture;
 				for (int i = 0; i < dilationIterations; i++)
@@ -251,8 +244,6 @@ namespace Seb.Fluid2D.Rendering
 			ParticleFluidDirectLight owner = trace.owner;
 			ParticleFluidLighting2D lightingOwner = owner.Owner;
 			ParticleDisplay2D display = context.display;
-			Vector2 currentWorldCenter = context.renderLayout.CausticRegion.WorldCenter;
-			Vector2 currentWorldSize = context.renderLayout.CausticRegion.WorldSize;
 			bool wantsProjectedShadowMap =
 				(owner.projectedShadowHistoryRejection || owner.temporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.ProjectedShadow);
 			Vector2 projectedShadowDirection = Vector2.zero;
@@ -291,12 +282,12 @@ namespace Seb.Fluid2D.Rendering
 					float warmupHistoryWeight = (nextFrameCount - 1f) / nextFrameCount;
 					temporalMaterial.SetFloat("causticTemporalHistoryWeight", Mathf.Min(targetHistoryWeight, warmupHistoryWeight));
 					temporalMaterial.SetInt("causticTemporalMotionSource", (int)owner.temporalMotionSource);
-					ParticleFluidRasterLayoutBindings.ApplyCausticHistoryGlobals(targetCommandBuffer, currentWorldCenter, currentWorldSize, previousCausticWorldCenter, previousCausticWorldSize);
+					ParticleFluidRasterLayoutBindings.ApplyCausticHistoryGlobals(targetCommandBuffer, context.renderLayout.CausticRegion, previousCausticWorldCenter, previousCausticWorldSize);
 					temporalMaterial.SetFloat("causticProjectedShadowOffset", owner.projectedShadowOffset);
 					temporalMaterial.SetFloat("causticProjectedShadowExpansion", owner.projectedShadowExpansion);
 					temporalMaterial.SetInt("causticProjectedShadowMapEnabled", useProjectedShadowMap ? 1 : 0);
-					temporalMaterial.SetVector("causticProjectedShadowDirection", new Vector4(projectedShadowDirection.x, projectedShadowDirection.y, 0f, 0f));
-					temporalMaterial.SetVector("causticProjectedShadowHistoryDirection", new Vector4(previousProjectedShadowDirection.x, previousProjectedShadowDirection.y, 0f, 0f));
+					temporalMaterial.SetVector("causticProjectedShadowDirection", projectedShadowDirection);
+					temporalMaterial.SetVector("causticProjectedShadowHistoryDirection", previousProjectedShadowDirection);
 					temporalMaterial.SetTexture("CausticProjectedShadowMapTex", owner.projectedShadow.projectedShadowMapTexture);
 					temporalMaterial.SetTexture("CausticProjectedShadowHistoryTex", owner.projectedShadow.projectedShadowMapHistoryTexture);
 					temporalMaterial.SetTexture("CausticHistoryTex", causticHistoryTexture);
@@ -311,8 +302,8 @@ namespace Seb.Fluid2D.Rendering
 					targetCommandBuffer.Blit(owner.projectedShadow.projectedShadowMapTexture, owner.projectedShadow.projectedShadowMapHistoryTexture);
 				}
 
-				previousCausticWorldCenter = currentWorldCenter;
-				previousCausticWorldSize = currentWorldSize;
+				previousCausticWorldCenter = context.renderLayout.CausticRegion.WorldCenter;
+				previousCausticWorldSize = context.renderLayout.CausticRegion.WorldSize;
 				previousProjectedShadowDirection = useProjectedShadowMap ? projectedShadowDirection : Vector2.zero;
 				hasPreviousCausticCamera = true;
 				return causticTemporalTexture;

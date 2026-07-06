@@ -230,8 +230,6 @@ namespace Seb.Fluid2D.Rendering
 		{
 			ParticleDisplay2D display = context.display;
 			ParticleFluidLighting2D.PhaseMaterialSettings[] materials = owner.PhaseMaterials;
-			Vector2 currentWorldCenter = context.renderLayout.CausticRegion.WorldCenter;
-			Vector2 currentWorldSize = context.renderLayout.CausticRegion.WorldSize;
 			bool useBoundarySourceTexture = false;
 			Texture boundarySourceTexture = Texture2D.blackTexture;
 			if (owner.directLight != null && owner.directLight.lightingMode == ParticleFluidLighting2D.LightingMode.Caustics)
@@ -251,7 +249,7 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetGlobalTexture("_BoundarySourceTex", boundarySourceTexture);
 			targetCommandBuffer.SetGlobalTexture("_ResultTex", sdfResult != null ? sdfResult : Texture2D.blackTexture);
 			targetCommandBuffer.SetGlobalTexture("_PayloadTex", sdfPayload);
-			targetCommandBuffer.SetGlobalVector("_CascadeResolution", new Vector4(width, height, 0f, 0f));
+			targetCommandBuffer.SetGlobalVector("_CascadeResolution", new Vector2(width, height));
 			targetCommandBuffer.SetGlobalFloat("_RayRange", Mathf.Max(radianceCascadeRayRange * display.GetZoomScale(context.cam), 0.001f));
 			targetCommandBuffer.SetGlobalInt("_CascadeCount", Mathf.Clamp(radianceCascadeCount, 1, 6));
 			targetCommandBuffer.SetGlobalInt("_RaySteps", Mathf.Max(radianceCascadeRaySteps, 1));
@@ -265,8 +263,8 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetGlobalInt("_SdfBoundarySourceMultiplyAlbedo", radianceCascadeSdfBoundarySourceMultiplyAlbedo ? 1 : 0);
 			targetCommandBuffer.SetGlobalInt("_SdfApproximateAbsorption", radianceCascadeSdfApproximateAbsorption ? 1 : 0);
 			targetCommandBuffer.SetGlobalInt("_HybridPhase1Only", useGaussianBoundarySource ? 1 : 0);
-			targetCommandBuffer.SetGlobalVector("metaballWorldCenter", new Vector4(currentWorldCenter.x, currentWorldCenter.y, 0f, 0f));
-			targetCommandBuffer.SetGlobalVector("metaballWorldSize", new Vector4(currentWorldSize.x, currentWorldSize.y, 0f, 0f));
+			targetCommandBuffer.SetGlobalVector("metaballWorldCenter", context.renderLayout.CausticRegion.WorldCenter);
+			targetCommandBuffer.SetGlobalVector("metaballWorldSize", context.renderLayout.CausticRegion.WorldSize);
 			targetCommandBuffer.SetGlobalFloat("causticsPhase0Absorption", materials[0].absorption);
 			targetCommandBuffer.SetGlobalVector("radianceCascadePhase0AbsorptionTint", materials[0].diffuseLightTint);
 			targetCommandBuffer.SetGlobalFloat("radianceCascadePhase0AbsorptionTintBlend", materials[0].radianceCascadeAbsorptionDiffuseTintBlend);

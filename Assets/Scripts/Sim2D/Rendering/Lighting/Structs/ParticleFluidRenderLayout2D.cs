@@ -4,45 +4,30 @@ namespace Seb.Fluid2D.Rendering
 {
 	public readonly struct ParticleFluidRenderLayout2D
 	{
-		public readonly ParticleFluidRenderRegion2D CameraRegion;
-		public readonly ParticleFluidRenderRegion2D DomainRegion;
-		public readonly Vector2Int SourceSize;
-		public readonly Vector2Int MaterialSize;
-		public readonly Vector2Int CausticSize;
+		public readonly ParticleFluidRenderRegion2D domainRegion;
+		public readonly Vector2Int sourceSize;
+		public readonly Vector2Int materialSize;
+		public readonly Vector2Int causticSize;
 
 		public ParticleFluidRenderLayout2D(
-			ParticleFluidRenderRegion2D cameraRegion,
 			ParticleFluidRenderRegion2D domainRegion,
 			Vector2Int sourceSize,
 			Vector2Int materialSize,
 			Vector2Int causticSize)
 		{
-			CameraRegion = cameraRegion;
-			DomainRegion = domainRegion;
-			SourceSize = ClampSize(sourceSize);
-			MaterialSize = ClampSize(materialSize);
-			CausticSize = ClampSize(causticSize);
+			this.domainRegion = domainRegion;
+			this.sourceSize = ClampSize(sourceSize);
+			this.materialSize = ClampSize(materialSize);
+			this.causticSize = ClampSize(causticSize);
 		}
 
-		public ParticleFluidRenderRegion2D SourceRegion => CreateRegion(SourceSize);
-		public ParticleFluidRenderRegion2D MaterialRegion => CreateRegion(MaterialSize);
-		public ParticleFluidRenderRegion2D CausticRegion => CreateRegion(CausticSize);
-
-		public static Vector2Int ScaledSize(ParticleFluidRenderRegion2D cameraRegion, float scale)
-		{
-			float clampedScale = Mathf.Max(scale, 0.0001f);
-			return new Vector2Int(
-				Mathf.Max(1, Mathf.RoundToInt(cameraRegion.PixelSize.x * clampedScale)),
-				Mathf.Max(1, Mathf.RoundToInt(cameraRegion.PixelSize.y * clampedScale)));
-		}
+		public ParticleFluidRenderRegion2D SourceRegion => CreateRegion(sourceSize);
+		public ParticleFluidRenderRegion2D MaterialRegion => CreateRegion(materialSize);
+		public ParticleFluidRenderRegion2D CausticRegion => CreateRegion(causticSize);
 
 		ParticleFluidRenderRegion2D CreateRegion(Vector2Int size)
 		{
-			return new ParticleFluidRenderRegion2D(
-				DomainRegion.WorldCenter,
-				DomainRegion.WorldSize,
-				size.x,
-				size.y);
+			return new ParticleFluidRenderRegion2D(domainRegion.WorldCenter, domainRegion.WorldSize, size);
 		}
 
 		static Vector2Int ClampSize(Vector2Int size)

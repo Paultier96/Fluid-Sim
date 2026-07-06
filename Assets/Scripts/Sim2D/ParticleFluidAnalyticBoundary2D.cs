@@ -20,17 +20,137 @@ namespace Seb.Fluid2D.Simulation
 		public float CutY => obstacleY - analyticBoundaryExpansion;
 		public Vector2 BoundsMin => new(ellipseBoundsCenter.x - Radii.x, Mathf.Max(ellipseBoundsCenter.y - Radii.y, CutY));
 		public Vector2 BoundsMax => ellipseBoundsCenter + Radii;
+		public Bounds GetBounds()
+		{
+			Bounds cropBounds = new Bounds();
+			cropBounds.SetMinMax(BoundsMin, BoundsMax);
+			return cropBounds;
+		}
+		
+		private Vector2 AnalyticCenterPoint => new (ellipseBoundsCenter.x, (BoundsMax.y + CutY) * 0.5f);
+
+		public bool TryGetEllipsePoint(float angle, out Vector2 boundaryPoint)
+		{
+			boundaryPoint = ellipseBoundsCenter + new Vector2(Mathf.Cos(angle) * Radii.x, Mathf.Sin(angle) * Radii.y);
+			return IsAboveCut(boundaryPoint);
+		}
+
+		public bool IsAboveCut(Vector2 point)
+		{
+			return point.y >= CutY;
+		}
+
+		private bool IsInsideEllipse(Vector2 point)
+		{
+			Vector2 rel = point - ellipseBoundsCenter;
+			Vector2 radii = Radii;
+
+			float ellipseValue = rel.x * rel.x / (radii.x * radii.x) + rel.y * rel.y / (radii.y * radii.y);
+			return ellipseValue <= 1.0001f;
+		}
 
 		public bool Contains(Vector2 point)
 		{
-			if (point.y < CutY)
+			return IsAboveCut(point) && IsInsideEllipse(point);
+		}
+
+		private Vector2 GetEllipseNormal(Vector2 point)
+		{
+			Vector2 rel = point - ellipseBoundsCenter;
+			Vector2 radii = Radii;
+			return new Vector2(rel.x / (radii.x * radii.x), rel.y / (radii.y * radii.y)).normalized;
+		}
+		
+		public bool TryGetCutSegment(out Vector2 left, out Vector2 right)
+		{
+			float cutRelY = (CutY - ellipseBoundsCenter.y) / Radii.y;
+			if (Mathf.Abs(cutRelY) > 1f)
 			{
+				left = right = default;
 				return false;
 			}
 
-			Vector2 rel = point - ellipseBoundsCenter;
-			float ellipseValue = rel.x * rel.x / (Radii.x * Radii.x) + rel.y * rel.y / (Radii.y * Radii.y);
-			return ellipseValue <= 1f;
+			float halfWidth = Radii.x * Mathf.Sqrt(1f - cutRelY * cutRelY);
+
+			left = new Vector2(ellipseBoundsCenter.x - halfWidth, CutY);
+			right = new Vector2(ellipseBoundsCenter.x + halfWidth, CutY);
+			return true;
+		}
+
+		public bool TryRaycast(Vector2 direction, out Vector2 outwardNormal)
+		{
+			Vector2 start = AnalyticCenterPoint;
+		    outwardNormal = Vector2.up;
+
+		    if (!(Radii is { x: > 0.0001f, y: > 0.0001f }) || direction.sqrMagnitude <= Mathf.Epsilon)
+		    {
+		        return false;
+		    }
+
+		    float bestT = float.PositiveInfinity;
+		    bool hasHit = false;
+
+		    Vector2 radii = Radii;
+		    Vector2 startRel = start - ellipseBoundsCenter;
+		    
+		    Vector2 invRadiiSq = new Vector2(1f / (radii.x * radii.x), 1f / (radii.y * radii.y));
+		    
+		    float a = Vector2.Dot(direction * invRadiiSq, direction);
+		    float b = 2f * Vector2.Dot(startRel * invRadiiSq, direction);
+		    float c = Vector2.Dot(startRel * invRadiiSq, startRel) - 1f;
+
+		    float discriminant = b * b - 4f * a * c;
+
+		    if (discriminant >= 0f && a > 0.000001f)
+		    {
+		        float sqrtDiscriminant = Mathf.Sqrt(discriminant);
+		        TryUseRaycastCandidate(start, direction, (-b - sqrtDiscriminant) / (2f * a), false, ref bestT, ref outwardNormal, ref hasHit);
+		        TryUseRaycastCandidate(start, direction, (-b + sqrtDiscriminant) / (2f * a), false, ref bestT, ref outwardNormal, ref hasHit);
+		    }
+
+		    if (direction.y < -0.0001f)
+		    {
+		        float cutT = (CutY - start.y) / direction.y;
+		        TryUseRaycastCandidate(start, direction, cutT, true, ref bestT, ref outwardNormal, ref hasHit);
+		    }
+
+		    return hasHit;
+		}
+
+		void TryUseRaycastCandidate(Vector2 start, Vector2 direction, float t, bool isCut, ref float bestT, ref Vector2 outwardNormal, ref bool hasHit)
+		{
+		    if (t <= 0.0001f || t >= bestT)
+		    {
+		        return;
+		    }
+
+		    Vector2 point = start + direction * t;
+
+		    if (isCut)
+		    {
+		        if (IsInsideEllipse(point))
+		        {
+		            return;
+		        }
+		        outwardNormal = Vector2.down;
+		    }
+		    else
+		    {
+		        if (!IsAboveCut(point))
+		        {
+		            return;
+		        }
+
+		        Vector2 normal = GetEllipseNormal(point);
+		        if (normal.sqrMagnitude <= 0.000001f)
+		        {
+		            return;
+		        }
+		        outwardNormal = normal;
+		    }
+
+		    bestT = t;
+		    hasHit = true;
 		}
 
 		void OnDrawGizmos()

@@ -54,13 +54,13 @@ namespace Seb.Fluid2D.Rendering
 
 		internal static Matrix4x4 CreateRegionMatrix(ParticleFluidRenderRegion2D region)
 		{
-			return Matrix4x4.TRS(region.WorldBounds.center, Quaternion.identity, region.WorldBounds.size);
+			return Matrix4x4.TRS(region.worldBounds.center, Quaternion.identity, region.worldBounds.size);
 		}
 
 		internal static Matrix4x4 CreateRegionProjection(ParticleFluidRenderRegion2D region)
 		{
-			Vector3 min = region.WorldBounds.min;
-			Vector3 max = region.WorldBounds.max;
+			Vector3 min = region.worldBounds.min;
+			Vector3 max = region.worldBounds.max;
 			float left = min.x;
 			float right = max.x;
 			float bottom = min.y;

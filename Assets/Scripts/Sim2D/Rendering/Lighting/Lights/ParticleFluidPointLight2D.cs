@@ -10,8 +10,10 @@ namespace Seb.Fluid2D.Rendering
 		public bool followsMouse = false;
 		[Min(0.0001f)] public float range = 20f;
 		[Min(0.1f)] public float falloff = 2f;
-
-		public bool FollowsMouse => followsMouse;
+		
+		const float TwoPi = 2f * Mathf.PI;
+		const int BoundaryEllipseSamples = 128;
+		const int BoundaryCutSamples = 31;
 
 		public Vector4 GetPointLightVector()
 		{
@@ -19,11 +21,11 @@ namespace Seb.Fluid2D.Rendering
 			return new Vector4(position.x, position.y, Mathf.Max(position.z, 0.0001f), Mathf.Max(range, 0.0001f));
 		}
 
-		public int GetCausticPointRayCount(Vector2 worldSize, int width, int height)
+		public int GetCausticPointRayCount(Vector2 worldSize, Vector2Int resolution)
 		{
 			float pixelsPerWorldUnit = Mathf.Max(
-				width / Mathf.Max(worldSize.x, 0.0001f),
-				height / Mathf.Max(worldSize.y, 0.0001f)
+				resolution.x / Mathf.Max(worldSize.x, 0.0001f),
+				resolution.y / Mathf.Max(worldSize.y, 0.0001f)
 			);
 			float radiusPixels = Mathf.Max(range, 0.0001f) * pixelsPerWorldUnit;
 			return Mathf.Max(1, Mathf.CeilToInt(Mathf.PI * 2 * radiusPixels));
@@ -33,39 +35,29 @@ namespace Seb.Fluid2D.Rendering
 		{
 			angleStart = 0f;
 			angleRange = TwoPi;
-			if (boundary == null || scratchAngles == null || scratchAngles.Length == 0 || !boundary.useEllipticalBounds)
+			Vector2 point = transform.position;
+
+			if (boundary == null || scratchAngles == null || scratchAngles.Length == 0 || !boundary.useEllipticalBounds || boundary.Contains(point))
 			{
 				return;
 			}
-
-			Vector3 lightPosition = transform.position;
-			Vector2 point = new Vector2(lightPosition.x, lightPosition.y);
-			if (boundary.Contains(point))
-			{
-				return;
-			}
-
-			Vector2 radii = boundary.Radii;
-			float cutY = boundary.CutY;
+			
 			int angleCount = 0;
 			for (int i = 0; i < BoundaryEllipseSamples; i++)
 			{
-				float t = i / (float)BoundaryEllipseSamples * TwoPi;
-				Vector2 boundaryPoint = boundary.ellipseBoundsCenter + new Vector2(Mathf.Cos(t) * radii.x, Mathf.Sin(t) * radii.y);
-				if (boundaryPoint.y >= cutY)
+				float angle = i * Mathf.PI * 2f / BoundaryEllipseSamples;
+				if (boundary.TryGetEllipsePoint(angle, out Vector2 boundaryPoint))
 				{
 					AddBoundaryAngle(scratchAngles, point, boundaryPoint, ref angleCount);
 				}
 			}
-
-			float cutRelY = cutY - boundary.ellipseBoundsCenter.y;
-			if (Mathf.Abs(cutRelY) <= radii.y)
+			
+			if (boundary.TryGetCutSegment(out Vector2 left, out Vector2 right))
 			{
-				float cutHalfWidth = radii.x * Mathf.Sqrt(Mathf.Max(0f, 1f - cutRelY * cutRelY / (radii.y * radii.y)));
 				for (int i = 0; i < BoundaryCutSamples; i++)
 				{
-					float t = BoundaryCutSamples > 1 ? i / (float)(BoundaryCutSamples - 1) : 0.5f;
-					AddBoundaryAngle(scratchAngles, point, new Vector2(boundary.ellipseBoundsCenter.x + Mathf.Lerp(-cutHalfWidth, cutHalfWidth, t), cutY), ref angleCount);
+					float t = i / (float)(BoundaryCutSamples - 1);
+					AddBoundaryAngle(scratchAngles, point, Vector2.Lerp(left, right, t), ref angleCount);
 				}
 			}
 
@@ -94,11 +86,6 @@ namespace Seb.Fluid2D.Rendering
 			angleRange = Mathf.Clamp(TwoPi - largestGap + padding * 2f, 0.0001f, TwoPi);
 		}
 
-		protected override void DrawLightGizmos()
-		{
-			DrawWireCircleXY(transform.position, Mathf.Max(range, 0.0001f), 48);
-		}
-
 		static void AddBoundaryAngle(float[] scratchAngles, Vector2 lightPoint, Vector2 boundaryPoint, ref int angleCount)
 		{
 			if (angleCount >= scratchAngles.Length)
@@ -114,21 +101,18 @@ namespace Seb.Fluid2D.Rendering
 
 			scratchAngles[angleCount++] = Mathf.Repeat(Mathf.Atan2(delta.y, delta.x), TwoPi);
 		}
-
-		static void DrawWireCircleXY(Vector3 center, float radius, int segments)
+		
+		protected override void DrawLightGizmos()
 		{
-			Vector3 previous = center + Vector3.right * radius;
-			for (int i = 1; i <= segments; i++)
+			float radius = Mathf.Max(range, 0.0001f);
+			Vector3 previous = transform.position + Vector3.right * radius;
+			for (int i = 1; i <= 48; i++)
 			{
-				float angle = i / (float)segments * Mathf.PI * 2f;
-				Vector3 current = center + new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), 0f) * radius;
+				float angle = i / (float)48 * Mathf.PI * 2f;
+				Vector3 current = transform.position + new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), 0f) * radius;
 				Gizmos.DrawLine(previous, current);
 				previous = current;
 			}
 		}
-
-		const float TwoPi = 2f * Mathf.PI;
-		const int BoundaryEllipseSamples = 128;
-		const int BoundaryCutSamples = 31;
 	}
 }

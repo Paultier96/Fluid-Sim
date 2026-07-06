@@ -1,3 +1,4 @@
+using System;
 using Seb.Fluid2D.Simulation;
 using UnityEngine;
 
@@ -18,40 +19,112 @@ namespace Seb.Fluid2D.Rendering
 				float azimuth = azimuthDegrees * Mathf.Deg2Rad;
 				float elevation = elevationDegrees * Mathf.Deg2Rad;
 				float planarLength = Mathf.Cos(elevation);
-				return new Vector3(
-					Mathf.Cos(azimuth) * planarLength,
-					Mathf.Sin(azimuth) * planarLength,
-					Mathf.Sin(elevation)
-				).normalized;
+				return new Vector3(Mathf.Cos(azimuth) * planarLength, Mathf.Sin(azimuth) * planarLength, Mathf.Sin(elevation));
 			}
+		}
+
+		public void GetCausticRayRange(ParticleFluidLighting2D.FrameContext context, Vector2Int resolution, out float startOffset, out int rayCount)
+		{
+			Vector2 lightDirection = Direction;
+			ParticleFluidAnalyticBoundary2D boundary = context.display.sim.analyticBoundary;
+			Vector2 rayDir = lightDirection.sqrMagnitude > 0.0001f ? (-lightDirection).normalized : Vector2.right;
+			Vector2 tangent = new Vector2(-rayDir.y, rayDir.x);
+			float fullSpan = Mathf.Sqrt(resolution.x * resolution.x + resolution.y * resolution.y);
+			float screenMinOffset = -fullSpan * 0.5f;
+			float screenMaxOffset = fullSpan * 0.5f;
+			startOffset = screenMinOffset;
+			rayCount = Mathf.Max(1, Mathf.CeilToInt(fullSpan));
+
+			if (!boundary.useEllipticalBounds)
+			{
+				return;
+			}
+
+			float minOffset = float.PositiveInfinity;
+			float maxOffset = float.NegativeInfinity;
+
+			int samples = 128;
+
+			for (int i = 0; i < 128; i++)
+			{
+				float angle = i * Mathf.PI * 2f / samples;
+				if (boundary.TryGetEllipsePoint(angle, out Vector2 launchPoint))
+				{
+					IncludeCausticLaunchPoint(launchPoint, context.renderLayout.CausticRegion, tangent, ref minOffset, ref maxOffset);
+				}
+			}
+
+			if (boundary.TryGetCutSegment(out Vector2 left, out Vector2 right))
+			{
+				IncludeCausticLaunchPoint(left, context.renderLayout.CausticRegion, tangent, ref minOffset, ref maxOffset);
+				IncludeCausticLaunchPoint(right, context.renderLayout.CausticRegion, tangent, ref minOffset, ref maxOffset);
+			}
+
+			if (float.IsNaN(minOffset) || float.IsInfinity(minOffset) || float.IsNaN(maxOffset) || float.IsInfinity(maxOffset))
+			{
+				return;
+			}
+
+			float angularPadding = Mathf.Sin(angularRadiusDegrees * Mathf.Deg2Rad) * fullSpan;
+			float padding = Mathf.Max(4f + angularPadding, 2f);
+			float clippedMinOffset = Mathf.Max(minOffset - padding, screenMinOffset);
+			float clippedMaxOffset = Mathf.Min(maxOffset + padding, screenMaxOffset);
+			if (clippedMaxOffset <= clippedMinOffset)
+			{
+				rayCount = 0;
+				return;
+			}
+
+			startOffset = Mathf.Floor(clippedMinOffset);
+			rayCount = Mathf.Max(1, Mathf.CeilToInt(clippedMaxOffset - startOffset));
+		}
+
+		private static void IncludeCausticLaunchPoint(Vector2 launchPoint, ParticleFluidRenderRegion2D causticRegion, Vector2 tangent, ref float minOffset, ref float maxOffset)
+		{
+			Vector2 centredPixel = causticRegion.WorldToCenteredPixel(launchPoint);
+			float offset = Vector2.Dot(centredPixel, tangent);
+			minOffset = Mathf.Min(minOffset, offset);
+			maxOffset = Mathf.Max(maxOffset, offset);
 		}
 
 		public Vector3 GetDirectLightingDirection(ParticleFluidLighting2D lighting, ParticleFluidAnalyticBoundary2D analyticBoundary)
 		{
 			Vector3 lightDirection = Direction;
-			if (lighting == null || !analyticBoundary.useEllipticalBounds)
+			if (!analyticBoundary.useEllipticalBounds)
 			{
 				return lightDirection;
 			}
 
-			Vector2 lightXY = new Vector2(lightDirection.x, lightDirection.y);
+			Vector2 lightXY = lightDirection;
 			float planarLength = lightXY.magnitude;
-			if (planarLength <= 0.0001f)
+			Vector2 directionToLight = lightXY.normalized;
+			if (!analyticBoundary.TryRaycast(directionToLight, out Vector2 outwardNormal))
 			{
 				return lightDirection;
 			}
 
-			Vector2 directionToLight = lightXY / planarLength;
-			if (!TryGetAnalyticBoundaryHitFromCenter(analyticBoundary, directionToLight, out Vector2 outwardNormal))
-			{
-				return lightDirection;
-			}
-
-			ParticleFluidLighting2D.PhaseMaterialSettings[] materials = lighting.PhaseMaterials;
 			Vector2 incomingRayDirection = -directionToLight;
-			Vector2 refractedRayDirection = Refract2D(incomingRayDirection, outwardNormal, 1f / Mathf.Max(materials[1].indexOfRefraction, 1.0001f));
+			Vector2 refractedRayDirection = Refract2D(incomingRayDirection, outwardNormal, 1f / Mathf.Max(lighting.PhaseMaterials[1].indexOfRefraction, 1.0001f));
 			Vector2 refractedLightXY = -refractedRayDirection * planarLength;
 			return new Vector3(refractedLightXY.x, refractedLightXY.y, lightDirection.z).normalized;
+		}
+
+		static Vector2 Refract2D(Vector2 rayDirection, Vector2 normal, float eta)
+		{
+			if (Vector2.Dot(rayDirection, normal) > 0f)
+			{
+				normal = -normal;
+			}
+
+			float cosI = Vector2.Dot(-rayDirection, normal);
+			float sinT2 = eta * eta * Mathf.Max(0f, 1f - cosI * cosI);
+			if (sinT2 > 1f)
+			{
+				return (rayDirection - 2f * Vector2.Dot(rayDirection, normal) * normal).normalized;
+			}
+
+			float cosT = Mathf.Sqrt(Mathf.Max(0f, 1f - sinT2));
+			return (eta * rayDirection + (eta * cosI - cosT) * normal).normalized;
 		}
 
 		protected override void DrawLightGizmos()
@@ -74,104 +147,6 @@ namespace Seb.Fluid2D.Rendering
 			Vector3 back = tip - direction * headLength;
 			Gizmos.DrawLine(tip, back + side * headWidth);
 			Gizmos.DrawLine(tip, back - side * headWidth);
-		}
-
-		static Vector2 Refract2D(Vector2 rayDirection, Vector2 normal, float eta)
-		{
-			if (Vector2.Dot(rayDirection, normal) > 0f)
-			{
-				normal = -normal;
-			}
-
-			float cosI = Vector2.Dot(-rayDirection, normal);
-			float sinT2 = eta * eta * Mathf.Max(0f, 1f - cosI * cosI);
-			if (sinT2 > 1f)
-			{
-				return (rayDirection - 2f * Vector2.Dot(rayDirection, normal) * normal).normalized;
-			}
-
-			float cosT = Mathf.Sqrt(Mathf.Max(0f, 1f - sinT2));
-			return (eta * rayDirection + (eta * cosI - cosT) * normal).normalized;
-		}
-
-		bool TryGetAnalyticBoundaryHitFromCenter(ParticleFluidAnalyticBoundary2D analyticBoundary, Vector2 directionToLight, out Vector2 outwardNormal)
-		{
-			Vector2 center = analyticBoundary.ellipseBoundsCenter;
-			Vector2 radii = analyticBoundary.Radii;
-			float cutY = analyticBoundary.CutY;
-			Vector2 start = new Vector2(center.x, (analyticBoundary.BoundsMax.y + cutY) * 0.5f);
-			outwardNormal = Vector2.up;
-			if (radii.x <= 0.0001f || radii.y <= 0.0001f)
-			{
-				return false;
-			}
-
-			float bestT = float.PositiveInfinity;
-			bool hasHit = false;
-
-			float invRx2 = 1f / (radii.x * radii.x);
-			float invRy2 = 1f / (radii.y * radii.y);
-			float a = directionToLight.x * directionToLight.x * invRx2 + directionToLight.y * directionToLight.y * invRy2;
-			Vector2 startRel = start - center;
-			float b = 2f * (startRel.x * directionToLight.x * invRx2 + startRel.y * directionToLight.y * invRy2);
-			float c = startRel.x * startRel.x * invRx2 + startRel.y * startRel.y * invRy2 - 1f;
-			float discriminant = b * b - 4f * a * c;
-			if (discriminant >= 0f && a > 0.000001f)
-			{
-				float sqrtDiscriminant = Mathf.Sqrt(discriminant);
-				TryUseAnalyticBoundaryCandidate(analyticBoundary, (-b - sqrtDiscriminant) / (2f * a), directionToLight, false, ref bestT, ref outwardNormal, ref hasHit);
-				TryUseAnalyticBoundaryCandidate(analyticBoundary, (-b + sqrtDiscriminant) / (2f * a), directionToLight, false, ref bestT, ref outwardNormal, ref hasHit);
-			}
-
-			if (directionToLight.y < -0.0001f)
-			{
-				float cutT = (cutY - start.y) / directionToLight.y;
-				TryUseAnalyticBoundaryCandidate(analyticBoundary, cutT, directionToLight, true, ref bestT, ref outwardNormal, ref hasHit);
-			}
-
-			return hasHit;
-		}
-
-		static void TryUseAnalyticBoundaryCandidate(ParticleFluidAnalyticBoundary2D analyticBoundary, float t, Vector2 direction, bool isCut, ref float bestT, ref Vector2 outwardNormal, ref bool hasHit)
-		{
-			if (t <= 0.0001f || t >= bestT)
-			{
-				return;
-			}
-			Vector2 center = analyticBoundary.ellipseBoundsCenter;
-			float cutY = analyticBoundary.CutY;
-			Vector2 radii = analyticBoundary.Radii;
-
-			Vector2 point = new Vector2(center.x, (analyticBoundary.BoundsMax.y + cutY) * 0.5f) + direction * t;
-			Vector2 rel = point - center;
-			float ellipseValue = rel.x * rel.x / (radii.x * radii.x) + rel.y * rel.y / (radii.y * radii.y);
-			if (isCut)
-			{
-				if (ellipseValue > 1.0001f)
-				{
-					return;
-				}
-
-				outwardNormal = Vector2.down;
-			}
-			else
-			{
-				if (point.y < cutY - 0.0001f)
-				{
-					return;
-				}
-
-				Vector2 ellipseNormal = new Vector2(rel.x / (radii.x * radii.x), rel.y / (radii.y * radii.y));
-				if (ellipseNormal.sqrMagnitude <= 0.000001f)
-				{
-					return;
-				}
-
-				outwardNormal = ellipseNormal.normalized;
-			}
-
-			bestT = t;
-			hasHit = true;
 		}
 	}
 }

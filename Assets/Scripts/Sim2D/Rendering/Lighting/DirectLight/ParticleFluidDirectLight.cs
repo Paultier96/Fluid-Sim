@@ -83,15 +83,14 @@ namespace Seb.Fluid2D.Rendering
 			projectedShadow.ApplyToMaterial(material, false, Vector2.zero, projectedShadowOffset, projectedShadowExpansion);
 		}
 
-		internal void EnsureResources(Vector2Int causticSize, Vector2 causticWorldCenter, Vector2 causticWorldSize)
+		internal void EnsureResources(Vector2Int causticSize, ParticleFluidRenderRegion2D domainRegion)
 		{
 			bool useProjectedShadowMap =
 				(projectedShadow.ShouldRender(this)
 				 || (denoisingEnabled
 				     && (projectedShadowHistoryRejection || temporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.ProjectedShadow)))
 				&& projectedShadowCompute != null
-				&& Owner.lightManager.GetMainDirectionalLight() is ParticleFluidDirectionalLight2D directionalLight
-				&& directionalLight.isActiveAndEnabled;
+				&& Owner.lightManager.GetMainDirectionalLight() is { isActiveAndEnabled: true };
 
 			void EnsureProjectedShadowResources()
 			{
@@ -106,11 +105,11 @@ namespace Seb.Fluid2D.Rendering
 				if (denoisingEnabled)
 				{
 					EnsureProjectedShadowResources();
-					traceCaustics.temporalCaustics.EnsureTemporalResources(causticWidth, causticHeight, causticWorldCenter, causticWorldSize, true, useProjectedShadowMap);
+					traceCaustics.temporalCaustics.EnsureTemporalResources(causticWidth, causticHeight, domainRegion, true, useProjectedShadowMap);
 				}
 				else
 				{
-					traceCaustics.temporalCaustics.EnsureTemporalResources(causticWidth, causticHeight, causticWorldCenter, causticWorldSize, false, false);
+					traceCaustics.temporalCaustics.EnsureTemporalResources(causticWidth, causticHeight, domainRegion, false, false);
 					projectedShadow.Release();
 				}
 			}
