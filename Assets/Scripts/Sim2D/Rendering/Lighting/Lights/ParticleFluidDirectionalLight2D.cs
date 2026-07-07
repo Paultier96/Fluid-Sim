@@ -87,7 +87,7 @@ namespace Seb.Fluid2D.Rendering
 			maxOffset = Mathf.Max(maxOffset, offset);
 		}
 
-		public Vector3 GetDirectLightingDirection(ParticleFluidLighting2D lighting, ParticleFluidAnalyticBoundary2D analyticBoundary)
+		public Vector3 GetBoundaryRefractedDirection(float ior, ParticleFluidAnalyticBoundary2D analyticBoundary)
 		{
 			Vector3 lightDirection = Direction;
 			if (!analyticBoundary.useEllipticalBounds)
@@ -104,7 +104,7 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			Vector2 incomingRayDirection = -directionToLight;
-			Vector2 refractedRayDirection = Refract2D(incomingRayDirection, outwardNormal, 1f / Mathf.Max(lighting.PhaseMaterials[1].indexOfRefraction, 1.0001f));
+			Vector2 refractedRayDirection = Refract2D(incomingRayDirection, outwardNormal, 1f / Mathf.Max(ior, 1.0001f));
 			Vector2 refractedLightXY = -refractedRayDirection * planarLength;
 			return new Vector3(refractedLightXY.x, refractedLightXY.y, lightDirection.z).normalized;
 		}

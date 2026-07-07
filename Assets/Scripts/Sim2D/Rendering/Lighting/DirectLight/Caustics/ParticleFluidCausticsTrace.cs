@@ -109,26 +109,21 @@ namespace Seb.Fluid2D.Rendering
 		CausticsComputePassState ApplyComputeCommonParams(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex)
 		{
 			ParticleDisplay2D display = context.display;
-			ParticleFluidLighting2D lightingOwner = owner.Owner;
+			ParticleFluidLighting2D particleFluidLighting2D = owner.Owner;
 			ComputeShader compute = owner.computeShader;
-			bool renderCausticMotion = owner.lightingMode == ParticleFluidLighting2D.LightingMode.Caustics && (owner.temporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.CausticMotion || lightingOwner.debugMode == ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion);
+			bool renderCausticMotion = owner.lightingMode == ParticleFluidLighting2D.LightingMode.Caustics && (owner.temporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.CausticMotion || particleFluidLighting2D.debugMode == ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion);
 			int clearKernel = compute.FindKernel("Clear");
 			int traceKernel = compute.FindKernel("Trace");
 			int resolveKernel = compute.FindKernel("Resolve");
 
 			int width = causticResolvedTexture.width;
 			int height = causticResolvedTexture.height;
-			ParticleFluidLighting2D.PhaseMaterialSettings[] materials = lightingOwner.PhaseMaterials;
+			ParticleFluidLighting2D.PhaseMaterialSettings[] materials = particleFluidLighting2D.PhaseMaterials;
 			int raysPerPixel = Mathf.Max(1, owner.raysPerPixel);
-			int totalRayBudget = lightingOwner.lightManager.UploadCausticsLightGpuData(
-				causticLightParamsBuffer,
-				context,
-				new Vector2Int(width, height),
-				context.renderLayout.CausticRegion.WorldSize,
-				raysPerPixel);
+			int totalRayBudget = particleFluidLighting2D.lightManager.UploadCausticsLightGpuData(causticLightParamsBuffer, context, new Vector2Int(width, height), context.renderLayout.CausticRegion.WorldSize, raysPerPixel);
 
-			Texture transportTexture = lightingOwner.materialTransportTexture != null ? lightingOwner.materialTransportTexture : Texture2D.blackTexture;
-			Texture materialNormalTexture = lightingOwner.materialNormalTexture != null ? lightingOwner.materialNormalTexture : Texture2D.blackTexture;
+			Texture transportTexture = particleFluidLighting2D.materialTransportTexture != null ? particleFluidLighting2D.materialTransportTexture : Texture2D.blackTexture;
+			Texture materialNormalTexture = particleFluidLighting2D.materialNormalTexture != null ? particleFluidLighting2D.materialNormalTexture : Texture2D.blackTexture;
 			Texture combinedTexture = combinedAccumulationTexture != null ? combinedAccumulationTexture : Texture2D.blackTexture;
 			targetCommandBuffer.SetComputeVectorParam(compute, "combinedResolution", new Vector2(combinedTexture.width, combinedTexture.height));
 			targetCommandBuffer.SetComputeVectorParam(compute, "transportResolution", new Vector2(transportTexture.width, transportTexture.height));
@@ -152,8 +147,8 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsStochasticReflection", owner.stochasticReflection ? 1 : 0);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsDispersionStrength", owner.dispersionStrength);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsDispersionRotation", owner.dispersionRotation);
-			targetCommandBuffer.SetComputeFloatParam(compute, "causticsAbsorptionAlbedoBrightnessInfluence", lightingOwner.absorptionAlbedoBrightnessInfluence);
-			targetCommandBuffer.SetComputeFloatParam(compute, "causticsAbsorptionAlbedoSaturationInfluence", lightingOwner.absorptionAlbedoSaturationInfluence);
+			targetCommandBuffer.SetComputeFloatParam(compute, "causticsAbsorptionAlbedoBrightnessInfluence", particleFluidLighting2D.absorptionAlbedoBrightnessInfluence);
+			targetCommandBuffer.SetComputeFloatParam(compute, "causticsAbsorptionAlbedoSaturationInfluence", particleFluidLighting2D.absorptionAlbedoSaturationInfluence);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsRayBrightness", owner.rayBrightness);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsTemporalJitterPixels", owner.temporalJitterPixels);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsSurfaceNormalJitterPixels", owner.surfaceNormalJitterPixels);

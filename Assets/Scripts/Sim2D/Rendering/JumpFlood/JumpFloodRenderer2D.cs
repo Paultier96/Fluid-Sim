@@ -206,8 +206,7 @@ namespace Seb.Fluid2D.Rendering
 			displayMaterial.SetVector("boundsSize",display.sim.boundsSize);
 
 			targetCommandBuffer.BeginSample("Jump Flood/Display Fallback");
-			ParticleFluidAnalyticBoundaryBindings.ApplyBoundaryGlobals(targetCommandBuffer, display.sim != null ? display.sim.analyticBoundary : null);
-			ParticleFluidRasterLayoutBindings.ApplyJumpFloodGlobals(targetCommandBuffer, _currentRenderLayout.domainRegion);
+			ParticleFluidLayoutBindings.ApplyLayoutGlobals(targetCommandBuffer, display.sim.analyticBoundary, _currentRenderLayout.domainRegion);
 			targetCommandBuffer.SetRenderTarget(finalTarget);
 			targetCommandBuffer.ClearRenderTarget(false, true, Color.black);
 			displayMaterial.SetTexture("_ResultTex", result != null ? result : seedA);
@@ -236,8 +235,7 @@ namespace Seb.Fluid2D.Rendering
 
 			ApplyMaterialMapSettings(display, cam);
 			targetCommandBuffer.BeginSample("Jump Flood/Material Pipeline");
-			ParticleFluidAnalyticBoundaryBindings.ApplyBoundaryGlobals(targetCommandBuffer, display.sim != null ? display.sim.analyticBoundary : null);
-			ParticleFluidRasterLayoutBindings.ApplyJumpFloodGlobals(targetCommandBuffer, _currentRenderLayout.domainRegion);
+			ParticleFluidLayoutBindings.ApplyLayoutGlobals(targetCommandBuffer, display.sim.analyticBoundary, _currentRenderLayout.domainRegion);
 			materialMaps.RenderSurfaceMaps(targetCommandBuffer, materialMapMaterial, AlbedoPass, NormalPass, _currentRenderLayout.MaterialRegion, cam);
 			materialMaps.RenderTransportMap(targetCommandBuffer, materialMapMaterial, TransportPass, _currentRenderLayout.SourceRegion, cam);
 			ClearFinalTarget(targetCommandBuffer, finalTarget);
@@ -272,7 +270,7 @@ namespace Seb.Fluid2D.Rendering
 			if (lighting.directLight.projectedShadow.ShouldRender(lighting.directLight)
 			    && lighting.lightManager.GetMainDirectionalLight() is ParticleFluidDirectionalLight2D directionalLight)
 			{
-				Vector3 effectiveLightDirection = directionalLight.GetDirectLightingDirection(lighting, display.sim.analyticBoundary);
+				Vector3 effectiveLightDirection = directionalLight.GetBoundaryRefractedDirection(lighting.PhaseMaterials[1].indexOfRefraction, display.sim.analyticBoundary);
 				projectedShadowParams = new ParticleFluidProjectedShadow.RecordParams(
 					lighting.directLight.projectedShadowCompute,
 					lighting.directLight.projectedShadow.projectedShadowMapBuffer,

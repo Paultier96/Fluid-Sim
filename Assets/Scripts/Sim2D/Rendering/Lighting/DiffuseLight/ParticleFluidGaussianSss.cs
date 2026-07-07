@@ -78,9 +78,9 @@ namespace Seb.Fluid2D.Rendering
 				targetCommandBuffer.EndSample("Metaballs/Phase Diffuse Light");
 				return Texture2D.blackTexture;
 			}
-			ParticleFluidAnalyticBoundaryBindings.ApplyBoundaryGlobals(targetCommandBuffer, context.display.sim.analyticBoundary);
-			ParticleFluidAnalyticBoundaryBindings.ApplyPhaseSplitGlobals(targetCommandBuffer, metaballSettings);
-			ParticleFluidRasterLayoutBindings.ApplySoftLightGlobals(targetCommandBuffer, context.renderLayout.domainRegion);
+			ParticleFluidLayoutBindings.ApplyPhaseSplitGlobals(targetCommandBuffer, metaballSettings);
+			ParticleFluidLayoutBindings.ApplyLayoutGlobals(targetCommandBuffer, context.display.sim.analyticBoundary, context.renderLayout.domainRegion);
+
 			_phaseDiffuseLightInitMaterial.SetTexture("SharpCausticsTex", sharpCaustics);
 			_phaseDiffuseLightInitMaterial.SetTexture("MaterialTransportTex", transportTexture != null ? transportTexture : Texture2D.blackTexture);
 			_phaseDiffuseLightInitMaterial.SetVector("softLightSize", new Vector4(gaussianSoftLightTexture0.width, gaussianSoftLightTexture0.height));

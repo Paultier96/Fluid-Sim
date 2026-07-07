@@ -18,37 +18,34 @@ namespace Seb.Fluid2D.Rendering
 		[StructLayout(LayoutKind.Sequential)]
 		readonly struct CausticsLightGpuData
 		{
-			public readonly Vector4 directionAndEnabled;
-			public readonly Vector4 multiplierAndType;
-			public readonly Vector4 point;
-			public readonly Vector4 optics;
-			public readonly Vector4 ray;
-			public readonly Vector4 colour;
+			public readonly Vector4 launchDirectionAndEnabled;
+			public readonly Vector4 multiplierAndLaunchMode;
+			public readonly Vector4 launchAnchor;
+			public readonly Vector4 launchSpan;
+			public readonly Vector4 rayAllocation;
+			public readonly Vector4 lightExtra;
 
-			public CausticsLightGpuData(Vector3 direction, bool enabled, Vector3 multiplier, int type, Vector4 point, Vector4 optics, Vector4 ray, Color colour)
+			public CausticsLightGpuData(Vector3 launchDirection, bool enabled, Vector3 multiplier, int launchMode, Vector4 launchAnchor, Vector4 launchSpan, Vector4 rayAllocation, Color lightExtra)
 			{
-				directionAndEnabled = new Vector4(direction.x, direction.y, direction.z, enabled ? 1f : 0f);
-				multiplierAndType = new Vector4(multiplier.x, multiplier.y, multiplier.z, type);
-				this.point = point;
-				this.optics = optics;
-				this.ray = ray;
-				this.colour = colour;
+				launchDirectionAndEnabled = new Vector4(launchDirection.x, launchDirection.y, launchDirection.z, enabled ? 1f : 0f);
+				multiplierAndLaunchMode = new Vector4(multiplier.x, multiplier.y, multiplier.z, launchMode);
+				this.launchAnchor = launchAnchor;
+				this.launchSpan = launchSpan;
+				this.rayAllocation = rayAllocation;
+				this.lightExtra = lightExtra;
 			}
 		}
 
 		internal readonly float[] pointLightBoundaryAngles = new float[PointLightBoundaryEllipseSamples + PointLightBoundaryCutSamples + 2];
 		internal ParticleFluidLight2D[] LightSlots => lightSlots;
-		[SerializeField] ParticleFluidLighting2D owner;
 
 		void Awake()
 		{
-			ResolveOwner();
 			RefreshLightSlots();
 		}
 
 		void OnValidate()
 		{
-			ResolveOwner();
 			RefreshLightSlots();
 		}
 
@@ -102,7 +99,7 @@ namespace Seb.Fluid2D.Rendering
 			return directionalLight;
 		}
 
-		internal void ApplyLightingMaterialParams(Material material, ParticleFluidAnalyticBoundary2D analyticBoundary)
+		internal void ApplyLightingMaterialParams(Material material, ParticleFluidAnalyticBoundary2D analyticBoundary, float ior)
 		{
 			Vector4[] lightBaseDirections = new Vector4[LightSlotCount];
 			Vector4[] lightDirections = new Vector4[LightSlotCount];
@@ -116,7 +113,7 @@ namespace Seb.Fluid2D.Rendering
 				ParticleFluidDirectionalLight2D directionalLight = light as ParticleFluidDirectionalLight2D;
 				bool lightEnabled = light != null && light.isActiveAndEnabled && light.intensity > 0f;
 				lightBaseDirections[i] = directionalLight != null ? directionalLight.Direction : Vector3.down;
-				lightDirections[i] = directionalLight != null ? directionalLight.GetDirectLightingDirection(owner, analyticBoundary) : Vector3.down;
+				lightDirections[i] = directionalLight != null ? directionalLight.GetBoundaryRefractedDirection(ior, analyticBoundary) : Vector3.down;
 				ParticleFluidPointLight2D pointLight = light as ParticleFluidPointLight2D;
 				lightPoints[i] = pointLight != null ? pointLight.GetPointLightVector() : Vector4.zero;
 				lightColors[i] = light != null ? light.EffectiveColor : Vector4.zero;
@@ -137,13 +134,13 @@ namespace Seb.Fluid2D.Rendering
 
 		internal int UploadCausticsLightGpuData(ComputeBuffer buffer, ParticleFluidLighting2D.FrameContext context, Vector2Int resolution, Vector2 currentWorldSize, int raysPerPixel)
 		{
-			Vector3[] lightDirections = new Vector3[lightSlots.Length];
+			Vector3[] launchDirections = new Vector3[lightSlots.Length];
 			bool[] lightEnabled = new bool[lightSlots.Length];
-			float[] lightAngularRadiusDegrees = new float[lightSlots.Length];
-			float[] lightRayStartOffsets = new float[lightSlots.Length];
-			int[] lightRangeRayCounts = new int[lightSlots.Length];
-			float[] lightPointAngleStarts = new float[lightSlots.Length];
-			float[] lightPointAngleRanges = new float[lightSlots.Length];
+			float[] launchAngularRadiusDegrees = new float[lightSlots.Length];
+			float[] launchSpanOffsets = new float[lightSlots.Length];
+			int[] launchSpanRayCounts = new int[lightSlots.Length];
+			float[] launchSpanStarts = new float[lightSlots.Length];
+			float[] launchSpanLengths = new float[lightSlots.Length];
 			float[] lightWeights = new float[lightSlots.Length];
 			for (int i = 0; i < lightSlots.Length; i++)
 			{
@@ -151,33 +148,33 @@ namespace Seb.Fluid2D.Rendering
 				lightEnabled[i] = light != null && light.SupportsCausticRaymarch();
 				if (light is ParticleFluidDirectionalLight2D directionalLight)
 				{
-					lightDirections[i] = directionalLight.Direction;
-					lightAngularRadiusDegrees[i] = directionalLight.angularRadiusDegrees;
-					directionalLight.GetCausticRayRange(context, resolution, out lightRayStartOffsets[i], out lightRangeRayCounts[i]);
+					launchDirections[i] = directionalLight.Direction;
+					launchAngularRadiusDegrees[i] = directionalLight.angularRadiusDegrees;
+					directionalLight.GetCausticRayRange(context, resolution, out launchSpanOffsets[i], out launchSpanRayCounts[i]);
 				}
 				else if (light is ParticleFluidPointLight2D pointLight)
 				{
-					lightDirections[i] = Vector3.zero;
-					lightAngularRadiusDegrees[i] = 0f;
-					pointLight.GetCausticRaySpan(context.display.sim.analyticBoundary, pointLightBoundaryAngles, out lightPointAngleStarts[i], out lightPointAngleRanges[i]);
-					lightRangeRayCounts[i] = pointLight.GetCausticPointRayCount(currentWorldSize, resolution);
-					lightRayStartOffsets[i] = 0f;
+					launchDirections[i] = Vector3.zero;
+					launchAngularRadiusDegrees[i] = 0f;
+					pointLight.GetCausticRaySpan(context.display.sim.analyticBoundary, pointLightBoundaryAngles, out launchSpanStarts[i], out launchSpanLengths[i]);
+					launchSpanRayCounts[i] = pointLight.GetCausticPointRayCount(currentWorldSize, resolution);
+					launchSpanOffsets[i] = 0f;
 				}
 				else
 				{
-					lightDirections[i] = Vector3.zero;
-					lightAngularRadiusDegrees[i] = 0f;
-					lightRayStartOffsets[i] = 0f;
-					lightRangeRayCounts[i] = 1;
+					launchDirections[i] = Vector3.zero;
+					launchAngularRadiusDegrees[i] = 0f;
+					launchSpanOffsets[i] = 0f;
+					launchSpanRayCounts[i] = 1;
 				}
 				lightWeights[i] = lightEnabled[i] && light != null ? light.GetCausticSampleWeight() : 0f;
 			}
 
 			int maxRayCount = Mathf.Max(1, ParticleFluidLighting2D.MaxCausticTraceThreads / raysPerPixel);
 			int enabledRangeRayCount = Mathf.Max(
-				lightWeights[0] > 0f ? lightRangeRayCounts[0] : 0,
-				lightWeights[1] > 0f ? lightRangeRayCounts[1] : 0,
-				lightWeights[2] > 0f ? lightRangeRayCounts[2] : 0
+				lightWeights[0] > 0f ? launchSpanRayCounts[0] : 0,
+				lightWeights[1] > 0f ? launchSpanRayCounts[1] : 0,
+				lightWeights[2] > 0f ? launchSpanRayCounts[2] : 0
 			);
 			int totalRayBudget = enabledRangeRayCount > 0 ? Mathf.Max(1, Mathf.Min(enabledRangeRayCount, maxRayCount)) : 1;
 			float[] lightShares = GetLightRayShares(lightWeights);
@@ -196,16 +193,16 @@ namespace Seb.Fluid2D.Rendering
 			bool splitBySubRay = lightSubRaysPerPixel[1] > 0 || lightSubRaysPerPixel[2] > 0;
 			int[] lightRayBudgets = new int[lightSlots.Length];
 			lightRayBudgets[1] = lightShares[1] > 0f && !splitBySubRay ? Mathf.RoundToInt(totalRayBudget * lightShares[1]) : 0;
-			lightRayBudgets[1] = Mathf.Clamp(lightRayBudgets[1], 0, Mathf.Min(totalRayBudget, lightRangeRayCounts[1]));
+			lightRayBudgets[1] = Mathf.Clamp(lightRayBudgets[1], 0, Mathf.Min(totalRayBudget, launchSpanRayCounts[1]));
 			lightRayBudgets[2] = lightShares[2] > 0f && !splitBySubRay ? Mathf.RoundToInt(totalRayBudget * lightShares[2]) : 0;
-			lightRayBudgets[2] = Mathf.Clamp(lightRayBudgets[2], 0, Mathf.Min(totalRayBudget - lightRayBudgets[1], lightRangeRayCounts[2]));
+			lightRayBudgets[2] = Mathf.Clamp(lightRayBudgets[2], 0, Mathf.Min(totalRayBudget - lightRayBudgets[1], launchSpanRayCounts[2]));
 			lightRayBudgets[0] = lightShares[0] > 0f ? splitBySubRay ? totalRayBudget : Mathf.Max(0, totalRayBudget - lightRayBudgets[1] - lightRayBudgets[2]) : 0;
-			lightRayBudgets[0] = Mathf.Clamp(lightRayBudgets[0], 0, lightRangeRayCounts[0]);
+			lightRayBudgets[0] = Mathf.Clamp(lightRayBudgets[0], 0, launchSpanRayCounts[0]);
 			float[] lightRaySpacings = new float[lightSlots.Length];
 			for (int i = 0; i < lightSlots.Length; i++)
 			{
 				int spacingRayCount = i == 0 || !splitBySubRay ? lightRayBudgets[i] : totalRayBudget;
-				lightRaySpacings[i] = lightRangeRayCounts[i] > 1 && spacingRayCount > 1 ? (lightRangeRayCounts[i] - 1f) / (spacingRayCount - 1f) : 1f;
+				lightRaySpacings[i] = launchSpanRayCounts[i] > 1 && spacingRayCount > 1 ? (launchSpanRayCounts[i] - 1f) / (spacingRayCount - 1f) : 1f;
 			}
 
 			for (int i = 0; i < LightSlotCount; i++)
@@ -213,13 +210,13 @@ namespace Seb.Fluid2D.Rendering
 				ParticleFluidLight2D light = lightSlots[i];
 				ParticleFluidPointLight2D pointLight = light as ParticleFluidPointLight2D;
 				causticsLightGpuData[i] = new CausticsLightGpuData(
-					lightDirections[i],
+					launchDirections[i],
 					i == 0 || lightSubRaysPerPixel[i] > 0 || lightRayBudgets[i] > 0,
 					lightWeights[i] > 0f && light != null ? light.GetCausticMultiplier() : Vector4.zero,
 					pointLight != null ? 1 : 0,
 					pointLight != null ? pointLight.GetPointLightVector() : Vector4.zero,
-					new Vector4(pointLight != null ? pointLight.falloff : 0f, lightAngularRadiusDegrees[i] * Mathf.Deg2Rad, lightPointAngleStarts[i], lightPointAngleRanges[i]),
-					new Vector4(lightRayBudgets[i], lightSubRaysPerPixel[i], lightRayStartOffsets[i], lightRaySpacings[i]),
+					new Vector4(pointLight != null ? pointLight.falloff : 0f, launchAngularRadiusDegrees[i] * Mathf.Deg2Rad, launchSpanStarts[i], launchSpanLengths[i]),
+					new Vector4(lightRayBudgets[i], lightSubRaysPerPixel[i], launchSpanOffsets[i], lightRaySpacings[i]),
 					new Color(light != null ? light.temperatureKelvin : 6500f, light != null ? GetSaturationDispersionScale(light.color) : 1f, 0f, 0f)
 				);
 			}
@@ -253,27 +250,6 @@ namespace Seb.Fluid2D.Rendering
 			float saturation = maxChannel > 0.000001f ? (maxChannel - minChannel) / maxChannel : 0f;
 			return 1f - Mathf.InverseLerp(0.6f, 0.8f, saturation);
 		}
-
-		void ResolveOwner()
-		{
-			if (owner != null)
-			{
-				return;
-			}
-
-			owner = GetComponent<ParticleFluidLighting2D>();
-			if (owner != null)
-			{
-				return;
-			}
-
-			if (transform.parent != null)
-			{
-				owner = transform.parent.GetComponentInChildren<ParticleFluidLighting2D>(true);
-			}
-
-			owner ??= FindAnyObjectByType<ParticleFluidLighting2D>();
-		}
 		
 		public float GetCausticDebugExposure()
 		{
@@ -285,7 +261,6 @@ namespace Seb.Fluid2D.Rendering
 					exposure += light.GetCausticExposure();
 				}
 			}
-
 			return Mathf.Max(exposure, 0.0001f);
 		}
 	}

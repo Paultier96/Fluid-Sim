@@ -45,8 +45,8 @@ int useEllipticalBounds;
 float2 ellipseBoundsCenter;
 float2 ellipseBoundsSize;
 float obstacleY;
-float2 metaballWorldCenter;
-float2 metaballWorldSize;
+float2 domainWorldCenter;
+float2 domainWorldSize;
 float analyticBoundaryExpansion;
 #include "../Lighting/Shared/ParticleFluidAnalyticBoundary.hlsl"
 float metaballGhostBoundaryNormalStrength;
@@ -62,8 +62,6 @@ float metaballPhase0DiffuseAdditiveBlend;
 float metaballPhase1DiffuseAdditiveBlend;
 float causticTemporalHistoryWeight;
 int causticTemporalMotionSource;
-float2 causticCurrentWorldCenter;
-float2 causticCurrentWorldSize;
 float particleCausticDebugExposure;
 float particleNormalStrength;
 float particleNormalProfileCurve;
@@ -263,7 +261,7 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 	float particleAlpha = smoothstep(max(densityThreshold - edgeSoftness, 0), densityThreshold + edgeSoftness, density);
 	if (useEllipticalBounds != 0)
 	{
-		float boundsDistance = OuterAnalyticBoundaryDistance(ParticleFluidWorldFromUv(materialUv, metaballWorldCenter, metaballWorldSize));
+		float boundsDistance = OuterAnalyticBoundaryDistance(ParticleFluidWorldFromUv(materialUv, domainWorldCenter, domainWorldSize));
 		float boundsAA = max(fwidth(boundsDistance), 0.0001);
 		float boundsAlpha = smoothstep(boundsAA, -boundsAA, boundsDistance);
 		alpha = min(particleAlpha, boundsAlpha);
@@ -300,7 +298,7 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 		if (debugMode == 1)
 		{
 			float4 normalPacked = tex2D(NormalTex, materialUv);
-			float2 worldPos = ParticleFluidWorldFromUv(materialUv, metaballWorldCenter, metaballWorldSize);
+			float2 worldPos = ParticleFluidWorldFromUv(materialUv, domainWorldCenter, domainWorldSize);
 			float3 normal = GetBlendedPhaseNormal(normalPacked, density0, density1, phaseT);
 			normal = ApplyAnalyticBoundaryNormal(normal, worldPos);
 			float3 encodedNormal = saturate(0.5 + normal / 2.0);
@@ -397,7 +395,7 @@ float4 frag(v2f i) : SV_Target
 	if (debugMode == 10)
 	{
 		float4 motionDebug = tex2D(DebugTex0, causticUv);
-		float2 debugMotion = motionDebug.xy * max(causticCurrentWorldSize, float2(0.0001, 0.0001));
+		float2 debugMotion = motionDebug.xy * max(domainWorldSize, float2(0.0001, 0.0001));
 		float motionConfidence = saturate(motionDebug.z);
 		float motionScale = max(debugGradientMax, 0.0001);
 		float rawMotionMagnitude = length(debugMotion) * motionScale;
@@ -456,7 +454,7 @@ float4 frag(v2f i) : SV_Target
 		float alpha = particleAlpha;
 		if (useEllipticalBounds != 0)
 		{
-			float boundsDistance = OuterAnalyticBoundaryDistance(ParticleFluidWorldFromUv(materialUv, metaballWorldCenter, metaballWorldSize));
+			float boundsDistance = OuterAnalyticBoundaryDistance(ParticleFluidWorldFromUv(materialUv, domainWorldCenter, domainWorldSize));
 			float boundsAA = max(fwidth(boundsDistance), 0.0001);
 			float boundsAlpha = smoothstep(boundsAA, -boundsAA, boundsDistance);
 			alpha = min(particleAlpha, boundsAlpha);

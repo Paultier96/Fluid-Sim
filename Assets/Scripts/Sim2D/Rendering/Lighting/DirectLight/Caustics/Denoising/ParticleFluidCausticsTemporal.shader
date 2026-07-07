@@ -41,8 +41,8 @@ float causticTemporalClampRejection;
 float causticTemporalRejectedSpatialFilter;
 int causticTemporalMotionSource;
 int causticProjectedShadowMapEnabled;
-float2 causticCurrentWorldCenter;
-float2 causticCurrentWorldSize;
+float2 domainWorldCenter;
+float2 domainWorldSize;
 float2 causticHistoryWorldCenter;
 float2 causticHistoryWorldSize;		
 float2 causticProjectedShadowDirection;
@@ -177,7 +177,7 @@ float ProjectedShadowOccupancy(float2 worldPos, float2 regionCenter, float2 regi
 float4 fragCausticTemporal(v2f i) : SV_Target
 {
 	float3 current = tex2D(_MainTex, i.uv).rgb;
-	float2 worldPos = causticCurrentWorldCenter + (i.uv - 0.5) * max(causticCurrentWorldSize, float2(0.0001, 0.0001));
+	float2 worldPos = domainWorldCenter + (i.uv - 0.5) * max(domainWorldSize, float2(0.0001, 0.0001));
 	float2 stationaryHistoryUv = (worldPos - causticHistoryWorldCenter) / max(causticHistoryWorldSize, float2(0.0001, 0.0001)) + 0.5;
 	float2 historyUv = stationaryHistoryUv;
 	if (causticTemporalMotionSource == 1)
@@ -195,14 +195,14 @@ float4 fragCausticTemporal(v2f i) : SV_Target
 	else if (causticTemporalMotionSource == 2)
 	{
 		float4 motion = tex2D(CausticMotionTex, i.uv);
-		float2 motionWorld = motion.xy * causticCurrentWorldSize;
+		float2 motionWorld = motion.xy * domainWorldSize;
 		float2 motionHistoryUv = stationaryHistoryUv - motionWorld / max(causticHistoryWorldSize, float2(0.0001, 0.0001));
 		float causticMotionConfidence = smoothstep(0.05, 0.35, saturate(motion.z));
 		historyUv = lerp(stationaryHistoryUv, motionHistoryUv, causticMotionConfidence);
 	}
 	else if (causticTemporalMotionSource == 3 && causticProjectedShadowMapEnabled != 0)
 	{
-		float4 currentShadowSample = SampleProjectedShadow(worldPos, causticCurrentWorldCenter, causticCurrentWorldSize, causticProjectedShadowDirection, CausticProjectedShadowMapTex);
+		float4 currentShadowSample = SampleProjectedShadow(worldPos, domainWorldCenter, domainWorldSize, causticProjectedShadowDirection, CausticProjectedShadowMapTex);
 		float4 previousShadowSample = SampleProjectedShadow(worldPos, causticHistoryWorldCenter, causticHistoryWorldSize, causticProjectedShadowHistoryDirection, CausticProjectedShadowHistoryTex);
 		float currentShadowOccupied = currentShadowSample.w * currentShadowSample.y * step(currentShadowSample.x + 0.01, currentShadowSample.z);
 		float previousShadowOccupied = previousShadowSample.w * previousShadowSample.y * step(previousShadowSample.x + 0.01, previousShadowSample.z);
@@ -211,7 +211,7 @@ float4 fragCausticTemporal(v2f i) : SV_Target
 		float shadowMotionConfidence = currentShadowValid * previousShadowValid;
 		if (shadowMotionConfidence > 0.0)
 		{
-			float currentDepthWorld = (currentShadowSample.x * 2.0 - 1.0) * ProjectedShadowHalfForward(causticProjectedShadowDirection, causticCurrentWorldSize);
+			float currentDepthWorld = (currentShadowSample.x * 2.0 - 1.0) * ProjectedShadowHalfForward(causticProjectedShadowDirection, domainWorldSize);
 			float previousDepthWorld = (previousShadowSample.x * 2.0 - 1.0) * ProjectedShadowHalfForward(causticProjectedShadowHistoryDirection, causticHistoryWorldSize);
 			float2 currentForward = normalize(causticProjectedShadowDirection);
 			float2 shadowMotionWorld = currentForward * (currentDepthWorld - previousDepthWorld);
@@ -248,7 +248,7 @@ float4 fragCausticTemporal(v2f i) : SV_Target
 	float reactiveMask = max(1.0 - historyInFrame, saturate((rejectedT - 0.2) / 0.6) * saturate((clampAmount - 0.15) / 0.5));
 	if (causticProjectedShadowMapEnabled != 0)
 	{
-		currentShadow = ProjectedShadowOccupancy(worldPos, causticCurrentWorldCenter, causticCurrentWorldSize, causticProjectedShadowDirection, CausticProjectedShadowMapTex);
+		currentShadow = ProjectedShadowOccupancy(worldPos, domainWorldCenter, domainWorldSize, causticProjectedShadowDirection, CausticProjectedShadowMapTex);
 		previousShadow = ProjectedShadowOccupancy(worldPos, causticHistoryWorldCenter, causticHistoryWorldSize, causticProjectedShadowHistoryDirection, CausticProjectedShadowHistoryTex);
 		reactiveMask = max(reactiveMask, saturate(previousShadow - currentShadow));
 	}
@@ -259,7 +259,7 @@ float4 fragCausticTemporal(v2f i) : SV_Target
 
 float MotionDilationScore(float4 motion)
 {
-	float motionMagnitude = length(motion.xy * causticCurrentWorldSize);
+	float motionMagnitude = length(motion.xy * domainWorldSize);
 	if (motionMagnitude <= 0.0)
 	{
 		return 0.0;
@@ -335,7 +335,7 @@ float4 fragCausticMotionDilate(v2f i) : SV_Target
 
 float4 fragReprojectHistory(v2f i) : SV_Target
 {
-	float2 worldPos = causticCurrentWorldCenter + (i.uv - 0.5) * max(causticCurrentWorldSize, float2(0.0001, 0.0001));
+	float2 worldPos = domainWorldCenter + (i.uv - 0.5) * max(domainWorldSize, float2(0.0001, 0.0001));
 	float2 historyUv = (worldPos - causticHistoryWorldCenter) / max(causticHistoryWorldSize, float2(0.0001, 0.0001)) + 0.5;
 	float inBounds = step(0.0, historyUv.x) * step(historyUv.x, 1.0) * step(0.0, historyUv.y) * step(historyUv.y, 1.0);
 	return inBounds > 0.0 ? tex2D(_MainTex, historyUv) : 0.0;

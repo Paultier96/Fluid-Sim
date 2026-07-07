@@ -33,8 +33,8 @@ sampler2D ColourMap;
 sampler2D ColourMap2;
 #include "Shared/ParticleFluidGradientSampling.cginc"
 float4 MaterialAlbedoTex_TexelSize;
-float2 particleFluidWorldCenter;
-float2 particleFluidWorldSize;
+float2 domainWorldCenter;
+float2 domainWorldSize;
 int useEllipticalBounds;
 float2 ellipseBoundsCenter;
 float2 ellipseBoundsSize;
@@ -159,7 +159,7 @@ float4 SampleProjectedShadow(float2 worldPos, float2 regionCenter, float2 region
 
 float ProjectedShadowOccupancy(float2 worldPos)
 {
-	float4 sample = SampleProjectedShadow(worldPos, particleFluidWorldCenter, particleFluidWorldSize, particleFluidProjectedShadowDirection, ProjectedShadowTex);
+	float4 sample = SampleProjectedShadow(worldPos, domainWorldCenter, domainWorldSize, particleFluidProjectedShadowDirection, ProjectedShadowTex);
 	return sample.w * sample.y * step(sample.x + 0.01, sample.z);
 }
 
@@ -433,7 +433,7 @@ float4 fragSplitLighting(v2f i) : SV_Target
 	float3 normal1 = materialSurfaceNormal;
 	float4 materialTransport = tex2D(MaterialTransportTex, materialUv);
 	float phaseT = saturate(materialNormal.a);
-	float2 worldPos = ParticleFluidWorldFromUv(materialUv, particleFluidWorldCenter, particleFluidWorldSize);
+	float2 worldPos = ParticleFluidWorldFromUv(materialUv, domainWorldCenter, domainWorldSize);
 	float3 directLightIrradiance0 = 1.0;
 	float3 directLightIrradiance1 = 1.0;
 	if (particleFluidCausticsEnabled != 0)

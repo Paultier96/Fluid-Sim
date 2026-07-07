@@ -376,7 +376,6 @@ namespace Seb.Fluid2D.Simulation
                 {
                     passData.lighting = lighting;
                     passData.context = lightingContext;
-                    passData.combinedTexture = metaballRenderer.combinedAccumulationTexture;
                     passData.transport = materialTransportHandle;
                     passData.causticResolved = causticResolvedHandle;
                     passData.causticTemporal = causticTemporalHandle;
@@ -533,8 +532,6 @@ namespace Seb.Fluid2D.Simulation
 
             using var builder = renderGraph.AddUnsafePass<BlurPassData>(passName, out var passData);
 
-            passData.source = source;
-            passData.destination = destination;
             passData.sourceTexture = sourceTexture;
             passData.destinationTexture = destinationTexture;
             passData.material = material;
@@ -666,7 +663,6 @@ namespace Seb.Fluid2D.Simulation
         {
             public ParticleFluidLighting2D lighting;
             public ParticleFluidLighting2D.FrameContext context;
-            public RenderTexture combinedTexture;
             public TextureHandle transport;
             public TextureHandle causticResolved;
             public TextureHandle causticTemporal;
@@ -705,8 +701,6 @@ namespace Seb.Fluid2D.Simulation
 
         class BlurPassData
         {
-            public TextureHandle source;
-            public TextureHandle destination;
             public RenderTexture sourceTexture;
             public RenderTexture destinationTexture;
             public Material material;

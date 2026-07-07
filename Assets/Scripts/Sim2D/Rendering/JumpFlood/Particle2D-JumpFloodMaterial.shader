@@ -29,8 +29,8 @@ sampler2D _NormalPayloadTex;
 sampler2D MaterialAlbedoTex;
 float4 _ResultTex_TexelSize;
 float4x4 _InverseViewProjection;
-float2 jumpFloodWorldCenter;
-float2 jumpFloodWorldSize;
+float2 domainWorldCenter;
+float2 domainWorldSize;
 float2 ellipseBoundsCenter;
 float2 ellipseBoundsSize;
 float2 boundsSize;
@@ -76,7 +76,7 @@ float BoundsMask(float2 worldPos)
 bool ResolveJumpFloodMaterial(v2f i, out float alpha, out float phaseT, out float3 normal, out float3 albedo)
 {
 	float4 seed = tex2D(_ResultTex, i.uv);
-	alpha = seed.w >= 0.0 ? BoundsMask(ParticleFluidWorldFromUv(i.uv, jumpFloodWorldCenter, jumpFloodWorldSize)) : 0.0;
+	alpha = seed.w >= 0.0 ? BoundsMask(ParticleFluidWorldFromUv(i.uv, domainWorldCenter, domainWorldSize)) : 0.0;
 	phaseT = saturate(seed.w);
 	albedo = tex2D(_PayloadTex, i.uv).rgb;
 	normal = normalize(tex2D(_NormalPayloadTex, i.uv).rgb * 2.0 - 1.0);

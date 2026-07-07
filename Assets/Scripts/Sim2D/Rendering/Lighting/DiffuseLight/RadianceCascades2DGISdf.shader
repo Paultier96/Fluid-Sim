@@ -48,8 +48,8 @@ Shader "Hidden/RadianceCascadesSdf"
 			float3 _DirectionalLightDirection;
 			float3 _DirectionalLightColor;
 			float _DirectionalLightIntensity;
-			float2 metaballWorldCenter;
-			float2 metaballWorldSize;
+			float2 domainWorldCenter;
+			float2 domainWorldSize;
 			float causticsPhase0Absorption;
 			float3 radianceCascadePhase0AbsorptionTint;
 			float radianceCascadePhase0AbsorptionTintBlend;
@@ -75,7 +75,7 @@ Shader "Hidden/RadianceCascadesSdf"
 			float2 UvDirectionFromAngle(float angle)
 			{
 				float2 worldDirection = float2(cos(angle), sin(angle));
-				float2 uvScale = max(metaballWorldSize, float2(0.0001, 0.0001));
+				float2 uvScale = max(domainWorldSize, float2(0.0001, 0.0001));
 				float2 uvDirection = worldDirection / uvScale;
 				float uvLengthSq = dot(uvDirection, uvDirection);
 				return uvLengthSq > 0.0000001 ? uvDirection / sqrt(uvLengthSq) : float2(0.0, 0.0);
@@ -83,7 +83,7 @@ Shader "Hidden/RadianceCascadesSdf"
 
 			float RayWorldStepScale(float2 rayDirection)
 			{
-				return max(length(rayDirection * max(metaballWorldSize, float2(0.0001, 0.0001))), 0.0001);
+				return max(length(rayDirection * max(domainWorldSize, float2(0.0001, 0.0001))), 0.0001);
 			}
 
 			float DistanceToUvBounds(float2 rayOrigin, float2 rayDirection)
@@ -124,7 +124,7 @@ Shader "Hidden/RadianceCascadesSdf"
 					return 0.0;
 				}
 
-				float2 worldRayDirection = normalize(rayDirection * max(metaballWorldSize, float2(0.0001, 0.0001)));
+				float2 worldRayDirection = normalize(rayDirection * max(domainWorldSize, float2(0.0001, 0.0001)));
 				float2 lightDirection = _DirectionalLightDirection.xy;
 				float lightDirectionLengthSq = dot(lightDirection, lightDirection);
 				lightDirection = lightDirectionLengthSq > 0.0000001 ? lightDirection / sqrt(lightDirectionLengthSq) : float2(0.0, -1.0);
@@ -172,7 +172,7 @@ Shader "Hidden/RadianceCascadesSdf"
 				}
 
 				float worldTexel = max(
-					max(metaballWorldSize.x / max(_CascadeResolution.x, 1.0), metaballWorldSize.y / max(_CascadeResolution.y, 1.0)),
+					max(domainWorldSize.x / max(_CascadeResolution.x, 1.0), domainWorldSize.y / max(_CascadeResolution.y, 1.0)),
 					0.0005
 				);
 				float sourceInsetWorld = worldTexel * max(_SdfPhase0InsetPixels, 0.0);
@@ -183,7 +183,7 @@ Shader "Hidden/RadianceCascadesSdf"
 			float2 EstimateSdfNormal(float2 uv)
 			{
 				float2 texel = 1.0 / max(_CascadeResolution, float2(1.0, 1.0));
-				float2 worldTexel = max(metaballWorldSize / max(_CascadeResolution, float2(1.0, 1.0)), float2(0.0001, 0.0001));
+				float2 worldTexel = max(domainWorldSize / max(_CascadeResolution, float2(1.0, 1.0)), float2(0.0001, 0.0001));
 				float dx = tex2Dlod(_ResultTex, float4(uv + float2(texel.x, 0.0), 0.0, 0.0)).r - tex2Dlod(_ResultTex, float4(uv - float2(texel.x, 0.0), 0.0, 0.0)).r;
 				float dy = tex2Dlod(_ResultTex, float4(uv + float2(0.0, texel.y), 0.0, 0.0)).r - tex2Dlod(_ResultTex, float4(uv - float2(0.0, texel.y), 0.0, 0.0)).r;
 				float2 normal = float2(dx / worldTexel.x, dy / worldTexel.y);
@@ -304,7 +304,7 @@ Shader "Hidden/RadianceCascadesSdf"
 			{
 				float worldStepScale = RayWorldStepScale(rayDirection);
 				float worldTexel = max(
-					max(metaballWorldSize.x / max(_CascadeResolution.x, 1.0), metaballWorldSize.y / max(_CascadeResolution.y, 1.0)),
+					max(domainWorldSize.x / max(_CascadeResolution.x, 1.0), domainWorldSize.y / max(_CascadeResolution.y, 1.0)),
 					0.0005
 				);
 				float sourceStepWorld = worldTexel * 0.5;

@@ -46,8 +46,8 @@ int useEllipticalBounds;
 float2 ellipseBoundsCenter;
 float2 ellipseBoundsSize;
 float obstacleY;
-float2 metaballWorldCenter;
-float2 metaballWorldSize;
+float2 domainWorldCenter;
+float2 domainWorldSize;
 float analyticBoundaryExpansion;
 #include "../Lighting/Shared/ParticleFluidAnalyticBoundary.hlsl"
 float metaballGhostBoundaryNormalStrength;
@@ -281,7 +281,7 @@ bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float
 	float particleAlpha = smoothstep(max(densityThreshold - edgeSoftness, 0), densityThreshold + edgeSoftness, density);
 	if (useEllipticalBounds != 0)
 	{
-		float boundsDistance = OuterAnalyticBoundaryDistance(ParticleFluidWorldFromUv(materialUv, metaballWorldCenter, metaballWorldSize));
+		float boundsDistance = OuterAnalyticBoundaryDistance(ParticleFluidWorldFromUv(materialUv, domainWorldCenter, domainWorldSize));
 		float boundsAA = max(fwidth(boundsDistance), 0.0001);
 		float boundsAlpha = smoothstep(boundsAA, -boundsAA, boundsDistance);
 		alpha = min(particleAlpha, boundsAlpha);
@@ -307,7 +307,7 @@ bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float
 	data1 = combined.b / max(density1, 0.0001);
 	float noise = InterleavedGradientNoise(i.vertex.xy);
 	float4 normalPacked = tex2D(NormalTex, materialUv);
-	float2 worldPos = ParticleFluidWorldFromUv(materialUv, metaballWorldCenter, metaballWorldSize);
+	float2 worldPos = ParticleFluidWorldFromUv(materialUv, domainWorldCenter, domainWorldSize);
 	normal0 = GetPhaseNormal(normalPacked, density0, density1, false);
 	normal1 = GetPhaseNormal(normalPacked, density0, density1, true);
 	normal0 = ApplyAnalyticBoundaryNormal(normal0, worldPos);

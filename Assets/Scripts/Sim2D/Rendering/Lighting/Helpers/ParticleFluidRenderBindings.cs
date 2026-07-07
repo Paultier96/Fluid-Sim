@@ -4,8 +4,22 @@ using UnityEngine.Rendering;
 
 namespace Seb.Fluid2D.Rendering
 {
-	internal static class ParticleFluidAnalyticBoundaryBindings
+
+	internal static class ParticleFluidLayoutBindings
 	{
+
+		internal static void ApplyLayoutGlobals(CommandBuffer targetCommandBuffer, ParticleFluidAnalyticBoundary2D boundary, ParticleFluidRenderRegion2D domainRegion)
+		{
+			ApplyBoundaryGlobals(targetCommandBuffer, boundary);
+			ApplyDomainGlobals(targetCommandBuffer, domainRegion);
+		}
+
+		internal static void ApplyDomainGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D domainRegion)
+		{
+			commandBuffer.SetGlobalVector("domainWorldCenter", domainRegion.WorldCenter);
+			commandBuffer.SetGlobalVector("domainWorldSize", domainRegion.WorldSize);
+		}
+
 		internal static void ApplyBoundaryGlobals(CommandBuffer commandBuffer, ParticleFluidAnalyticBoundary2D boundary)
 		{
 			commandBuffer.SetGlobalInt("useEllipticalBounds", boundary.useEllipticalBounds ? 1 : 0);
@@ -22,46 +36,6 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.SetGlobalFloat("phaseBlendWidth", settings.phaseBlendWidth);
 			commandBuffer.SetGlobalFloat("transportPhaseBlendWidth", settings.transportPhaseBlendWidth);
 			commandBuffer.SetGlobalFloat("phase0RenderBias", settings.phase0RenderBias);
-		}
-	}
-
-	internal static class ParticleFluidRasterLayoutBindings
-	{
-		internal static void ApplyMetaballGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D domainRegion)
-		{
-			commandBuffer.SetGlobalVector("metaballWorldCenter", domainRegion.WorldCenter);
-			commandBuffer.SetGlobalVector("metaballWorldSize", domainRegion.WorldSize);
-		}
-
-		internal static void ApplyJumpFloodGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D domainRenderRegion)
-		{
-			commandBuffer.SetGlobalVector("jumpFloodWorldCenter", domainRenderRegion.WorldCenter);
-			commandBuffer.SetGlobalVector("jumpFloodWorldSize", domainRenderRegion.WorldSize);
-		}
-
-		internal static void ApplySoftLightGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D domainRenderRegion)
-		{
-			commandBuffer.SetGlobalVector("softLightWorldCenter", domainRenderRegion.WorldCenter);
-			commandBuffer.SetGlobalVector("softLightWorldSize", domainRenderRegion.WorldSize);
-		}
-
-		internal static void ApplyLightingGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D domainRenderRegion)
-		{
-			commandBuffer.SetGlobalVector("particleFluidWorldCenter", domainRenderRegion.WorldCenter);
-			commandBuffer.SetGlobalVector("particleFluidWorldSize", domainRenderRegion.WorldSize);
-		}
-
-		internal static void ApplyCausticCurrentGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D domainRenderRegion)
-		{
-			commandBuffer.SetGlobalVector("causticCurrentWorldCenter", domainRenderRegion.WorldCenter);
-			commandBuffer.SetGlobalVector("causticCurrentWorldSize", domainRenderRegion.WorldSize);
-		}
-
-		internal static void ApplyCausticHistoryGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D domainRegion, Vector2 historyWorldCenter, Vector2 historyWorldSize)
-		{
-			ApplyCausticCurrentGlobals(commandBuffer, domainRegion);
-			commandBuffer.SetGlobalVector("causticHistoryWorldCenter", historyWorldCenter);
-			commandBuffer.SetGlobalVector("causticHistoryWorldSize", historyWorldSize);
 		}
 	}
 
@@ -87,7 +61,7 @@ namespace Seb.Fluid2D.Rendering
 
 	internal static class ParticleFluidMetaballScalarBindings
 	{
-		internal static void ApplyGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting, float effectiveNormalStrength)
+		internal static void ApplyScalarGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting, float effectiveNormalStrength)
 		{
 			ParticleDisplay2D.MetaballSettings settings = display.metaballs;
 			commandBuffer.SetGlobalFloat("phaseBiasNormalStrength", settings.phaseBiasNormalStrength);
@@ -97,6 +71,41 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.SetGlobalInt("screenSpaceRefractionCanCrossPhases", lighting != null && lighting.screenSpaceRefractionCanCrossPhases ? 1 : 0);
 			commandBuffer.SetGlobalFloat("particleNormalStrength", effectiveNormalStrength);
 			commandBuffer.SetGlobalFloat("particleNormalProfileCurve", settings.normalProfileCurve);
+		}
+	}
+
+	internal static class ParticleFluidPassBindings
+	{
+		internal static void ApplyMetaballMaterialGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting, ParticleFluidRenderRegion2D domainRegion, float effectiveNormalStrength)
+		{
+			ParticleFluidLayoutBindings.ApplyPhaseSplitGlobals(commandBuffer, display.metaballs);
+			ParticleFluidLayoutBindings.ApplyLayoutGlobals(commandBuffer, display.sim.analyticBoundary, domainRegion);
+			ParticleFluidRasterTextureBindings.ApplyGradientGlobals(commandBuffer, display);
+			ParticleFluidMetaballScalarBindings.ApplyScalarGlobals(commandBuffer, display, cam, lighting, effectiveNormalStrength);
+		}
+
+		internal static void ApplyMetaballDebugGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting, float effectiveNormalStrength)
+		{
+			ParticleFluidLayoutBindings.ApplyBoundaryGlobals(commandBuffer, display.sim.analyticBoundary);
+			ParticleFluidLayoutBindings.ApplyPhaseSplitGlobals(commandBuffer, display.metaballs);
+			ParticleFluidRasterTextureBindings.ApplyGradientGlobals(commandBuffer, display);
+			ParticleFluidRasterTextureBindings.ApplyDebugGradientGlobals(commandBuffer, display);
+			ParticleFluidMetaballScalarBindings.ApplyScalarGlobals(commandBuffer, display, cam, lighting, effectiveNormalStrength);
+		}
+
+		internal static void ApplyFinalLightingGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, ParticleFluidRenderRegion2D domainRegion)
+		{
+			ParticleFluidLayoutBindings.ApplyLayoutGlobals(commandBuffer, display.sim.analyticBoundary, domainRegion);
+			ParticleFluidLayoutBindings.ApplyPhaseSplitGlobals(commandBuffer, display.metaballs);
+			ParticleFluidRasterTextureBindings.ApplyGradientGlobals(commandBuffer, display);
+		}
+
+		internal static void ApplyCausticTemporalGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, ParticleFluidRenderRegion2D domainRegion, Vector2 historyWorldCenter, Vector2 historyWorldSize)
+		{
+			ParticleFluidLayoutBindings.ApplyPhaseSplitGlobals(commandBuffer, display.metaballs);
+			ParticleFluidLayoutBindings.ApplyDomainGlobals(commandBuffer, domainRegion);
+			commandBuffer.SetGlobalVector("causticHistoryWorldCenter", historyWorldCenter);
+			commandBuffer.SetGlobalVector("causticHistoryWorldSize", historyWorldSize);
 		}
 	}
 }

@@ -6,8 +6,8 @@ namespace Seb.Fluid2D.Rendering
 	{
 		public readonly Bounds worldBounds;
 		public readonly Vector2Int pixelSize;
-		public Vector2 WorldCenter => new (worldBounds.center.x, worldBounds.center.y);
-		public Vector2 WorldSize => new (worldBounds.size.x, worldBounds.size.y);
+		public Vector2 WorldCenter => worldBounds.center;
+		public Vector2 WorldSize => worldBounds.size;
 
 		public ParticleFluidRenderRegion2D(Vector2 worldCenter, Vector2 worldSize, Vector2Int resolution)
 		{
@@ -36,12 +36,10 @@ namespace Seb.Fluid2D.Rendering
 		
 		public Matrix4x4 CreateRegionProjection()
 		{
-			Vector3 min = worldBounds.min;
-			Vector3 max = worldBounds.max;
-			float left = min.x;
-			float right = max.x;
-			float bottom = min.y;
-			float top = max.y;
+			float left = worldBounds.min.x;
+			float right = worldBounds.max.x;
+			float bottom = worldBounds.min.y;
+			float top = worldBounds.max.y;
 			Matrix4x4 ortho = Matrix4x4.Ortho(left, right, bottom, top, -1f, 1f);
 			return GL.GetGPUProjectionMatrix(ortho, false);
 		}

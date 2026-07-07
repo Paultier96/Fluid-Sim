@@ -155,8 +155,7 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			CommandBuffer commandBuffer = CommandBufferPool.Get("Particle2D Reproject History");
-			ParticleFluidAnalyticBoundaryBindings.ApplyPhaseSplitGlobals(commandBuffer, _trace.owner.Owner.Display.metaballs);
-			ParticleFluidRasterLayoutBindings.ApplyCausticHistoryGlobals(commandBuffer, domainRegion, oldWorldCenter, oldWorldSize);
+			ParticleFluidPassBindings.ApplyCausticTemporalGlobals(commandBuffer, _trace.owner.Owner.Display, domainRegion, oldWorldCenter, oldWorldSize);
 			commandBuffer.Blit(oldHistory, newHistory, _temporalMaterial, 2);
 			Graphics.ExecuteCommandBuffer(commandBuffer);
 			CommandBufferPool.Release(commandBuffer);
@@ -195,7 +194,7 @@ namespace Seb.Fluid2D.Rendering
 			{
 				int dilationIterations = Mathf.Max(1, owner.temporalMotionDilationIterations);
 				float motionDilationRadius = owner.temporalMotionDilationRadius * rayTextureBlurScale / dilationIterations;
-				ParticleFluidRasterLayoutBindings.ApplyCausticCurrentGlobals(targetCommandBuffer, context.renderLayout.CausticRegion);
+				ParticleFluidLayoutBindings.ApplyDomainGlobals(targetCommandBuffer, context.renderLayout.CausticRegion);
 				RenderTexture dilationSource = _trace.causticMotionTexture;
 				RenderTexture dilationTarget = causticMotionDilatedTexture;
 				for (int i = 0; i < dilationIterations; i++)
@@ -249,7 +248,7 @@ namespace Seb.Fluid2D.Rendering
 			_temporalMaterial?.SetTexture("MaterialTransportTex", lightingOwner.materialTransportTexture != null ? lightingOwner.materialTransportTexture : Texture2D.blackTexture);
 			if (wantsProjectedShadowMap && lightingOwner.lightManager.GetMainDirectionalLight() is { } directionalLight)
 			{
-				Vector3 effectiveLightDirection = directionalLight.GetDirectLightingDirection(lightingOwner, context.display.sim.analyticBoundary);
+				Vector3 effectiveLightDirection = directionalLight.GetBoundaryRefractedDirection(lightingOwner.PhaseMaterials[1].indexOfRefraction, context.display.sim.analyticBoundary);
 				ParticleFluidProjectedShadow.RecordParams projectedShadowParams = new(
 					owner.projectedShadowCompute,
 					owner.projectedShadow.projectedShadowMapBuffer,
@@ -264,7 +263,6 @@ namespace Seb.Fluid2D.Rendering
 
 			if (owner.denoisingEnabled && _temporalMaterial != null)
 			{
-				ParticleFluidAnalyticBoundaryBindings.ApplyPhaseSplitGlobals(targetCommandBuffer, display.metaballs);
 				if (_clearCausticHistory || !_hasPreviousCausticCamera)
 				{
 					targetCommandBuffer.Blit(_trace.causticResolvedTexture, causticTemporalTexture);
@@ -279,7 +277,7 @@ namespace Seb.Fluid2D.Rendering
 					float warmupHistoryWeight = (nextFrameCount - 1f) / nextFrameCount;
 					_temporalMaterial.SetFloat("causticTemporalHistoryWeight", Mathf.Min(targetHistoryWeight, warmupHistoryWeight));
 					_temporalMaterial.SetInt("causticTemporalMotionSource", (int)owner.temporalMotionSource);
-					ParticleFluidRasterLayoutBindings.ApplyCausticHistoryGlobals(targetCommandBuffer, context.renderLayout.CausticRegion, _previousCausticWorldCenter, _previousCausticWorldSize);
+					ParticleFluidPassBindings.ApplyCausticTemporalGlobals(targetCommandBuffer, display, context.renderLayout.CausticRegion, _previousCausticWorldCenter, _previousCausticWorldSize);
 					_temporalMaterial.SetFloat("causticProjectedShadowOffset", owner.projectedShadowOffset);
 					_temporalMaterial.SetFloat("causticProjectedShadowExpansion", owner.projectedShadowExpansion);
 					_temporalMaterial.SetInt("causticProjectedShadowMapEnabled", useProjectedShadowMap ? 1 : 0);

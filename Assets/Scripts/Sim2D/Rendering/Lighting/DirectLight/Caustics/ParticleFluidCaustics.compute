@@ -59,24 +59,25 @@ float4 LoadCausticsLightField(int lightIndex, int fieldIndex)
 	return CausticsLights[lightIndex * CausticsLightStride + fieldIndex];
 }
 
-float4 CausticsLightDirectionAndEnabled(int lightIndex) { return LoadCausticsLightField(lightIndex, 0); }
-float4 CausticsLightMultiplierAndType(int lightIndex) { return LoadCausticsLightField(lightIndex, 1); }
-float4 CausticsLightPoint(int lightIndex) { return LoadCausticsLightField(lightIndex, 2); }
-float4 CausticsLightOptics(int lightIndex) { return LoadCausticsLightField(lightIndex, 3); }
-float4 CausticsLightRay(int lightIndex) { return LoadCausticsLightField(lightIndex, 4); }
+float4 CausticsLightLaunchDirectionAndEnabled(int lightIndex) { return LoadCausticsLightField(lightIndex, 0); }
+float4 CausticsLightMultiplierAndLaunchMode(int lightIndex) { return LoadCausticsLightField(lightIndex, 1); }
+float4 CausticsLightLaunchAnchor(int lightIndex) { return LoadCausticsLightField(lightIndex, 2); }
+float4 CausticsLightLaunchSpan(int lightIndex) { return LoadCausticsLightField(lightIndex, 3); }
+float4 CausticsLightRayAllocation(int lightIndex) { return LoadCausticsLightField(lightIndex, 4); }
 float4 CausticsLightExtra(int lightIndex) { return LoadCausticsLightField(lightIndex, 5); }
 
-int CausticsLightEnabled(int lightIndex) { return (int)(CausticsLightDirectionAndEnabled(lightIndex).w + 0.5); }
-int CausticsLightType(int lightIndex) { return (int)(CausticsLightMultiplierAndType(lightIndex).w + 0.5); }
-float3 CausticsLightDirection(int lightIndex) { return CausticsLightDirectionAndEnabled(lightIndex).xyz; }
-float3 CausticsLightMultiplier(int lightIndex) { return max(CausticsLightMultiplierAndType(lightIndex).xyz, 0.0); }
-float CausticsLightPointFalloff(int lightIndex) { return CausticsLightOptics(lightIndex).x; }
-float CausticsLightAngularRadius(int lightIndex) { return CausticsLightOptics(lightIndex).y; }
-float CausticsLightPointAngleStart(int lightIndex) { return CausticsLightOptics(lightIndex).z; }
-float CausticsLightPointAngleRange(int lightIndex) { return CausticsLightOptics(lightIndex).w; }
-int CausticsLightRayCount(int lightIndex) { return (int)(CausticsLightRay(lightIndex).x + 0.5); }
-int CausticsLightSubRaysPerPixel(int lightIndex) { return (int)(CausticsLightRay(lightIndex).y + 0.5); }
-float CausticsLightRaySpacing(int lightIndex) { return CausticsLightRay(lightIndex).w; }
+int CausticsLightEnabled(int lightIndex) { return (int)(CausticsLightLaunchDirectionAndEnabled(lightIndex).w + 0.5); }
+int CausticsLightLaunchMode(int lightIndex) { return (int)(CausticsLightMultiplierAndLaunchMode(lightIndex).w + 0.5); }
+float3 CausticsLightLaunchDirection(int lightIndex) { return CausticsLightLaunchDirectionAndEnabled(lightIndex).xyz; }
+float3 CausticsLightMultiplier(int lightIndex) { return max(CausticsLightMultiplierAndLaunchMode(lightIndex).xyz, 0.0); }
+float CausticsLightLaunchFalloff(int lightIndex) { return CausticsLightLaunchSpan(lightIndex).x; }
+float CausticsLightAngularRadius(int lightIndex) { return CausticsLightLaunchSpan(lightIndex).y; }
+float CausticsLightLaunchSpanStart(int lightIndex) { return CausticsLightLaunchSpan(lightIndex).z; }
+float CausticsLightLaunchSpanLength(int lightIndex) { return CausticsLightLaunchSpan(lightIndex).w; }
+int CausticsLightAllocatedRayCount(int lightIndex) { return (int)(CausticsLightRayAllocation(lightIndex).x + 0.5); }
+int CausticsLightSubRaysPerPixel(int lightIndex) { return (int)(CausticsLightRayAllocation(lightIndex).y + 0.5); }
+float CausticsLightLaunchOffset(int lightIndex) { return CausticsLightRayAllocation(lightIndex).z; }
+float CausticsLightLaunchSpacing(int lightIndex) { return CausticsLightRayAllocation(lightIndex).w; }
 float CausticsLightTemperatureKelvin(int lightIndex) { return CausticsLightExtra(lightIndex).x; }
 float CausticsLightDispersionScale(int lightIndex) { return CausticsLightExtra(lightIndex).y; }
 
@@ -603,15 +604,15 @@ float EffectivePhaseEta(bool enteringSelectedPhase, float spectralOffset)
 	return max(0.0001, eta);
 }
 
-bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir, out float3 lightMultiplier, out float lightSampleWeight, out int lightSubRay, out int lightSubRayCount, out int pointLight, out float4 pointLightData, out float pointLightFalloff, out float lightTemperatureKelvin, out float lightDispersionScale)
+bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir, out float3 lightMultiplier, out float lightSampleWeight, out int lightSubRay, out int lightSubRayCount, out int pointLight, out float4 launchAnchor, out float launchFalloff, out float lightTemperatureKelvin, out float lightDispersionScale)
 {
 	int2 rayId = int2(id.xy);
 	int raysPerPixel = max(causticsRaysPerPixel, 1);
 	int baseRay = rayId.x / raysPerPixel;
 	int subRay = rayId.x - baseRay * raysPerPixel;
-	int primaryRayCount = max(CausticsLightRayCount(0), 0);
-	int secondaryRayCount = max(CausticsLightRayCount(1), 0);
-	int tertiaryRayCount = max(CausticsLightRayCount(2), 0);
+	int primaryRayCount = max(CausticsLightAllocatedRayCount(0), 0);
+	int secondaryRayCount = max(CausticsLightAllocatedRayCount(1), 0);
+	int tertiaryRayCount = max(CausticsLightAllocatedRayCount(2), 0);
 	int primarySubRaysPerPixel = clamp(CausticsLightSubRaysPerPixel(0), 0, raysPerPixel);
 	int secondarySubRaysPerPixel = clamp(CausticsLightSubRaysPerPixel(1), 0, raysPerPixel - primarySubRaysPerPixel);
 	int tertiarySubRaysPerPixel = clamp(CausticsLightSubRaysPerPixel(2), 0, raysPerPixel - primarySubRaysPerPixel - secondarySubRaysPerPixel);
@@ -651,17 +652,17 @@ bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir, out float3 lightM
 				: primarySubRaysPerPixel;
 	lightSubRay = localSubRay;
 	lightSubRayCount = max(localSubRayCount, 1);
-	int lightType = CausticsLightType(lightIndex);
+	int launchMode = CausticsLightLaunchMode(lightIndex);
 	lightTemperatureKelvin = CausticsLightTemperatureKelvin(lightIndex);
 	lightDispersionScale = CausticsLightDispersionScale(lightIndex);
-	float3 lightDirection = CausticsLightDirection(lightIndex);
-	pointLightData = CausticsLightPoint(lightIndex);
-	pointLightFalloff = CausticsLightPointFalloff(lightIndex);
+	float3 lightDirection = CausticsLightLaunchDirection(lightIndex);
+	launchAnchor = CausticsLightLaunchAnchor(lightIndex);
+	launchFalloff = CausticsLightLaunchFalloff(lightIndex);
 	float lightAngularRadius = CausticsLightAngularRadius(lightIndex);
-	float pointLightAngleStart = CausticsLightPointAngleStart(lightIndex);
-	float pointLightAngleRange = CausticsLightPointAngleRange(lightIndex);
-	float rayStartOffset = CausticsLightRay(lightIndex).z;
-	float raySpacing = CausticsLightRaySpacing(lightIndex);
+	float launchSpanStart = CausticsLightLaunchSpanStart(lightIndex);
+	float launchSpanLength = CausticsLightLaunchSpanLength(lightIndex);
+	float rayStartOffset = CausticsLightLaunchOffset(lightIndex);
+	float raySpacing = CausticsLightLaunchSpacing(lightIndex);
 	lightMultiplier = CausticsLightMultiplier(lightIndex);
 	lightSampleWeight = splitBySubRay
 		? (float)raysPerPixel / (float)lightSubRayCount
@@ -681,14 +682,14 @@ bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir, out float3 lightM
 	
 	float2 temporalJitter = FrameJitter2D(causticsFrameIndex) * causticsTemporalJitterPixels;
 	float rayOffset = splitBySubRay ? (lightSubRay + 0.5) / lightSubRayCount : (subRay + 0.5) / raysPerPixel;
-	pointLight = lightType == 1 ? 1 : 0;
+	pointLight = launchMode == 1 ? 1 : 0;
 	if (pointLight != 0)
 	{
-		float angleRange = max(pointLightAngleRange, 0.0001);
-		float angle = pointLightAngleStart + ((float)localBaseRay + rayOffset) / max((float)localRayCount, 1.0) * angleRange + temporalJitter.x * 0.01;
+		float angleRange = max(launchSpanLength, 0.0001);
+		float angle = launchSpanStart + ((float)localBaseRay + rayOffset) / max((float)localRayCount, 1.0) * angleRange + temporalJitter.x * 0.01;
 		rayDir = float2(cos(angle), sin(angle));
 		rayDir = Rotate2D(rayDir, angleJitter);
-		uv = WorldToUv(pointLightData.xy) + rayDir * temporalJitter.y / causticSize;
+		uv = WorldToUv(launchAnchor.xy) + rayDir * temporalJitter.y / causticSize;
 		return true;
 	}
 
@@ -786,11 +787,11 @@ void Trace(uint3 id : SV_DispatchThreadID)
 	int lightSubRay;
 	int lightSubRayCount;
 	int pointLight;
-	float4 pointLightData;
-	float pointLightFalloff;
+	float4 launchAnchor;
+	float launchFalloff;
 	float lightTemperatureKelvin;
 	float lightDispersionScale;
-	if (!InitializeRay(id, uv, rayDir, lightMultiplier, lightSampleWeight, lightSubRay, lightSubRayCount, pointLight, pointLightData, pointLightFalloff, lightTemperatureKelvin, lightDispersionScale))
+	if (!InitializeRay(id, uv, rayDir, lightMultiplier, lightSampleWeight, lightSubRay, lightSubRayCount, pointLight, launchAnchor, launchFalloff, lightTemperatureKelvin, lightDispersionScale))
 	{
 		return;
 	}
@@ -995,7 +996,7 @@ void Trace(uint3 id : SV_DispatchThreadID)
 
 		if (causticLineEnergy > 0.0 && (useEllipticalBounds == 0 || insideOuterBoundary))
 		{
-			float pointAttenuation = pointLight != 0 ? PointLightAttenuation(UvToWorld(uv), pointLightData, pointLightFalloff) : 1.0;
+			float pointAttenuation = pointLight != 0 ? PointLightAttenuation(UvToWorld(uv), launchAnchor, launchFalloff) : 1.0;
 			float depositedEnergy = causticLineEnergy * pointAttenuation;
 			AddCausticAtUv(uv, depositedEnergy, rayEnergy);
 			if (causticsMotionEnabled != 0 && rayIsRefractedOnly)

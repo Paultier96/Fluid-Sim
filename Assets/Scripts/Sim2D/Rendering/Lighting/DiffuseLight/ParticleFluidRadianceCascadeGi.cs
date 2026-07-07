@@ -263,8 +263,8 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetGlobalInt("_SdfBoundarySourceMultiplyAlbedo", radianceCascadeSdfBoundarySourceMultiplyAlbedo ? 1 : 0);
 			targetCommandBuffer.SetGlobalInt("_SdfApproximateAbsorption", radianceCascadeSdfApproximateAbsorption ? 1 : 0);
 			targetCommandBuffer.SetGlobalInt("_HybridPhase1Only", useGaussianBoundarySource ? 1 : 0);
-			targetCommandBuffer.SetGlobalVector("metaballWorldCenter", context.renderLayout.CausticRegion.WorldCenter);
-			targetCommandBuffer.SetGlobalVector("metaballWorldSize", context.renderLayout.CausticRegion.WorldSize);
+			targetCommandBuffer.SetGlobalVector("domainWorldCenter", context.renderLayout.CausticRegion.WorldCenter);
+			targetCommandBuffer.SetGlobalVector("domainWorldSize", context.renderLayout.CausticRegion.WorldSize);
 			targetCommandBuffer.SetGlobalFloat("causticsPhase0Absorption", materials[0].absorption);
 			targetCommandBuffer.SetGlobalVector("radianceCascadePhase0AbsorptionTint", materials[0].diffuseLightTint);
 			targetCommandBuffer.SetGlobalFloat("radianceCascadePhase0AbsorptionTintBlend", materials[0].radianceCascadeAbsorptionDiffuseTintBlend);
@@ -276,7 +276,7 @@ namespace Seb.Fluid2D.Rendering
 		{
 			ParticleFluidDirectionalLight2D skyLight = owner.lightManager.GetMainDirectionalLight();
 			bool useDirectionalLight = radianceCascadeDirectionalLightEnabled && skyLight != null;
-			Vector3 direction = skyLight != null ? skyLight.GetDirectLightingDirection(owner, analyticBoundary) : Vector3.down;
+			Vector3 direction = skyLight != null ? skyLight.GetBoundaryRefractedDirection(owner.PhaseMaterials[1].indexOfRefraction, analyticBoundary) : Vector3.down;
 			Vector4 color = useDirectionalLight ? skyLight.EffectiveColor : Vector4.zero;
 			float intensity = useDirectionalLight ? skyLight.intensity : 0f;
 			targetCommandBuffer.SetGlobalInt("_DirectionalLightEnabled", useDirectionalLight ? 1 : 0);
