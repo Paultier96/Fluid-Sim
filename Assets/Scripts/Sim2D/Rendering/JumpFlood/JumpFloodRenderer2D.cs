@@ -23,8 +23,10 @@ namespace Seb.Fluid2D.Rendering
 		RenderTexture result;
 		RenderTexture payloadResult;
 		RenderTexture normalPayloadResult;
-		readonly ParticleFluidMaterialMapSet materialMaps = new ParticleFluidMaterialMapSet();
-		private ParticleFluidRenderLayout2D _currentRenderLayout;
+		readonly ParticleFluidMaterialMapSet materialMaps = new();
+		private Bounds _currentRenderRegion;
+		private Vector2Int _currentSourceSize;
+		private Vector2Int _currentMaterialSize;
 
 		public bool PrepareForRender(ParticleDisplay2D display, Camera cam)
 		{
@@ -74,7 +76,14 @@ namespace Seb.Fluid2D.Rendering
 
 		void RunJumpFlood(ParticleDisplay2D display, Camera cam)
 		{
-			EnsureRenderTextures(GetRenderLayout(display, cam));
+			Bounds cropRegion = GetRenderRegion(display, cam, out Vector2Int cropResolution);
+			ParticleFluidLighting2D lighting = GetActiveLighting(display);
+			float sourceScale = Mathf.Max(display.metaballs.renderTextureScale, 0.0001f);
+			float materialScale = lighting != null ? lighting.materialMapTextureScale : 1f;
+			_currentRenderRegion = cropRegion;
+			_currentSourceSize = ScaleSize(cropResolution, sourceScale);
+			_currentMaterialSize = ScaleSize(cropResolution, materialScale);
+			EnsureRenderTextures();
 
 			int width = seedA.width;
 			int height = seedA.height;
@@ -88,8 +97,8 @@ namespace Seb.Fluid2D.Rendering
 			compute.SetInt("_Width", width);
 			compute.SetInt("_Height", height);
 			compute.SetMatrix("_VP", viewProjection);
-			compute.SetVector("_RenderWorldCenter", _currentRenderLayout.domainRegion.WorldCenter);
-			compute.SetVector("_RenderWorldSize", _currentRenderLayout.domainRegion.WorldSize);
+			compute.SetVector("_RenderWorldCenter", _currentRenderRegion.center);
+			compute.SetVector("_RenderWorldSize", _currentRenderRegion.size);
 			compute.SetFloat("_TempMin", display.sim.ambientTemperature);
 			compute.SetFloat("_TempMax", display.sim.HeatSourceTemperature);
 			compute.SetInt("_ParticleCount", display.sim.positionBuffer.count);
@@ -154,15 +163,9 @@ namespace Seb.Fluid2D.Rendering
 				compute.SetTexture(jumpFloodKernel, "_DstNormalPayloadTex", normalPayloadDst);
 				compute.Dispatch(jumpFloodKernel, gx, gy, 1);
 
-				RenderTexture tmp = src;
-				src = dst;
-				dst = tmp;
-				RenderTexture payloadTmp = payloadSrc;
-				payloadSrc = payloadDst;
-				payloadDst = payloadTmp;
-				RenderTexture normalPayloadTmp = normalPayloadSrc;
-				normalPayloadSrc = normalPayloadDst;
-				normalPayloadDst = normalPayloadTmp;
+				(src, dst) = (dst, src);
+				(payloadSrc, payloadDst) = (payloadDst, payloadSrc);
+				(normalPayloadSrc, normalPayloadDst) = (normalPayloadDst, normalPayloadSrc);
 			}
 
 			result = src;
@@ -170,10 +173,10 @@ namespace Seb.Fluid2D.Rendering
 			normalPayloadResult = normalPayloadSrc;
 		}
 
-		void EnsureRenderTextures(ParticleFluidRenderLayout2D currentRenderLayout)
+		void EnsureRenderTextures()
 		{
-			int width = currentRenderLayout.sourceSize.x;
-			int height = currentRenderLayout.sourceSize.y;
+			int width = _currentSourceSize.x;
+			int height = _currentSourceSize.y;
 
 			ComputeHelper.CreateRenderTexture(ref seedA, width, height, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "JFA Seed A");
 			ComputeHelper.CreateRenderTexture(ref seedB, width, height, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "JFA Seed B");
@@ -181,7 +184,7 @@ namespace Seb.Fluid2D.Rendering
 			ComputeHelper.CreateRenderTexture(ref payloadB, width, height, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "JFA Payload B");
 			ComputeHelper.CreateRenderTexture(ref normalPayloadA, width, height, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "JFA Normal Payload A");
 			ComputeHelper.CreateRenderTexture(ref normalPayloadB, width, height, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "JFA Normal Payload B");
-			materialMaps.EnsureRenderTextures(_currentRenderLayout.materialSize.x, _currentRenderLayout.materialSize.y, currentRenderLayout.sourceSize.x, currentRenderLayout.sourceSize.y, "JFA");
+			materialMaps.EnsureRenderTextures(_currentMaterialSize.x, _currentMaterialSize.y, _currentSourceSize.x, _currentSourceSize.y, "JFA");
 			if (result != null && (result.width != width || result.height != height))
 			{
 				result = null;
@@ -206,11 +209,11 @@ namespace Seb.Fluid2D.Rendering
 			displayMaterial.SetVector("boundsSize",display.sim.boundsSize);
 
 			targetCommandBuffer.BeginSample("Jump Flood/Display Fallback");
-			ParticleFluidLayoutBindings.ApplyLayoutGlobals(targetCommandBuffer, display.sim.analyticBoundary, _currentRenderLayout.domainRegion);
+			ParticleFluidLayoutBindings.ApplyLayoutGlobals(targetCommandBuffer, display.sim.analyticBoundary, _currentRenderRegion);
 			targetCommandBuffer.SetRenderTarget(finalTarget);
 			targetCommandBuffer.ClearRenderTarget(false, true, Color.black);
 			displayMaterial.SetTexture("_ResultTex", result != null ? result : seedA);
-			targetCommandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _currentRenderLayout.domainRegion.CreateRegionMatrix(), displayMaterial, 0, 0);
+			targetCommandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _currentRenderRegion.CreateRegionMatrix(), displayMaterial, 0, 0);
 			targetCommandBuffer.EndSample("Jump Flood/Display Fallback");
 			targetCommandBuffer.BeginSample("Particle Fluid/Vector Field");
 			display.AppendVectorFieldDraw(targetCommandBuffer);
@@ -235,14 +238,14 @@ namespace Seb.Fluid2D.Rendering
 
 			ApplyMaterialMapSettings(display, cam);
 			targetCommandBuffer.BeginSample("Jump Flood/Material Pipeline");
-			ParticleFluidLayoutBindings.ApplyLayoutGlobals(targetCommandBuffer, display.sim.analyticBoundary, _currentRenderLayout.domainRegion);
-			materialMaps.RenderSurfaceMaps(targetCommandBuffer, materialMapMaterial, AlbedoPass, NormalPass, _currentRenderLayout.MaterialRegion, cam);
-			materialMaps.RenderTransportMap(targetCommandBuffer, materialMapMaterial, TransportPass, _currentRenderLayout.SourceRegion, cam);
+			ParticleFluidLayoutBindings.ApplyLayoutGlobals(targetCommandBuffer, display.sim.analyticBoundary, _currentRenderRegion);
+			materialMaps.RenderSurfaceMaps(targetCommandBuffer, materialMapMaterial, AlbedoPass, NormalPass, _currentRenderRegion, cam);
+			materialMaps.RenderTransportMap(targetCommandBuffer, materialMapMaterial, TransportPass, _currentRenderRegion, cam);
 			ClearFinalTarget(targetCommandBuffer, finalTarget);
 
 			if (lighting == null)
 			{
-				materialMaps.RenderUnlit(targetCommandBuffer, materialMapMaterial, finalTarget, UnlitPass, _currentRenderLayout.domainRegion);
+				materialMaps.RenderUnlit(targetCommandBuffer, materialMapMaterial, finalTarget, UnlitPass, _currentRenderRegion);
 				targetCommandBuffer.EndSample("Jump Flood/Material Pipeline");
 				return true;
 			}
@@ -253,7 +256,7 @@ namespace Seb.Fluid2D.Rendering
 			lighting.EnsureMaterials(lightingShader);
 			if (!(lighting.lightingMaterial != null))
 			{
-				materialMaps.RenderUnlit(targetCommandBuffer, materialMapMaterial, finalTarget, UnlitPass, _currentRenderLayout.domainRegion);
+				materialMaps.RenderUnlit(targetCommandBuffer, materialMapMaterial, finalTarget, UnlitPass, _currentRenderRegion);
 				targetCommandBuffer.EndSample("Jump Flood/Material Pipeline");
 				return true;
 			}
@@ -262,13 +265,13 @@ namespace Seb.Fluid2D.Rendering
 			ParticleFluidLighting2D.FrameContext lightingContext = new ParticleFluidLighting2D.FrameContext(
 				display,
 				cam,
-				_currentRenderLayout,
-				display.GetZoomScale(cam)
+				_currentRenderRegion,
+				_currentSourceSize
 			);
 			Vector2 projectedShadowDirection = Vector2.zero;
 			ParticleFluidProjectedShadow.RecordParams projectedShadowParams = default;
 			if (lighting.directLight.projectedShadow.ShouldRender(lighting.directLight)
-			    && lighting.lightManager.GetMainDirectionalLight() is ParticleFluidDirectionalLight2D directionalLight)
+			    && lighting.lightManager.GetMainDirectionalLight() is { } directionalLight)
 			{
 				Vector3 effectiveLightDirection = directionalLight.GetBoundaryRefractedDirection(lighting.PhaseMaterials[1].indexOfRefraction, display.sim.analyticBoundary);
 				projectedShadowParams = new ParticleFluidProjectedShadow.RecordParams(
@@ -278,8 +281,8 @@ namespace Seb.Fluid2D.Rendering
 					lighting.materialTransportTexture,
 					lighting.directLight.projectedShadowMapBins,
 					effectiveLightDirection,
-					lightingContext.renderLayout.SourceRegion,
-					lightingContext.renderLayout.CausticRegion);
+					lightingContext.renderRegion,
+					lightingContext.sourceSize);
 			}
 			bool useProjectedShadow = lighting.directLight.projectedShadow.ShouldRender(lighting.directLight)
 			                          && lighting.directLight.projectedShadow.RecordCurrentShadowMap(targetCommandBuffer, projectedShadowParams, out projectedShadowDirection);
@@ -321,48 +324,44 @@ namespace Seb.Fluid2D.Rendering
 			materialMapMaterial.SetVector("boundsSize", display.sim.boundsSize);
 		}
 
-		ParticleFluidRenderLayout2D GetRenderLayout(ParticleDisplay2D display, Camera cam)
+		void GetRenderLayout(ParticleDisplay2D display, Camera cam, out Bounds renderRegion, out Vector2Int sourceSize, out Vector2Int materialSize)
 		{
-			ParticleFluidRenderRegion2D cropRegion = GetRenderRegion(display, cam);
+			Bounds cropRegion = GetRenderRegion(display, cam, out Vector2Int cropResolution);
 			ParticleFluidLighting2D lighting = GetActiveLighting(display);
 			float sourceScale = Mathf.Max(display.metaballs.renderTextureScale, 0.0001f);
 			float materialScale = lighting != null ? lighting.materialMapTextureScale : 1f;
-			ParticleFluidRenderRegion2D domainRegion = new ParticleFluidRenderRegion2D(
-				cropRegion.WorldCenter,
-				cropRegion.WorldSize,
-				cropRegion.pixelSize);
-			return new ParticleFluidRenderLayout2D(
-				domainRegion,
-				cropRegion.ScaledSize(sourceScale),
-				cropRegion.ScaledSize(materialScale),
-				cropRegion.ScaledSize(sourceScale));
+			renderRegion = cropRegion;
+			sourceSize = ScaleSize(cropResolution, sourceScale);
+			materialSize = ScaleSize(cropResolution, materialScale);
 		}
 
-		ParticleFluidRenderRegion2D GetRenderRegion(ParticleDisplay2D display, Camera cam)
+		Bounds GetRenderRegion(ParticleDisplay2D display, Camera cam, out Vector2Int resolution)
 		{			
 			int fullWidth = Mathf.Max(cam.pixelWidth, 1);
-			int fullHeight = Mathf.Max(cam.pixelHeight, 1); 
-			ParticleFluidRenderRegion2D fullRegion = ParticleFluidRenderRegion2D.Full(cam);
+			int fullHeight = Mathf.Max(cam.pixelHeight, 1);
+			resolution = new Vector2Int(fullWidth, fullHeight);
+			Bounds fullRegion = ParticleFluidRenderRegion2D.Full(cam);
 			if (display == null || cam == null || !display.sim.analyticBoundary.useEllipticalBounds || display.debugMode != ParticleDisplay2D.DebugVisualization.None)
 			{
 				return fullRegion;
 			}
 
-			float cameraWorldUnitsPerPixel = fullRegion.WorldSize.y / Mathf.Max(fullHeight, 1);
+			float cameraWorldUnitsPerPixel = fullRegion.size.y / Mathf.Max(fullHeight, 1);
 
-			Vector2 cameraMin = fullRegion.worldBounds.min;
-			Vector2 cameraMax = fullRegion.worldBounds.max;
+			Vector2 cameraMin = fullRegion.min;
+			Vector2 cameraMax = fullRegion.max;
 			Vector2 cropMin = Vector2.Max(cameraMin, display.sim.analyticBoundary.BoundsMin);
 			Vector2 cropMax = Vector2.Min(cameraMax, display.sim.analyticBoundary.BoundsMax);
 			if (cropMax.x <= cropMin.x || cropMax.y <= cropMin.y)
 			{
-				return new ParticleFluidRenderRegion2D(new Bounds(fullRegion.worldBounds.center, new Vector3(cameraWorldUnitsPerPixel, cameraWorldUnitsPerPixel, 0f)), 1, 1);
+				resolution = Vector2Int.one;
+				return new Bounds(fullRegion.center, new Vector3(cameraWorldUnitsPerPixel, cameraWorldUnitsPerPixel, 0f));
 			}
 
-			float uvMinX = Mathf.Clamp01((cropMin.x - cameraMin.x) / fullRegion.WorldSize.x);
-			float uvMinY = Mathf.Clamp01((cropMin.y - cameraMin.y) / fullRegion.WorldSize.y);
-			float uvMaxX = Mathf.Clamp01((cropMax.x - cameraMin.x) / fullRegion.WorldSize.x);
-			float uvMaxY = Mathf.Clamp01((cropMax.y - cameraMin.y) / fullRegion.WorldSize.y);
+			float uvMinX = Mathf.Clamp01((cropMin.x - cameraMin.x) / fullRegion.size.x);
+			float uvMinY = Mathf.Clamp01((cropMin.y - cameraMin.y) / fullRegion.size.y);
+			float uvMaxX = Mathf.Clamp01((cropMax.x - cameraMin.x) / fullRegion.size.x);
+			float uvMaxY = Mathf.Clamp01((cropMax.y - cameraMin.y) / fullRegion.size.y);
 			int x = Mathf.Clamp(Mathf.FloorToInt(uvMinX * fullWidth), 0, Mathf.Max(fullWidth - 1, 0));
 			int y = Mathf.Clamp(Mathf.FloorToInt(uvMinY * fullHeight), 0, Mathf.Max(fullHeight - 1, 0));
 			int xMax = Mathf.Clamp(Mathf.CeilToInt(uvMaxX * fullWidth), x + 1, fullWidth);
@@ -373,6 +372,7 @@ namespace Seb.Fluid2D.Rendering
 			{
 				return fullRegion;
 			}
+			resolution = new Vector2Int(pixelWidth, pixelHeight);
 
 			Vector4 compositeUvRect = new Vector4(
 				x / (float)fullWidth,
@@ -380,9 +380,15 @@ namespace Seb.Fluid2D.Rendering
 				pixelWidth / (float)fullWidth,
 				pixelHeight / (float)fullHeight
 			);
-			Vector2 worldMin = cameraMin + Vector2.Scale(new Vector2(compositeUvRect.x, compositeUvRect.y), fullRegion.WorldSize);
-			Vector2 worldSize = Vector2.Scale(new Vector2(compositeUvRect.z, compositeUvRect.w), fullRegion.WorldSize);
-			return new ParticleFluidRenderRegion2D(new Bounds(worldMin + worldSize * 0.5f, worldSize), pixelWidth, pixelHeight);
+			Vector2 worldMin = cameraMin + Vector2.Scale(new Vector2(compositeUvRect.x, compositeUvRect.y), fullRegion.size);
+			Vector2 worldSize = Vector2.Scale(new Vector2(compositeUvRect.z, compositeUvRect.w), fullRegion.size);
+			return new Bounds(worldMin + worldSize * 0.5f, worldSize);
+		}
+
+		static Vector2Int ScaleSize(Vector2Int baseSize, float scale)
+		{
+			Vector2 size = new Vector2(Mathf.Max(baseSize.x, 1), Mathf.Max(baseSize.y, 1));
+			return Vector2Int.Max(Vector2Int.one, Vector2Int.RoundToInt(size * scale));
 		}
 
 		static ParticleFluidLighting2D GetActiveLighting(ParticleDisplay2D display)
@@ -397,3 +403,4 @@ namespace Seb.Fluid2D.Rendering
 		}
 	}
 }
+

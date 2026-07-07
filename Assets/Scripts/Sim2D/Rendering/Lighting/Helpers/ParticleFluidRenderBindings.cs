@@ -8,16 +8,16 @@ namespace Seb.Fluid2D.Rendering
 	internal static class ParticleFluidLayoutBindings
 	{
 
-		internal static void ApplyLayoutGlobals(CommandBuffer targetCommandBuffer, ParticleFluidAnalyticBoundary2D boundary, ParticleFluidRenderRegion2D domainRegion)
+		internal static void ApplyLayoutGlobals(CommandBuffer targetCommandBuffer, ParticleFluidAnalyticBoundary2D boundary, Bounds domainRegion)
 		{
 			ApplyBoundaryGlobals(targetCommandBuffer, boundary);
 			ApplyDomainGlobals(targetCommandBuffer, domainRegion);
 		}
 
-		internal static void ApplyDomainGlobals(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D domainRegion)
+		internal static void ApplyDomainGlobals(CommandBuffer commandBuffer, Bounds domainRegion)
 		{
-			commandBuffer.SetGlobalVector("domainWorldCenter", domainRegion.WorldCenter);
-			commandBuffer.SetGlobalVector("domainWorldSize", domainRegion.WorldSize);
+			commandBuffer.SetGlobalVector("domainWorldCenter", domainRegion.center);
+			commandBuffer.SetGlobalVector("domainWorldSize", domainRegion.size);
 		}
 
 		internal static void ApplyBoundaryGlobals(CommandBuffer commandBuffer, ParticleFluidAnalyticBoundary2D boundary)
@@ -76,7 +76,7 @@ namespace Seb.Fluid2D.Rendering
 
 	internal static class ParticleFluidPassBindings
 	{
-		internal static void ApplyMetaballMaterialGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting, ParticleFluidRenderRegion2D domainRegion, float effectiveNormalStrength)
+		internal static void ApplyMetaballMaterialGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting, Bounds domainRegion, float effectiveNormalStrength)
 		{
 			ParticleFluidLayoutBindings.ApplyPhaseSplitGlobals(commandBuffer, display.metaballs);
 			ParticleFluidLayoutBindings.ApplyLayoutGlobals(commandBuffer, display.sim.analyticBoundary, domainRegion);
@@ -93,14 +93,14 @@ namespace Seb.Fluid2D.Rendering
 			ParticleFluidMetaballScalarBindings.ApplyScalarGlobals(commandBuffer, display, cam, lighting, effectiveNormalStrength);
 		}
 
-		internal static void ApplyFinalLightingGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, ParticleFluidRenderRegion2D domainRegion)
+		internal static void ApplyFinalLightingGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Bounds domainRegion)
 		{
 			ParticleFluidLayoutBindings.ApplyLayoutGlobals(commandBuffer, display.sim.analyticBoundary, domainRegion);
 			ParticleFluidLayoutBindings.ApplyPhaseSplitGlobals(commandBuffer, display.metaballs);
 			ParticleFluidRasterTextureBindings.ApplyGradientGlobals(commandBuffer, display);
 		}
 
-		internal static void ApplyCausticTemporalGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, ParticleFluidRenderRegion2D domainRegion, Vector2 historyWorldCenter, Vector2 historyWorldSize)
+		internal static void ApplyCausticTemporalGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Bounds domainRegion, Vector2 historyWorldCenter, Vector2 historyWorldSize)
 		{
 			ParticleFluidLayoutBindings.ApplyPhaseSplitGlobals(commandBuffer, display.metaballs);
 			ParticleFluidLayoutBindings.ApplyDomainGlobals(commandBuffer, domainRegion);
@@ -109,3 +109,4 @@ namespace Seb.Fluid2D.Rendering
 		}
 	}
 }
+

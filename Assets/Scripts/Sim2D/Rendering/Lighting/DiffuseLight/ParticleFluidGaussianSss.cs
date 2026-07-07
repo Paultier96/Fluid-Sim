@@ -79,14 +79,14 @@ namespace Seb.Fluid2D.Rendering
 				return Texture2D.blackTexture;
 			}
 			ParticleFluidLayoutBindings.ApplyPhaseSplitGlobals(targetCommandBuffer, metaballSettings);
-			ParticleFluidLayoutBindings.ApplyLayoutGlobals(targetCommandBuffer, context.display.sim.analyticBoundary, context.renderLayout.domainRegion);
+			ParticleFluidLayoutBindings.ApplyLayoutGlobals(targetCommandBuffer, context.display.sim.analyticBoundary, context.renderRegion);
 
 			_phaseDiffuseLightInitMaterial.SetTexture("SharpCausticsTex", sharpCaustics);
 			_phaseDiffuseLightInitMaterial.SetTexture("MaterialTransportTex", transportTexture != null ? transportTexture : Texture2D.blackTexture);
 			_phaseDiffuseLightInitMaterial.SetVector("softLightSize", new Vector4(gaussianSoftLightTexture0.width, gaussianSoftLightTexture0.height));
 			_phaseDiffuseLightInitMaterial.SetFloat("scatterStrengthA", gaussianDiffuseScatterStrength);
 			_phaseDiffuseLightInitMaterial.SetFloat("lightIntensity", 1f);
-			ParticleFluidRenderUtils.DrawRegionQuad(targetCommandBuffer, gaussianSoftLightTexture0, _phaseDiffuseLightInitMaterial, 0, context.renderLayout.CausticRegion, context.cam, true, Color.clear);
+			ParticleFluidRenderUtils.DrawRegionQuad(targetCommandBuffer, gaussianSoftLightTexture0, _phaseDiffuseLightInitMaterial, 0, context.renderRegion, context.cam, true, Color.clear);
 			if (_gaussianSoftLightInitTexture != null)
 			{
 				targetCommandBuffer.Blit(gaussianSoftLightTexture0, _gaussianSoftLightInitTexture);
@@ -109,3 +109,4 @@ namespace Seb.Fluid2D.Rendering
 		}
 	}
 }
+

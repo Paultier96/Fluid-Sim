@@ -19,8 +19,8 @@ namespace Seb.Fluid2D.Rendering
 			public readonly Texture transportTexture;
 			public readonly int projectedShadowMapBins;
 			public readonly Vector3 effectiveLightDirection;
-			public readonly ParticleFluidRenderRegion2D sourceRegion;
-			public readonly ParticleFluidRenderRegion2D shadowRegion;
+			public readonly Bounds worldRegion;
+			public readonly Vector2Int sourceSize;
 
 			public RecordParams(
 				ComputeShader compute,
@@ -29,8 +29,8 @@ namespace Seb.Fluid2D.Rendering
 				Texture transportTexture,
 				int projectedShadowMapBins,
 				Vector3 effectiveLightDirection,
-				ParticleFluidRenderRegion2D sourceRegion,
-				ParticleFluidRenderRegion2D shadowRegion)
+				Bounds worldRegion,
+				Vector2Int sourceSize)
 			{
 				this.compute = compute;
 				this.projectedShadowMapBuffer = projectedShadowMapBuffer;
@@ -38,8 +38,8 @@ namespace Seb.Fluid2D.Rendering
 				this.transportTexture = transportTexture;
 				this.projectedShadowMapBins = projectedShadowMapBins;
 				this.effectiveLightDirection = effectiveLightDirection;
-				this.sourceRegion = sourceRegion;
-				this.shadowRegion = shadowRegion;
+				this.worldRegion = worldRegion;
+				this.sourceSize = sourceSize;
 			}
 		}
 
@@ -66,17 +66,16 @@ namespace Seb.Fluid2D.Rendering
 			int buildKernel = compute.FindKernel("BuildProjectedShadowMap");
 			int resolveKernel = compute.FindKernel("ResolveProjectedShadowMap");
 			int binCount = parameters.projectedShadowMapBins;
-			ParticleFluidRenderRegion2D sourceRegion = parameters.sourceRegion;
-			ParticleFluidRenderRegion2D shadowRegion = parameters.shadowRegion;
+			Bounds worldRegion = parameters.worldRegion;
 
-			targetCommandBuffer.SetComputeIntParam(compute, "combinedWidth", sourceRegion.pixelSize.x);
-			targetCommandBuffer.SetComputeIntParam(compute, "combinedHeight", sourceRegion.pixelSize.y);
+			targetCommandBuffer.SetComputeIntParam(compute, "combinedWidth", parameters.sourceSize.x);
+			targetCommandBuffer.SetComputeIntParam(compute, "combinedHeight", parameters.sourceSize.y);
 			targetCommandBuffer.SetComputeIntParam(compute, "projectedShadowMapBinCount", binCount);
 			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowMapDirection", shadowDirection);
-			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowSourceWorldCenter", sourceRegion.WorldCenter);
-			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowSourceWorldSize", sourceRegion.WorldSize);
-			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowWorldCenter",shadowRegion.WorldCenter);
-			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowWorldSize", shadowRegion.WorldSize);
+			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowSourceWorldCenter", worldRegion.center);
+			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowSourceWorldSize", worldRegion.size);
+			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowWorldCenter",worldRegion.center);
+			targetCommandBuffer.SetComputeVectorParam(compute, "projectedShadowWorldSize", worldRegion.size);
 
 			targetCommandBuffer.SetComputeBufferParam(compute, clearKernel, "ProjectedShadowMapAccum", parameters.projectedShadowMapBuffer);
 			targetCommandBuffer.DispatchCompute(compute, clearKernel, Mathf.CeilToInt(binCount / 64f), 1, 1);
@@ -86,8 +85,8 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.DispatchCompute(
 				compute,
 				buildKernel,
-				Mathf.CeilToInt(sourceRegion.pixelSize.x / 16f),
-				Mathf.CeilToInt(sourceRegion.pixelSize.y / 16f),
+				Mathf.CeilToInt(parameters.sourceSize.x / 16f),
+				Mathf.CeilToInt(parameters.sourceSize.y / 16f),
 				1);
 
 			targetCommandBuffer.SetComputeBufferParam(compute, resolveKernel, "ProjectedShadowMapAccum", parameters.projectedShadowMapBuffer);
@@ -147,3 +146,4 @@ namespace Seb.Fluid2D.Rendering
 		}
 	}
 }
+

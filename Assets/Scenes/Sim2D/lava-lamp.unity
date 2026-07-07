@@ -365,6 +365,7 @@ MonoBehaviour:
     densityThreshold: 0.18
     edgeSoftness: 0.05
     phaseBlendWidth: 1
+    transportPhaseBlendWidth: 1
     phase0RenderBias: 0.95
     phaseBiasNormalStrength: 2.25
     sharpness: 1
@@ -685,7 +686,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 83b7c6c7c458bbc4a9bd91ee052a1acb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  owner: {fileID: 271053323}
 --- !u!114 &271053328
 MonoBehaviour:
   m_ObjectHideFlags: 0

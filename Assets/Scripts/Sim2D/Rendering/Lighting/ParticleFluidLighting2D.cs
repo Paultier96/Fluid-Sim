@@ -140,7 +140,7 @@ using UnityEngine.Serialization;
 		internal Texture materialAlbedoTexture;
 		internal Texture materialNormalTexture;
 		internal Texture materialTransportTexture;
-		private ParticleFluidRenderRegion2D _domainRenderRegion;
+		private Bounds _domainRenderRegion;
 		internal float currentZoomScale = 1f;
 		
 		internal Vector2 currentCausticWorldCenter;
@@ -293,19 +293,21 @@ using UnityEngine.Serialization;
 		{
 			public readonly ParticleDisplay2D display;
 			public readonly Camera cam;
-			public readonly ParticleFluidRenderLayout2D renderLayout;
+			public readonly Bounds renderRegion;
+			public readonly Vector2Int sourceSize;
 
-			public FrameContext(ParticleDisplay2D display, Camera cam, ParticleFluidRenderLayout2D renderLayout, float zoomScale)
+			public FrameContext(ParticleDisplay2D display, Camera cam, Bounds renderRegion, Vector2Int sourceSize)
 			{
 				this.display = display;
 				this.cam = cam;
-				this.renderLayout = renderLayout;
+				this.renderRegion = renderRegion;
+				this.sourceSize = sourceSize;
 			}
 		}
 		
-		public void ApplyFrameSettings(Camera cam, ParticleFluidRenderLayout2D renderLayout, Texture velocityPhase0AccumulationTexture, Texture velocityPhase1AccumulationTexture)
+		public void ApplyFrameSettings(Camera cam, Bounds renderRegion, Vector2Int sourceSize, Texture velocityPhase0AccumulationTexture, Texture velocityPhase1AccumulationTexture)
 		{
-			FrameContext context = new FrameContext(display, cam, renderLayout, display.GetZoomScale(cam));
+			FrameContext context = new FrameContext(display, cam, renderRegion, sourceSize);
 			directLight.ApplyTemporalSettings(context, velocityPhase0AccumulationTexture, velocityPhase1AccumulationTexture);
 			Texture causticTexture = directLight.GetCurrentDirectLightTexture();
 			ApplySettings(context, directLight.lightingMode == LightingMode.Caustics, gaussianSss.ShouldRender() || radianceCascadeGi.radianceCascadeEnabled, causticTexture);
@@ -317,7 +319,7 @@ using UnityEngine.Serialization;
 			ParticleDisplay2D display = context.display;
 			PhaseMaterialSettings[] materials = PhaseMaterials;
 
-			_domainRenderRegion = context.renderLayout.domainRegion;
+			_domainRenderRegion = context.renderRegion;
 			currentZoomScale = context.display.GetZoomScale(context.cam);
 			
 			BindMaterialTextures();
@@ -373,17 +375,17 @@ using UnityEngine.Serialization;
 			commandBuffer.EndSample("Particle Fluid/Final Lighting");
 		}
 
-		public void EnsureLightingResources(ParticleFluidRenderLayout2D renderLayout)
+		public void EnsureLightingResources(Bounds renderRegion, Vector2Int causticSize)
 		{
-			currentCausticWorldCenter = renderLayout.domainRegion.WorldCenter;
-			currentCausticWorldSize = renderLayout.domainRegion.WorldSize;
+			currentCausticWorldCenter = renderRegion.center;
+			currentCausticWorldSize = renderRegion.size;
 			bool renderPhaseDiffuseLight = gaussianSss.ShouldRender();
 			bool renderRadianceCascadeLight = radianceCascadeGi.radianceCascadeEnabled;
 
-			gaussianSss.EnsureResources(renderLayout.causticSize, renderPhaseDiffuseLight);
-			radianceCascadeGi.EnsureResources(renderLayout.causticSize, renderRadianceCascadeLight);
+			gaussianSss.EnsureResources(causticSize, renderPhaseDiffuseLight);
+			radianceCascadeGi.EnsureResources(causticSize, renderRadianceCascadeLight);
 
-			directLight.EnsureResources(renderLayout.causticSize, renderLayout.domainRegion);
+			directLight.EnsureResources(causticSize, renderRegion);
 		}
 
 		public void Release()
@@ -472,3 +474,4 @@ using UnityEngine.Serialization;
 		}
 	}
 }
+

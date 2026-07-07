@@ -6,7 +6,7 @@ namespace Seb.Fluid2D.Rendering
 {
 	internal static class ParticleFluidRenderUtils
 	{
-		static Mesh quadMesh;
+		private static Mesh _quadMesh;
 
 		internal static void EnsureMaterial(ref Material material, Shader shader)
 		{
@@ -44,15 +44,15 @@ namespace Seb.Fluid2D.Rendering
 
 		internal static Mesh GetQuadMesh()
 		{
-			if (quadMesh == null)
+			if (_quadMesh == null)
 			{
-				quadMesh = QuadGenerator.GenerateQuadMesh();
+				_quadMesh = QuadGenerator.GenerateQuadMesh();
 			}
 
-			return quadMesh;
+			return _quadMesh;
 		}
 
-		internal static void DrawRegionQuad(CommandBuffer commandBuffer, RenderTargetIdentifier target, Material material, int pass, ParticleFluidRenderRegion2D region, Camera restoreCamera, bool clear = false, Color? clearColor = null)
+		internal static void DrawRegionQuad(CommandBuffer commandBuffer, RenderTargetIdentifier target, Material material, int pass, Bounds region, Camera restoreCamera, bool clear = false, Color? clearColor = null)
 		{
 			commandBuffer.SetRenderTarget(target);
 			if (clear)
@@ -66,3 +66,4 @@ namespace Seb.Fluid2D.Rendering
 		}
 	}
 }
+

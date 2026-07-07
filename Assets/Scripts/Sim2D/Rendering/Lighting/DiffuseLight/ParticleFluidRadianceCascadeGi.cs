@@ -140,7 +140,7 @@ namespace Seb.Fluid2D.Rendering
 			{
 				targetCommandBuffer.SetGlobalInt("_CascadeLevel", level);
 				targetCommandBuffer.SetGlobalTexture("_UpperCascadeTex", source);
-				ParticleFluidRenderUtils.DrawRegionQuad(targetCommandBuffer, target, material, 0, context.renderLayout.CausticRegion, context.cam, false);
+				ParticleFluidRenderUtils.DrawRegionQuad(targetCommandBuffer, target, material, 0, context.renderRegion, context.cam, false);
 				ParticleFluidRenderUtils.Swap(ref source, ref target);
 			}
 
@@ -175,8 +175,8 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeIntParam(compute, "_Height", height);
 			targetCommandBuffer.SetComputeIntParam(compute, "transportWidth", owner.materialTransportTexture.width);
 			targetCommandBuffer.SetComputeIntParam(compute, "transportHeight", owner.materialTransportTexture.height);
-			targetCommandBuffer.SetComputeVectorParam(compute, "metaballWorldCenter", context.renderLayout.CausticRegion.WorldCenter);
-			targetCommandBuffer.SetComputeVectorParam(compute, "metaballWorldSize", context.renderLayout.CausticRegion.WorldSize);
+			targetCommandBuffer.SetComputeVectorParam(compute, "metaballWorldCenter", context.renderRegion.center);
+			targetCommandBuffer.SetComputeVectorParam(compute, "metaballWorldSize", context.renderRegion.size);
 
 			targetCommandBuffer.SetComputeTextureParam(compute, clearKernel, "Result", radianceCascadeSdfSeedA);
 			targetCommandBuffer.SetComputeTextureParam(compute, clearKernel, "ResultPayload", radianceCascadeSdfPayloadA);
@@ -263,8 +263,8 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetGlobalInt("_SdfBoundarySourceMultiplyAlbedo", radianceCascadeSdfBoundarySourceMultiplyAlbedo ? 1 : 0);
 			targetCommandBuffer.SetGlobalInt("_SdfApproximateAbsorption", radianceCascadeSdfApproximateAbsorption ? 1 : 0);
 			targetCommandBuffer.SetGlobalInt("_HybridPhase1Only", useGaussianBoundarySource ? 1 : 0);
-			targetCommandBuffer.SetGlobalVector("domainWorldCenter", context.renderLayout.CausticRegion.WorldCenter);
-			targetCommandBuffer.SetGlobalVector("domainWorldSize", context.renderLayout.CausticRegion.WorldSize);
+			targetCommandBuffer.SetGlobalVector("domainWorldCenter", context.renderRegion.center);
+			targetCommandBuffer.SetGlobalVector("domainWorldSize", context.renderRegion.size);
 			targetCommandBuffer.SetGlobalFloat("causticsPhase0Absorption", materials[0].absorption);
 			targetCommandBuffer.SetGlobalVector("radianceCascadePhase0AbsorptionTint", materials[0].diffuseLightTint);
 			targetCommandBuffer.SetGlobalFloat("radianceCascadePhase0AbsorptionTintBlend", materials[0].radianceCascadeAbsorptionDiffuseTintBlend);
@@ -287,3 +287,4 @@ namespace Seb.Fluid2D.Rendering
 
 	}
 }
+

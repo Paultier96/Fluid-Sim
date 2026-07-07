@@ -83,7 +83,7 @@ namespace Seb.Fluid2D.Rendering
 			projectedShadow.ApplyToMaterial(material, false, Vector2.zero, projectedShadowOffset, projectedShadowExpansion);
 		}
 
-		internal void EnsureResources(Vector2Int causticSize, ParticleFluidRenderRegion2D domainRegion)
+		internal void EnsureResources(Vector2Int causticSize, Bounds domainRegion)
 		{
 			bool useProjectedShadowMap = (projectedShadow.ShouldRender(this) || (denoisingEnabled && (projectedShadowHistoryRejection || temporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.ProjectedShadow))) && projectedShadowCompute != null && Owner.lightManager.GetMainDirectionalLight() is { isActiveAndEnabled: true };
 
@@ -122,3 +122,4 @@ namespace Seb.Fluid2D.Rendering
 		}
 	}
 }
+

@@ -169,3 +169,4 @@ public class Camera2D : MonoBehaviour
         return Mathf.Max(distance, 0.001f);
     }
 }
+

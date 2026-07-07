@@ -697,3 +697,4 @@ public class Spawner2D : MonoBehaviour
 		}
 	}
 }
+

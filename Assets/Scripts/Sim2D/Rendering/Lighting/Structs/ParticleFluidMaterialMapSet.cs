@@ -20,7 +20,7 @@ namespace Seb.Fluid2D.Rendering
 			ComputeHelper.CreateRenderTexture(ref transportTexture, transportWidth, transportHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, $"{namePrefix} Material Transport");
 		}
 
-		public void RenderSurfaceMaps(CommandBuffer commandBuffer, Material material, int albedoPass, int normalPass, ParticleFluidRenderRegion2D materialRegion, Camera camera)
+		public void RenderSurfaceMaps(CommandBuffer commandBuffer, Material material, int albedoPass, int normalPass, Bounds materialRegion, Camera camera)
 		{
 			if (!IsAllocated || commandBuffer == null || material == null || camera == null)
 			{
@@ -33,7 +33,7 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.EndSample("Particle Fluid/Build Surface Maps");
 		}
 
-		public void RenderTransportMap(CommandBuffer commandBuffer, Material material, int transportPass, ParticleFluidRenderRegion2D transportRegion, Camera camera)
+		public void RenderTransportMap(CommandBuffer commandBuffer, Material material, int transportPass, Bounds transportRegion, Camera camera)
 		{
 			if (!IsAllocated || commandBuffer == null || material == null || camera == null)
 			{
@@ -45,7 +45,7 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.EndSample("Particle Fluid/Build Transport Map");
 		}
 
-		public void RenderUnlit(CommandBuffer commandBuffer, Material material, RenderTargetIdentifier finalTarget, int unlitPass, ParticleFluidRenderRegion2D region)
+		public void RenderUnlit(CommandBuffer commandBuffer, Material material, RenderTargetIdentifier finalTarget, int unlitPass, Bounds region)
 		{
 			if (!IsAllocated || commandBuffer == null || material == null)
 			{
@@ -80,3 +80,4 @@ namespace Seb.Fluid2D.Rendering
 		}
 	}
 }
+

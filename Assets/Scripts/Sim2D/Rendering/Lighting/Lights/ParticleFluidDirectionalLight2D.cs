@@ -50,14 +50,14 @@ namespace Seb.Fluid2D.Rendering
 				float angle = i * Mathf.PI * 2f / samples;
 				if (boundary.TryGetEllipsePoint(angle, out Vector2 launchPoint))
 				{
-					IncludeCausticLaunchPoint(launchPoint, context.renderLayout.CausticRegion, tangent, ref minOffset, ref maxOffset);
+					IncludeCausticLaunchPoint(launchPoint, context.renderRegion, resolution, tangent, ref minOffset, ref maxOffset);
 				}
 			}
 
 			if (boundary.TryGetCutSegment(out Vector2 left, out Vector2 right))
 			{
-				IncludeCausticLaunchPoint(left, context.renderLayout.CausticRegion, tangent, ref minOffset, ref maxOffset);
-				IncludeCausticLaunchPoint(right, context.renderLayout.CausticRegion, tangent, ref minOffset, ref maxOffset);
+				IncludeCausticLaunchPoint(left, context.renderRegion, resolution, tangent, ref minOffset, ref maxOffset);
+				IncludeCausticLaunchPoint(right, context.renderRegion, resolution, tangent, ref minOffset, ref maxOffset);
 			}
 
 			if (float.IsNaN(minOffset) || float.IsInfinity(minOffset) || float.IsNaN(maxOffset) || float.IsInfinity(maxOffset))
@@ -79,9 +79,9 @@ namespace Seb.Fluid2D.Rendering
 			rayCount = Mathf.Max(1, Mathf.CeilToInt(clippedMaxOffset - startOffset));
 		}
 
-		private static void IncludeCausticLaunchPoint(Vector2 launchPoint, ParticleFluidRenderRegion2D causticRegion, Vector2 tangent, ref float minOffset, ref float maxOffset)
+		private static void IncludeCausticLaunchPoint(Vector2 launchPoint, Bounds worldRegion, Vector2Int resolution, Vector2 tangent, ref float minOffset, ref float maxOffset)
 		{
-			Vector2 centredPixel = causticRegion.WorldToCenteredPixel(launchPoint);
+			Vector2 centredPixel = worldRegion.WorldToCenteredPixel(launchPoint, resolution);
 			float offset = Vector2.Dot(centredPixel, tangent);
 			minOffset = Mathf.Min(minOffset, offset);
 			maxOffset = Mathf.Max(maxOffset, offset);
@@ -150,3 +150,4 @@ namespace Seb.Fluid2D.Rendering
 		}
 	}
 }
+

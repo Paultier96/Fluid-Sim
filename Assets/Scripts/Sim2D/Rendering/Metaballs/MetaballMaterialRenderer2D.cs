@@ -57,7 +57,7 @@ namespace Seb.Fluid2D.Rendering
 			material.SetTexture("NormalTex", normalTexture != null ? normalTexture : Texture2D.blackTexture);
 		}
 
-		public void RenderSurfaceMaps(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D materialRegion, Camera camera)
+		public void RenderSurfaceMaps(CommandBuffer commandBuffer, Bounds materialRegion, Camera camera)
 		{
 			if (!IsReady || commandBuffer == null || camera == null)
 			{
@@ -66,7 +66,7 @@ namespace Seb.Fluid2D.Rendering
 			materialMaps.RenderSurfaceMaps(commandBuffer, material, AlbedoPass, NormalPass, materialRegion, camera);
 		}
 
-		public void RenderTransportMap(CommandBuffer commandBuffer, ParticleFluidRenderRegion2D transportRegion, Camera camera)
+		public void RenderTransportMap(CommandBuffer commandBuffer, Bounds transportRegion, Camera camera)
 		{
 			if (!IsReady || commandBuffer == null || camera == null)
 			{
@@ -75,7 +75,7 @@ namespace Seb.Fluid2D.Rendering
 			materialMaps.RenderTransportMap(commandBuffer, material, TransportPass, transportRegion, camera);
 		}
 
-		public void RenderUnlit(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, ParticleFluidRenderRegion2D region)
+		public void RenderUnlit(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, Bounds region)
 		{
 			if (!IsReady || commandBuffer == null)
 			{
@@ -95,3 +95,4 @@ namespace Seb.Fluid2D.Rendering
 		}
 	}
 }
+

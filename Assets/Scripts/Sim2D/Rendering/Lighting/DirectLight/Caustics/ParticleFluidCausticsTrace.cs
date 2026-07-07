@@ -120,7 +120,7 @@ namespace Seb.Fluid2D.Rendering
 			int height = causticResolvedTexture.height;
 			ParticleFluidLighting2D.PhaseMaterialSettings[] materials = particleFluidLighting2D.PhaseMaterials;
 			int raysPerPixel = Mathf.Max(1, owner.raysPerPixel);
-			int totalRayBudget = particleFluidLighting2D.lightManager.UploadCausticsLightGpuData(causticLightParamsBuffer, context, new Vector2Int(width, height), context.renderLayout.CausticRegion.WorldSize, raysPerPixel);
+			int totalRayBudget = particleFluidLighting2D.lightManager.UploadCausticsLightGpuData(causticLightParamsBuffer, context, new Vector2Int(width, height), context.renderRegion.size, raysPerPixel);
 
 			Texture transportTexture = particleFluidLighting2D.materialTransportTexture != null ? particleFluidLighting2D.materialTransportTexture : Texture2D.blackTexture;
 			Texture materialNormalTexture = particleFluidLighting2D.materialNormalTexture != null ? particleFluidLighting2D.materialNormalTexture : Texture2D.blackTexture;
@@ -159,8 +159,8 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeVectorParam(compute, "ellipseBoundsSize", display.sim.analyticBoundary.ellipseBoundsSize);
 			targetCommandBuffer.SetComputeFloatParam(compute, "obstacleY", display.sim.analyticBoundary.obstacleY);
 			targetCommandBuffer.SetComputeFloatParam(compute, "analyticBoundaryExpansion", context.display.sim.analyticBoundary.analyticBoundaryExpansion);
-			targetCommandBuffer.SetComputeVectorParam(compute, "causticsWorldCenter", context.renderLayout.CausticRegion.WorldCenter);
-			targetCommandBuffer.SetComputeVectorParam(compute, "causticsWorldSize", context.renderLayout.CausticRegion.WorldSize);
+			targetCommandBuffer.SetComputeVectorParam(compute, "causticsWorldCenter", context.renderRegion.center);
+			targetCommandBuffer.SetComputeVectorParam(compute, "causticsWorldSize", context.renderRegion.size);
 
 			return new CausticsComputePassState(compute, clearKernel, traceKernel, resolveKernel, width, height, totalRayBudget, raysPerPixel);
 		}
@@ -198,3 +198,4 @@ namespace Seb.Fluid2D.Rendering
 		}
 	}
 }
+
