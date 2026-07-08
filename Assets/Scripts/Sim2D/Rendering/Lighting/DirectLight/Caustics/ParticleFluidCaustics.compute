@@ -20,7 +20,6 @@ RWTexture2D<float4> CausticMotionResult;
 static const float CausticMotionWeightScale = 1048576.0;
 static const float CausticMotionValueScale = 1048576.0;
 
-int2 combinedResolution;
 int2 transportResolution;
 int2 materialNormalResolution;
 int2 causticSize;

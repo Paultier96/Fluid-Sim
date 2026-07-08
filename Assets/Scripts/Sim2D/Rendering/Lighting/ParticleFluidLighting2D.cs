@@ -288,6 +288,17 @@ using UnityEngine.Serialization;
 			lightingMaterial.SetVector("MaterialAlbedoTex_TexelSize", new Vector4(1f / albedoTexture.width, 1f / albedoTexture.height, albedoTexture.width, albedoTexture.height));
 		}
 
+		internal void ApplyLightingInputs(ParticleFluidLightingInputSet inputs)
+		{
+			materialAlbedoTexture = inputs.albedoTexture;
+			materialNormalTexture = inputs.normalTexture;
+			materialTransportTexture = inputs.transportTexture;
+			if (lightingMaterial != null)
+			{
+				BindMaterialTextures();
+			}
+		}
+
 
 		public readonly struct FrameContext
 		{
@@ -305,14 +316,13 @@ using UnityEngine.Serialization;
 			}
 		}
 		
-		public void ApplyFrameSettings(Camera cam, Bounds renderRegion, Vector2Int sourceSize, Texture velocityPhase0AccumulationTexture, Texture velocityPhase1AccumulationTexture)
+		internal FrameContext PrepareLighting(Camera cam, ParticleFluidLightingInputSet inputs)
 		{
-			FrameContext context = new FrameContext(display, cam, renderRegion, sourceSize);
-			directLight.ApplyTemporalSettings(context, velocityPhase0AccumulationTexture, velocityPhase1AccumulationTexture);
-			Texture causticTexture = directLight.GetCurrentDirectLightTexture();
-			ApplySettings(context, directLight.lightingMode == LightingMode.Caustics, gaussianSss.ShouldRender() || radianceCascadeGi.radianceCascadeEnabled, causticTexture);
+			ApplyLightingInputs(inputs);
+			FrameContext context = new FrameContext(display, cam, inputs.renderRegion, inputs.sourceSize);
+			directLight.ApplyTemporalSettings(context, inputs.velocityPhase0Texture, inputs.velocityPhase1Texture);
+			return context;
 		}
-		
 
 		public void ApplySettings(FrameContext context, bool renderCaustics, bool renderSoftLight, Texture causticTexture)
 		{
@@ -373,6 +383,50 @@ using UnityEngine.Serialization;
 			commandBuffer.SetRenderTarget(finalTarget);
 			commandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _domainRenderRegion.CreateRegionMatrix(), lightingMaterial, 0, LightingPass);
 			commandBuffer.EndSample("Particle Fluid/Final Lighting");
+		}
+
+		internal void RecordProjectedShadowAndApply(CommandBuffer commandBuffer, FrameContext context, Texture transportTexture)
+		{
+			if (lightingMaterial == null || commandBuffer == null)
+			{
+				return;
+			}
+
+			Vector2 projectedShadowDirection = Vector2.zero;
+			ParticleFluidProjectedShadow.RecordParams projectedShadowParams = default;
+			bool shouldRender = directLight.projectedShadow.ShouldRender(directLight);
+			if (shouldRender)
+			{
+				ParticleFluidDirectLight.ProjectedShadowSettings projectedShadowSettings = directLight.projectedShadowSettings;
+				projectedShadowParams = new ParticleFluidProjectedShadow.RecordParams(
+					directLight.projectedShadowCompute,
+					directLight.projectedShadow.projectedShadowMapBuffer,
+					directLight.projectedShadow.projectedShadowMapTexture,
+					transportTexture,
+					projectedShadowSettings.mapBins,
+					lightManager.GetMainDirectionalLight().GetBoundaryRefractedDirection(PhaseMaterials[1].indexOfRefraction, context.display.sim.analyticBoundary),
+					context.renderRegion,
+					context.sourceSize);
+			}
+
+			bool useProjectedShadow = shouldRender && directLight.projectedShadow.RecordCurrentShadowMap(commandBuffer, projectedShadowParams, out projectedShadowDirection);
+			directLight.projectedShadow.ApplyToMaterial(lightingMaterial, useProjectedShadow, projectedShadowDirection, directLight.projectedShadowSettings);
+		}
+
+		internal void RenderLit(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, Camera cam, FrameContext context, Texture transportTexture)
+		{
+			RecordProjectedShadowAndApply(commandBuffer, context, transportTexture);
+			Render(commandBuffer, finalTarget, cam);
+		}
+
+		internal void RenderConfiguredLit(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, Camera cam, FrameContext context, Texture transportTexture, bool renderCaustics, bool renderSoftLight, Texture causticTexture, Texture sharpCausticsTexture = null)
+		{
+			ApplySettings(context, renderCaustics, renderSoftLight, causticTexture);
+			if (renderSoftLight)
+			{
+				RecordSoftLight(context, commandBuffer, sharpCausticsTexture != null ? sharpCausticsTexture : Texture2D.blackTexture);
+			}
+			RenderLit(commandBuffer, finalTarget, cam, context, transportTexture);
 		}
 
 		public void EnsureLightingResources(Bounds renderRegion, Vector2Int causticSize)
@@ -474,4 +528,3 @@ using UnityEngine.Serialization;
 		}
 	}
 }
-

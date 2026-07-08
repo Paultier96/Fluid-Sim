@@ -2,6 +2,7 @@ using Seb.Helpers;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.RenderGraphModule;
 
 namespace Seb.Fluid2D.Rendering
 {
@@ -27,6 +28,7 @@ namespace Seb.Fluid2D.Rendering
 		private Bounds _currentRenderRegion;
 		private Vector2Int _currentSourceSize;
 		private Vector2Int _currentMaterialSize;
+		private Vector2Int _currentCausticSize;
 
 		public bool PrepareForRender(ParticleDisplay2D display, Camera cam)
 		{
@@ -41,18 +43,18 @@ namespace Seb.Fluid2D.Rendering
 				return false;
 			}
 
-			RunJumpFlood(display, cam);
+			PrepareResources(display, cam);
 			return true;
 		}
 
-		public void RecordComposite(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
+		public void RecordCompositeWithPreparedLightingAndMaterialMaps(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
 		{
 			if (targetCommandBuffer == null)
 			{
 				return;
 			}
 
-			RecordDisplay(display, cam, targetCommandBuffer, finalTarget);
+			RecordPreparedLightingDisplay(display, cam, targetCommandBuffer, finalTarget);
 		}
 
 		public void Release()
@@ -74,103 +76,120 @@ namespace Seb.Fluid2D.Rendering
 			ParticleFluidRenderUtils.DestroyMaterial(ref materialMapMaterial);
 		}
 
-		void RunJumpFlood(ParticleDisplay2D display, Camera cam)
+		internal RenderTexture SeedA => seedA;
+		internal RenderTexture SeedB => seedB;
+		internal RenderTexture PayloadA => payloadA;
+		internal RenderTexture PayloadB => payloadB;
+		internal RenderTexture NormalPayloadA => normalPayloadA;
+		internal RenderTexture NormalPayloadB => normalPayloadB;
+		internal ParticleFluidMaterialMapSet MaterialMaps => materialMaps;
+		internal Bounds CurrentRenderRegion => _currentRenderRegion;
+		internal Vector2Int CurrentSourceSize => _currentSourceSize;
+
+		void PrepareResources(ParticleDisplay2D display, Camera cam)
 		{
 			Bounds cropRegion = GetRenderRegion(display, cam, out Vector2Int cropResolution);
 			ParticleFluidLighting2D lighting = GetActiveLighting(display);
 			float sourceScale = Mathf.Max(display.metaballs.renderTextureScale, 0.0001f);
 			float materialScale = lighting != null ? lighting.materialMapTextureScale : 1f;
+			float causticScale = lighting != null ? lighting.directLight.textureScale : sourceScale;
 			_currentRenderRegion = cropRegion;
-			_currentSourceSize = ScaleSize(cropResolution, sourceScale);
-			_currentMaterialSize = ScaleSize(cropResolution, materialScale);
+			_currentSourceSize = ParticleFluidRenderBounds2D.ScaleSize(cropResolution, sourceScale);
+			_currentMaterialSize = ParticleFluidRenderBounds2D.ScaleSize(cropResolution, materialScale);
+			_currentCausticSize = ParticleFluidRenderBounds2D.ScaleSize(cropResolution, causticScale);
 			EnsureRenderTextures();
+			if (lighting != null)
+			{
+				lighting.EnsureLightingResources(_currentRenderRegion, _currentCausticSize);
+			}
+		}
 
-			int width = seedA.width;
-			int height = seedA.height;
-			ComputeShader compute = display.jumpFlood.computeShader;
-
-			int clearKernel = compute.FindKernel("Clear");
-			int seedKernel = compute.FindKernel("Seed");
-			int jumpFloodKernel = compute.FindKernel("JumpFlood");
+		void ApplyJumpFloodComputeParams(ParticleDisplay2D display, Camera cam, IComputeCommandBuffer computeCommandBuffer, ComputeShader compute)
+		{
+			int width = _currentSourceSize.x;
+			int height = _currentSourceSize.y;
 			Matrix4x4 viewProjection = cam.projectionMatrix * cam.worldToCameraMatrix;
+			computeCommandBuffer.SetComputeIntParam(compute, "_Width", width);
+			computeCommandBuffer.SetComputeIntParam(compute, "_Height", height);
+			computeCommandBuffer.SetComputeMatrixParam(compute, "_VP", viewProjection);
+			computeCommandBuffer.SetComputeVectorParam(compute, "_RenderWorldCenter", _currentRenderRegion.center);
+			computeCommandBuffer.SetComputeVectorParam(compute, "_RenderWorldSize", _currentRenderRegion.size);
+			computeCommandBuffer.SetComputeFloatParam(compute, "_TempMin", display.sim.ambientTemperature);
+			computeCommandBuffer.SetComputeFloatParam(compute, "_TempMax", display.sim.HeatSourceTemperature);
+			computeCommandBuffer.SetComputeIntParam(compute, "_ParticleCount", display.sim.positionBuffer.count);
+			computeCommandBuffer.SetComputeIntParam(compute, "debugMode", (int)display.debugMode);
+			computeCommandBuffer.SetComputeIntParam(compute, "debugShowClipping", display.debugShowClipping ? 1 : 0);
+			computeCommandBuffer.SetComputeIntParam(compute, "useLinearColorSpace", QualitySettings.activeColorSpace == ColorSpace.Linear ? 1 : 0);
+			computeCommandBuffer.SetComputeFloatParam(compute, "debugGradientMax", display.debugGradientMax);
+			computeCommandBuffer.SetComputeFloatParam(compute, "debugCurvatureMax", display.sim.MaxDebugCurvature);
+			computeCommandBuffer.SetComputeFloatParam(compute, "debugViscosityMax", display.sim.MaxDebugViscosity);
+			computeCommandBuffer.SetComputeFloatParam(compute, "debugDensityMin", display.DebugDensityMin);
+			computeCommandBuffer.SetComputeFloatParam(compute, "debugDensityMax", display.DebugDensityMax);
+		}
 
-			compute.SetInt("_Width", width);
-			compute.SetInt("_Height", height);
-			compute.SetMatrix("_VP", viewProjection);
-			compute.SetVector("_RenderWorldCenter", _currentRenderRegion.center);
-			compute.SetVector("_RenderWorldSize", _currentRenderRegion.size);
-			compute.SetFloat("_TempMin", display.sim.ambientTemperature);
-			compute.SetFloat("_TempMax", display.sim.HeatSourceTemperature);
-			compute.SetInt("_ParticleCount", display.sim.positionBuffer.count);
-			compute.SetInt("debugMode", (int)display.debugMode);
-			compute.SetInt("debugShowClipping", display.debugShowClipping ? 1 : 0);
-			compute.SetInt("useLinearColorSpace", QualitySettings.activeColorSpace == ColorSpace.Linear ? 1 : 0);
-			compute.SetFloat("debugGradientMax", display.debugGradientMax);
-			compute.SetFloat("debugCurvatureMax", display.sim.MaxDebugCurvature);
-			compute.SetFloat("debugViscosityMax", display.sim.MaxDebugViscosity);
-			compute.SetFloat("debugDensityMin", display.DebugDensityMin);
-			compute.SetFloat("debugDensityMax", display.DebugDensityMax);
+		internal void RecordClear(ParticleDisplay2D display, Camera cam, IComputeCommandBuffer computeCommandBuffer, TextureHandle resultHandle, TextureHandle payloadHandle, TextureHandle normalPayloadHandle)
+		{
+			ComputeShader compute = display.jumpFlood.computeShader;
+			int clearKernel = compute.FindKernel("Clear");
+			ApplyJumpFloodComputeParams(display, cam, computeCommandBuffer, compute);
+			computeCommandBuffer.SetComputeTextureParam(compute, clearKernel, "Result", resultHandle);
+			computeCommandBuffer.SetComputeTextureParam(compute, clearKernel, "ResultPayload", payloadHandle);
+			computeCommandBuffer.SetComputeTextureParam(compute, clearKernel, "ResultNormalPayload", normalPayloadHandle);
+			computeCommandBuffer.DispatchCompute(compute, clearKernel, Mathf.CeilToInt(_currentSourceSize.x / 16f), Mathf.CeilToInt(_currentSourceSize.y / 16f), 1);
+		}
 
-			compute.SetTexture(clearKernel, "Result", seedA);
-			compute.SetTexture(clearKernel, "ResultPayload", payloadA);
-			compute.SetTexture(clearKernel, "ResultNormalPayload", normalPayloadA);
-			int gx = (width + 15) / 16;
-			int gy = (height + 15) / 16;
-			compute.Dispatch(clearKernel, gx, gy, 1);
+		internal void RecordSeed(ParticleDisplay2D display, Camera cam, IComputeCommandBuffer computeCommandBuffer, TextureHandle resultHandle, TextureHandle payloadHandle, TextureHandle normalPayloadHandle, TextureHandle gradientHandle, TextureHandle gradient2Handle, TextureHandle debugHeatMapHandle, TextureHandle debugSignedHeatMapHandle)
+		{
+			ComputeShader compute = display.jumpFlood.computeShader;
+			int seedKernel = compute.FindKernel("Seed");
+			ApplyJumpFloodComputeParams(display, cam, computeCommandBuffer, compute);
+			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "Positions2D", display.sim.positionBuffer);
+			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "DensityData", display.sim.densityBuffer);
+			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "Temperatures", display.sim.temperatureBuffer);
+			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "DebugData", display.sim.debugDataBuffer);
+			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "Phases", display.sim.phaseBuffer);
+			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "BlobIDs", display.sim.blobIdBuffer);
+			computeCommandBuffer.SetComputeTextureParam(compute, seedKernel, "Result", resultHandle);
+			computeCommandBuffer.SetComputeTextureParam(compute, seedKernel, "ResultPayload", payloadHandle);
+			computeCommandBuffer.SetComputeTextureParam(compute, seedKernel, "ResultNormalPayload", normalPayloadHandle);
+			computeCommandBuffer.SetComputeTextureParam(compute, seedKernel, "ColourMap", gradientHandle);
+			computeCommandBuffer.SetComputeTextureParam(compute, seedKernel, "ColourMap2", gradient2Handle);
+			computeCommandBuffer.SetComputeTextureParam(compute, seedKernel, "DebugHeatMap", debugHeatMapHandle);
+			computeCommandBuffer.SetComputeTextureParam(compute, seedKernel, "DebugSignedHeatMap", debugSignedHeatMapHandle);
+			computeCommandBuffer.DispatchCompute(compute, seedKernel, Mathf.Max(1, Mathf.CeilToInt(display.sim.positionBuffer.count / 64.0f)), 1, 1);
+		}
 
-			compute.SetBuffer(seedKernel, "Positions2D", display.sim.positionBuffer);
-			compute.SetBuffer(seedKernel, "DensityData", display.sim.densityBuffer);
-			compute.SetBuffer(seedKernel, "Temperatures", display.sim.temperatureBuffer);
-			compute.SetBuffer(seedKernel, "DebugData", display.sim.debugDataBuffer);
-			compute.SetBuffer(seedKernel, "Phases", display.sim.phaseBuffer);
-			compute.SetBuffer(seedKernel, "BlobIDs", display.sim.blobIdBuffer);
-			compute.SetTexture(seedKernel, "Result", seedA);
-			compute.SetTexture(seedKernel, "ResultPayload", payloadA);
-			compute.SetTexture(seedKernel, "ResultNormalPayload", normalPayloadA);
-			compute.SetTexture(seedKernel, "ColourMap", display.gradientTexture);
-			compute.SetTexture(seedKernel, "ColourMap2", display.gradientTexture2);
-			compute.SetTexture(seedKernel, "DebugHeatMap", display.debugHeatMapTexture);
-			compute.SetTexture(seedKernel, "DebugSignedHeatMap", display.debugSignedHeatMapTexture);
-			int seedGroups = Mathf.CeilToInt(display.sim.positionBuffer.count / 64.0f);
-			compute.Dispatch(seedKernel, Mathf.Max(1, seedGroups), 1, 1);
+		internal void RecordStep(ParticleDisplay2D display, Camera cam, IComputeCommandBuffer computeCommandBuffer, int step, TextureHandle srcHandle, TextureHandle payloadSrcHandle, TextureHandle normalPayloadSrcHandle, TextureHandle dstHandle, TextureHandle payloadDstHandle, TextureHandle normalPayloadDstHandle)
+		{
+			ComputeShader compute = display.jumpFlood.computeShader;
+			int jumpFloodKernel = compute.FindKernel("JumpFlood");
+			ApplyJumpFloodComputeParams(display, cam, computeCommandBuffer, compute);
+			computeCommandBuffer.SetComputeIntParam(compute, "_Step", step);
+			computeCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, "_SrcTex", srcHandle);
+			computeCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, "_SrcPayloadTex", payloadSrcHandle);
+			computeCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, "_SrcNormalPayloadTex", normalPayloadSrcHandle);
+			computeCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, "_DstTex", dstHandle);
+			computeCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, "_DstPayloadTex", payloadDstHandle);
+			computeCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, "_DstNormalPayloadTex", normalPayloadDstHandle);
+			computeCommandBuffer.DispatchCompute(compute, jumpFloodKernel, Mathf.CeilToInt(_currentSourceSize.x / 16f), Mathf.CeilToInt(_currentSourceSize.y / 16f), 1);
+		}
 
-			RenderTexture src = seedA;
-			RenderTexture dst = seedB;
-			RenderTexture payloadSrc = payloadA;
-			RenderTexture payloadDst = payloadB;
-			RenderTexture normalPayloadSrc = normalPayloadA;
-			RenderTexture normalPayloadDst = normalPayloadB;
-			int maxDim = Mathf.Max(width, height);
+		internal int GetInitialJumpFloodStep()
+		{
 			int step = 1;
+			int maxDim = Mathf.Max(_currentSourceSize.x, _currentSourceSize.y);
 			while ((step << 1) < maxDim)
 			{
 				step <<= 1;
 			}
+			return step;
+		}
 
-			for (int s = step; s >= 1; s >>= 1)
-			{
-				if (src == dst)
-				{
-					Debug.LogError("READ/WRITE SAME TEXTURE!");
-				}
-
-				compute.SetInt("_Step", s);
-				compute.SetTexture(jumpFloodKernel, "_SrcTex", src);
-				compute.SetTexture(jumpFloodKernel, "_SrcPayloadTex", payloadSrc);
-				compute.SetTexture(jumpFloodKernel, "_SrcNormalPayloadTex", normalPayloadSrc);
-				compute.SetTexture(jumpFloodKernel, "_DstTex", dst);
-				compute.SetTexture(jumpFloodKernel, "_DstPayloadTex", payloadDst);
-				compute.SetTexture(jumpFloodKernel, "_DstNormalPayloadTex", normalPayloadDst);
-				compute.Dispatch(jumpFloodKernel, gx, gy, 1);
-
-				(src, dst) = (dst, src);
-				(payloadSrc, payloadDst) = (payloadDst, payloadSrc);
-				(normalPayloadSrc, normalPayloadDst) = (normalPayloadDst, normalPayloadSrc);
-			}
-
-			result = src;
-			payloadResult = payloadSrc;
-			normalPayloadResult = normalPayloadSrc;
+		internal void SetResults(RenderTexture resultTexture, RenderTexture payloadTexture, RenderTexture normalPayloadTexture)
+		{
+			result = resultTexture;
+			payloadResult = payloadTexture;
+			normalPayloadResult = normalPayloadTexture;
 		}
 
 		void EnsureRenderTextures()
@@ -193,10 +212,10 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
-		void RecordDisplay(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
+		void RecordPreparedLightingDisplay(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
 		{
 			ParticleFluidLighting2D lighting = GetActiveLighting(display);
-			if (TryRecordLitDisplay(display, cam, targetCommandBuffer, finalTarget, lighting))
+			if (TryRecordPreparedLightingLitDisplay(display, cam, targetCommandBuffer, finalTarget, lighting))
 			{
 				targetCommandBuffer.BeginSample("Particle Fluid/Vector Field");
 				display.AppendVectorFieldDraw(targetCommandBuffer);
@@ -220,33 +239,16 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.EndSample("Particle Fluid/Vector Field");
 		}
 
-		bool TryRecordLitDisplay(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget, ParticleFluidLighting2D lighting)
+		bool TryRecordPreparedLightingLitDisplay(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget, ParticleFluidLighting2D lighting)
 		{
-			Shader materialShader = display.jumpFlood.materialShader != null
-				? display.jumpFlood.materialShader
-				: Shader.Find("Hidden/Particle2DJumpFloodMaterial");
-			if (materialShader == null || !materialMaps.IsAllocated)
-			{
-				return false;
-			}
-
-			ParticleFluidRenderUtils.EnsureMaterial(ref materialMapMaterial, materialShader);
-			if (materialMapMaterial == null)
-			{
-				return false;
-			}
-
-			ApplyMaterialMapSettings(display, cam);
-			targetCommandBuffer.BeginSample("Jump Flood/Material Pipeline");
-			ParticleFluidLayoutBindings.ApplyLayoutGlobals(targetCommandBuffer, display.sim.analyticBoundary, _currentRenderRegion);
-			materialMaps.RenderSurfaceMaps(targetCommandBuffer, materialMapMaterial, AlbedoPass, NormalPass, _currentRenderRegion, cam);
-			materialMaps.RenderTransportMap(targetCommandBuffer, materialMapMaterial, TransportPass, _currentRenderRegion, cam);
-			ClearFinalTarget(targetCommandBuffer, finalTarget);
-
 			if (lighting == null)
 			{
+				if (materialMapMaterial == null)
+				{
+					return false;
+				}
+				ClearFinalTarget(targetCommandBuffer, finalTarget);
 				materialMaps.RenderUnlit(targetCommandBuffer, materialMapMaterial, finalTarget, UnlitPass, _currentRenderRegion);
-				targetCommandBuffer.EndSample("Jump Flood/Material Pipeline");
 				return true;
 			}
 
@@ -256,48 +258,51 @@ namespace Seb.Fluid2D.Rendering
 			lighting.EnsureMaterials(lightingShader);
 			if (!(lighting.lightingMaterial != null))
 			{
+				if (materialMapMaterial == null)
+				{
+					return false;
+				}
+				ClearFinalTarget(targetCommandBuffer, finalTarget);
 				materialMaps.RenderUnlit(targetCommandBuffer, materialMapMaterial, finalTarget, UnlitPass, _currentRenderRegion);
-				targetCommandBuffer.EndSample("Jump Flood/Material Pipeline");
 				return true;
 			}
 
-			materialMaps.BindTo(lighting);
-			ParticleFluidLighting2D.FrameContext lightingContext = new ParticleFluidLighting2D.FrameContext(
-				display,
-				cam,
-				_currentRenderRegion,
-				_currentSourceSize
-			);
-			Vector2 projectedShadowDirection = Vector2.zero;
-			ParticleFluidProjectedShadow.RecordParams projectedShadowParams = default;
-			if (lighting.directLight.projectedShadow.ShouldRender(lighting.directLight)
-			    && lighting.lightManager.GetMainDirectionalLight() is { } directionalLight)
-			{
-				Vector3 effectiveLightDirection = directionalLight.GetBoundaryRefractedDirection(lighting.PhaseMaterials[1].indexOfRefraction, display.sim.analyticBoundary);
-				projectedShadowParams = new ParticleFluidProjectedShadow.RecordParams(
-					lighting.directLight.projectedShadowCompute,
-					lighting.directLight.projectedShadow.projectedShadowMapBuffer,
-					lighting.directLight.projectedShadow.projectedShadowMapTexture,
-					lighting.materialTransportTexture,
-					lighting.directLight.projectedShadowMapBins,
-					effectiveLightDirection,
-					lightingContext.renderRegion,
-					lightingContext.sourceSize);
-			}
-			bool useProjectedShadow = lighting.directLight.projectedShadow.ShouldRender(lighting.directLight)
-			                          && lighting.directLight.projectedShadow.RecordCurrentShadowMap(targetCommandBuffer, projectedShadowParams, out projectedShadowDirection);
-			lighting.ApplySettings(
-				lightingContext,
-				false,
-				false,
-				Texture2D.blackTexture
-			);
-			lighting.directLight.projectedShadow.ApplyToMaterial(lighting.lightingMaterial, useProjectedShadow, projectedShadowDirection, lighting.directLight.projectedShadowOffset, lighting.directLight.projectedShadowExpansion);
-			lighting.lightingMaterial.SetTexture("SoftLightTex", Texture2D.blackTexture);
-			lighting.lightingMaterial.SetTexture("SoftLightTexPhase1", Texture2D.blackTexture);
-			lighting.Render(targetCommandBuffer, finalTarget, cam);
-			targetCommandBuffer.EndSample("Jump Flood/Material Pipeline");
+			ParticleFluidLightingInputSet lightingInputs = materialMaps.CreateLightingInputs(_currentRenderRegion, _currentSourceSize);
+			ParticleFluidLighting2D.FrameContext lightingContext = lighting.PrepareLighting(cam, lightingInputs);
+			ClearFinalTarget(targetCommandBuffer, finalTarget);
+			lighting.RenderLit(targetCommandBuffer, finalTarget, cam, lightingContext, lightingInputs.transportTexture);
 			return true;
+		}
+
+		internal void RecordMaterialMaps(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer)
+		{
+			if (targetCommandBuffer == null)
+			{
+				return;
+			}
+
+			BuildMaterialMaps(display, cam, targetCommandBuffer);
+		}
+
+		void BuildMaterialMaps(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer)
+		{
+			if (materialMapMaterial == null)
+			{
+				Shader materialShader = display.jumpFlood.materialShader != null
+					? display.jumpFlood.materialShader
+					: Shader.Find("Hidden/Particle2DJumpFloodMaterial");
+				ParticleFluidRenderUtils.EnsureMaterial(ref materialMapMaterial, materialShader);
+			}
+
+			if (materialMapMaterial == null)
+			{
+				return;
+			}
+
+			ApplyMaterialMapSettings(display, cam);
+			ParticleFluidLayoutBindings.ApplyLayoutGlobals(targetCommandBuffer, display.sim.analyticBoundary, _currentRenderRegion);
+			materialMaps.RenderSurfaceMaps(targetCommandBuffer, materialMapMaterial, AlbedoPass, NormalPass, _currentRenderRegion, cam);
+			materialMaps.RenderTransportMap(targetCommandBuffer, materialMapMaterial, TransportPass, _currentRenderRegion, cam);
 		}
 
 		static void ClearFinalTarget(CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
@@ -324,71 +329,11 @@ namespace Seb.Fluid2D.Rendering
 			materialMapMaterial.SetVector("boundsSize", display.sim.boundsSize);
 		}
 
-		void GetRenderLayout(ParticleDisplay2D display, Camera cam, out Bounds renderRegion, out Vector2Int sourceSize, out Vector2Int materialSize)
-		{
-			Bounds cropRegion = GetRenderRegion(display, cam, out Vector2Int cropResolution);
-			ParticleFluidLighting2D lighting = GetActiveLighting(display);
-			float sourceScale = Mathf.Max(display.metaballs.renderTextureScale, 0.0001f);
-			float materialScale = lighting != null ? lighting.materialMapTextureScale : 1f;
-			renderRegion = cropRegion;
-			sourceSize = ScaleSize(cropResolution, sourceScale);
-			materialSize = ScaleSize(cropResolution, materialScale);
-		}
-
 		Bounds GetRenderRegion(ParticleDisplay2D display, Camera cam, out Vector2Int resolution)
-		{			
-			int fullWidth = Mathf.Max(cam.pixelWidth, 1);
-			int fullHeight = Mathf.Max(cam.pixelHeight, 1);
-			resolution = new Vector2Int(fullWidth, fullHeight);
-			Bounds fullRegion = ParticleFluidRenderRegion2D.Full(cam);
-			if (display == null || cam == null || !display.sim.analyticBoundary.useEllipticalBounds || display.debugMode != ParticleDisplay2D.DebugVisualization.None)
-			{
-				return fullRegion;
-			}
-
-			float cameraWorldUnitsPerPixel = fullRegion.size.y / Mathf.Max(fullHeight, 1);
-
-			Vector2 cameraMin = fullRegion.min;
-			Vector2 cameraMax = fullRegion.max;
-			Vector2 cropMin = Vector2.Max(cameraMin, display.sim.analyticBoundary.BoundsMin);
-			Vector2 cropMax = Vector2.Min(cameraMax, display.sim.analyticBoundary.BoundsMax);
-			if (cropMax.x <= cropMin.x || cropMax.y <= cropMin.y)
-			{
-				resolution = Vector2Int.one;
-				return new Bounds(fullRegion.center, new Vector3(cameraWorldUnitsPerPixel, cameraWorldUnitsPerPixel, 0f));
-			}
-
-			float uvMinX = Mathf.Clamp01((cropMin.x - cameraMin.x) / fullRegion.size.x);
-			float uvMinY = Mathf.Clamp01((cropMin.y - cameraMin.y) / fullRegion.size.y);
-			float uvMaxX = Mathf.Clamp01((cropMax.x - cameraMin.x) / fullRegion.size.x);
-			float uvMaxY = Mathf.Clamp01((cropMax.y - cameraMin.y) / fullRegion.size.y);
-			int x = Mathf.Clamp(Mathf.FloorToInt(uvMinX * fullWidth), 0, Mathf.Max(fullWidth - 1, 0));
-			int y = Mathf.Clamp(Mathf.FloorToInt(uvMinY * fullHeight), 0, Mathf.Max(fullHeight - 1, 0));
-			int xMax = Mathf.Clamp(Mathf.CeilToInt(uvMaxX * fullWidth), x + 1, fullWidth);
-			int yMax = Mathf.Clamp(Mathf.CeilToInt(uvMaxY * fullHeight), y + 1, fullHeight);
-			int pixelWidth = Mathf.Max(1, xMax - x);
-			int pixelHeight = Mathf.Max(1, yMax - y);
-			if (pixelWidth >= fullWidth - 1 && pixelHeight >= fullHeight - 1)
-			{
-				return fullRegion;
-			}
-			resolution = new Vector2Int(pixelWidth, pixelHeight);
-
-			Vector4 compositeUvRect = new Vector4(
-				x / (float)fullWidth,
-				y / (float)fullHeight,
-				pixelWidth / (float)fullWidth,
-				pixelHeight / (float)fullHeight
-			);
-			Vector2 worldMin = cameraMin + Vector2.Scale(new Vector2(compositeUvRect.x, compositeUvRect.y), fullRegion.size);
-			Vector2 worldSize = Vector2.Scale(new Vector2(compositeUvRect.z, compositeUvRect.w), fullRegion.size);
-			return new Bounds(worldMin + worldSize * 0.5f, worldSize);
-		}
-
-		static Vector2Int ScaleSize(Vector2Int baseSize, float scale)
 		{
-			Vector2 size = new Vector2(Mathf.Max(baseSize.x, 1), Mathf.Max(baseSize.y, 1));
-			return Vector2Int.Max(Vector2Int.one, Vector2Int.RoundToInt(size * scale));
+			bool crop = display != null && cam != null && display.sim.analyticBoundary.useEllipticalBounds && display.debugMode == ParticleDisplay2D.DebugVisualization.None;
+			Bounds? cropBounds = crop ? display.sim.analyticBoundary.GetBounds() : null;
+			return ParticleFluidRenderBounds2D.GetCameraRenderRegion(cam, cropBounds, crop, out resolution);
 		}
 
 		static ParticleFluidLighting2D GetActiveLighting(ParticleDisplay2D display)

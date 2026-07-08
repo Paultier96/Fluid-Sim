@@ -22,15 +22,7 @@ namespace Seb.Fluid2D.Rendering
 			public readonly Bounds worldRegion;
 			public readonly Vector2Int sourceSize;
 
-			public RecordParams(
-				ComputeShader compute,
-				ComputeBuffer projectedShadowMapBuffer,
-				RenderTexture projectedShadowMapTexture,
-				Texture transportTexture,
-				int projectedShadowMapBins,
-				Vector3 effectiveLightDirection,
-				Bounds worldRegion,
-				Vector2Int sourceSize)
+			public RecordParams(ComputeShader compute, ComputeBuffer projectedShadowMapBuffer, RenderTexture projectedShadowMapTexture, Texture transportTexture, int projectedShadowMapBins, Vector3 effectiveLightDirection, Bounds worldRegion, Vector2Int sourceSize)
 			{
 				this.compute = compute;
 				this.projectedShadowMapBuffer = projectedShadowMapBuffer;
@@ -88,7 +80,6 @@ namespace Seb.Fluid2D.Rendering
 				Mathf.CeilToInt(parameters.sourceSize.x / 16f),
 				Mathf.CeilToInt(parameters.sourceSize.y / 16f),
 				1);
-
 			targetCommandBuffer.SetComputeBufferParam(compute, resolveKernel, "ProjectedShadowMapAccum", parameters.projectedShadowMapBuffer);
 			targetCommandBuffer.SetComputeTextureParam(compute, resolveKernel, "ProjectedShadowMapResult", parameters.projectedShadowMapTexture);
 			targetCommandBuffer.DispatchCompute(compute, resolveKernel, Mathf.CeilToInt(binCount / 64f), 1, 1);
@@ -119,16 +110,12 @@ namespace Seb.Fluid2D.Rendering
 
 		internal bool ShouldRender(ParticleFluidDirectLight owner)
 		{
-			if (owner == null)
-			{
-				return false;
-			}
+			return owner.lightingMode == ParticleFluidLighting2D.LightingMode.Shadows && owner.Owner.lightManager.GetMainDirectionalLight() != null;
+		}
 
-			ParticleFluidLight2D light = owner.Owner.lightManager.LightSlots[0];
-			return owner.lightingMode == ParticleFluidLighting2D.LightingMode.Shadows
-			       && owner.projectedShadowCompute != null
-			       && light is ParticleFluidDirectionalLight2D directionalLight
-			       && directionalLight.isActiveAndEnabled;
+		internal void ApplyToMaterial(Material material, bool enabled, Vector2 direction, ParticleFluidDirectLight.ProjectedShadowSettings settings)
+		{
+			ApplyToMaterial(material, enabled, direction, settings.offset, settings.expansion);
 		}
 
 		internal void ApplyToMaterial(Material material, bool enabled, Vector2 direction, float offset, float expansion)
@@ -146,4 +133,3 @@ namespace Seb.Fluid2D.Rendering
 		}
 	}
 }
-

@@ -79,6 +79,14 @@ namespace Seb.Fluid2D.Simulation
         readonly ImportedTexture radianceCascadeSdfPayloadB = new();
         readonly ImportedTexture radianceCascadeSdfResolved = new();
         readonly ImportedTexture radianceCascadeSdfResolvedPayload = new();
+        readonly ImportedTexture jumpFloodSeedA = new();
+        readonly ImportedTexture jumpFloodSeedB = new();
+        readonly ImportedTexture jumpFloodPayloadA = new();
+        readonly ImportedTexture jumpFloodPayloadB = new();
+        readonly ImportedTexture jumpFloodNormalPayloadA = new();
+        readonly ImportedTexture jumpFloodNormalPayloadB = new();
+        readonly ImportedTexture debugHeatMap = new();
+        readonly ImportedTexture debugSignedHeatMap = new();
 
         public void Setup(ParticleDisplay2D display)
         {
@@ -230,185 +238,34 @@ namespace Seb.Fluid2D.Simulation
                 }
             }
 
-            TextureHandle causticResolvedHandle = renderCaustics ? causticResolved.Import(renderGraph, lighting.directLight.traceCaustics.causticResolvedTexture, "FluidSim2D Caustic Resolved") : TextureHandle.nullHandle;
-            TextureHandle causticBlurHandle = renderCaustics ? causticBlur.Import(renderGraph, lighting.directLight.traceCaustics.temporalCaustics.causticBlurTexture, "FluidSim2D Caustic Blur") : TextureHandle.nullHandle;
-            TextureHandle causticTemporalHandle = renderCaustics && lighting.directLight.denoisingEnabled ? causticTemporal.Import(renderGraph, lighting.directLight.traceCaustics.temporalCaustics.causticTemporalTexture, "FluidSim2D Caustic Temporal") : TextureHandle.nullHandle;
-            TextureHandle causticHistoryHandle = renderCaustics && lighting.directLight.denoisingEnabled ? causticHistory.Import(renderGraph, lighting.directLight.traceCaustics.temporalCaustics.causticHistoryTexture, "FluidSim2D Caustic History") : TextureHandle.nullHandle;
-            TextureHandle causticMotionHandle = renderCaustics ? causticMotion.Import(renderGraph, lighting.directLight.traceCaustics.causticMotionTexture, "FluidSim2D Caustic Motion") : TextureHandle.nullHandle;
-            TextureHandle causticMotionDilatedHandle = renderCaustics ? causticMotionDilated.Import(renderGraph, lighting.directLight.traceCaustics.temporalCaustics.causticMotionDilatedTexture, "FluidSim2D Caustic Motion Dilated") : TextureHandle.nullHandle;
-            TextureHandle causticMotionDilationScratchHandle = renderCaustics ? causticMotionDilationScratch.Import(renderGraph, lighting.directLight.traceCaustics.temporalCaustics.causticMotionDilationScratchTexture, "FluidSim2D Caustic Motion Dilation Scratch") : TextureHandle.nullHandle;
             bool renderPhaseDiffuseLight = lighting != null && lighting.gaussianSss.ShouldRender();
             bool renderRadianceCascadeLight = lighting != null && lighting.radianceCascadeGi.radianceCascadeEnabled;
             bool renderSoftLight = renderPhaseDiffuseLight || renderRadianceCascadeLight;
-            TextureHandle gaussianSoftLight0Handle = renderPhaseDiffuseLight ? softLight0.Import(renderGraph, lighting.gaussianSss.gaussianSoftLightTexture0, "FluidSim2D Gaussian Soft Light 0") : TextureHandle.nullHandle;
-            TextureHandle gaussianSoftLight1Handle = renderPhaseDiffuseLight ? softLight1.Import(renderGraph, lighting.gaussianSss.gaussianSoftLightTexture1, "FluidSim2D Gaussian Soft Light 1") : TextureHandle.nullHandle;
-            TextureHandle radianceCascade0Handle = renderRadianceCascadeLight ? radianceCascade0.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeTexture0, "FluidSim2D Radiance Cascade 0") : TextureHandle.nullHandle;
-            TextureHandle radianceCascade1Handle = renderRadianceCascadeLight ? radianceCascade1.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeTexture1, "FluidSim2D Radiance Cascade 1") : TextureHandle.nullHandle;
-            bool renderSdfRadianceCascade = renderSoftLight && lighting.radianceCascadeGi.radianceCascadeEnabled;
-            TextureHandle radianceCascadeSdfSeedAHandle = renderSdfRadianceCascade ? radianceCascadeSdfSeedA.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfSeedA, "FluidSim2D RC SDF Seed A") : TextureHandle.nullHandle;
-            TextureHandle radianceCascadeSdfSeedBHandle = renderSdfRadianceCascade ? radianceCascadeSdfSeedB.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfSeedB, "FluidSim2D RC SDF Seed B") : TextureHandle.nullHandle;
-            TextureHandle radianceCascadeSdfPayloadAHandle = renderSdfRadianceCascade ? radianceCascadeSdfPayloadA.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfPayloadA, "FluidSim2D RC SDF Payload A") : TextureHandle.nullHandle;
-            TextureHandle radianceCascadeSdfPayloadBHandle = renderSdfRadianceCascade ? radianceCascadeSdfPayloadB.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfPayloadB, "FluidSim2D RC SDF Payload B") : TextureHandle.nullHandle;
-            TextureHandle radianceCascadeSdfResolvedHandle = renderSdfRadianceCascade ? radianceCascadeSdfResolved.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfNormalA, "FluidSim2D RC SDF Resolved") : TextureHandle.nullHandle;
-            TextureHandle radianceCascadeSdfResolvedPayloadHandle = renderSdfRadianceCascade ? radianceCascadeSdfResolvedPayload.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfNormalB, "FluidSim2D RC SDF Resolved Payload") : TextureHandle.nullHandle;
+            LightingResourceHandles lightingResources = lighting != null
+                ? ImportLightingResources(renderGraph, lighting, "FluidSim2D", renderCaustics, renderPhaseDiffuseLight, renderRadianceCascadeLight)
+                : default;
             ParticleFluidLighting2D.FrameContext lightingContext = lighting != null
                 ? metaballRenderer.CreateLightingContext(display, camera)
                 : default;
             int causticsFrameIndex = renderCaustics ? lighting.directLight.traceCaustics.causticFrameIndex++ : 0;
+            LightingInputHandles lightingInputs = new()
+            {
+                transport = materialTransportHandle,
+                materialNormal = materialNormalHandle,
+                velocity0 = velocity0TraceHandle,
+                velocity1 = velocity1TraceHandle,
+                gradient = gradientHandle,
+                gradient2 = gradient2Handle
+            };
 
             if (renderCaustics)
             {
-                using (var builder = renderGraph.AddComputePass<CausticsComputePassData>("Fluid Sim 2D Caustics Clear", out var passData))
-                {
-                    passData.lighting = lighting;
-                    passData.context = lightingContext;
-                    passData.combinedTexture = metaballRenderer.combinedAccumulationTexture;
-                    passData.frameIndex = causticsFrameIndex;
-                    passData.causticResolved = causticResolvedHandle;
-                    passData.causticMotion = causticMotionHandle;
-                    UseIfValid(builder, passData.causticResolved, AccessFlags.Write);
-                    UseIfValid(builder, passData.causticMotion, AccessFlags.Write);
-                    builder.AllowPassCulling(false);
-                    builder.SetRenderFunc(static (CausticsComputePassData data, ComputeGraphContext context) =>
-                    {
-                        data.lighting.directLight.traceCaustics.RecordComputeClear(data.context, context.cmd, data.combinedTexture, data.frameIndex, data.causticResolved, data.causticMotion);
-                    });
-                }
-
-                using (var builder = renderGraph.AddComputePass<CausticsComputePassData>("Fluid Sim 2D Caustics Trace", out var passData))
-                {
-                    passData.lighting = lighting;
-                    passData.context = lightingContext;
-                    passData.combinedTexture = metaballRenderer.combinedAccumulationTexture;
-                    passData.combined = combinedHandle;
-                    passData.frameIndex = causticsFrameIndex;
-                    passData.transport = materialTransportHandle;
-                    passData.materialNormal = materialNormalHandle;
-                    passData.velocity0 = velocity0TraceHandle;
-                    passData.velocity1 = velocity1TraceHandle;
-                    passData.gradient = gradientHandle;
-                    passData.gradient2 = gradient2Handle;
-                    UseIfValid(builder, passData.combined, AccessFlags.Read);
-                    UseIfValid(builder, passData.transport, AccessFlags.Read);
-                    UseIfValid(builder, passData.materialNormal, AccessFlags.Read);
-                    UseIfValid(builder, passData.velocity0, AccessFlags.Read);
-                    UseIfValid(builder, passData.velocity1, AccessFlags.Read);
-                    UseIfValid(builder, passData.gradient, AccessFlags.Read);
-                    UseIfValid(builder, passData.gradient2, AccessFlags.Read);
-                    builder.AllowPassCulling(false);
-                    builder.SetRenderFunc(static (CausticsComputePassData data, ComputeGraphContext context) =>
-                    {
-                        data.lighting.directLight.traceCaustics.RecordComputeTrace(data.context, context.cmd, data.combinedTexture, data.combined, data.frameIndex, data.transport, data.materialNormal, data.velocity0, data.velocity1, data.gradient, data.gradient2);
-                    });
-                }
-
-                using (var builder = renderGraph.AddComputePass<CausticsComputePassData>("Fluid Sim 2D Caustics Resolve", out var passData))
-                {
-                    passData.lighting = lighting;
-                    passData.context = lightingContext;
-                    passData.combinedTexture = metaballRenderer.combinedAccumulationTexture;
-                    passData.frameIndex = causticsFrameIndex;
-                    passData.causticResolved = causticResolvedHandle;
-                    passData.causticMotion = causticMotionHandle;
-                    UseIfValid(builder, passData.causticResolved, AccessFlags.Write);
-                    UseIfValid(builder, passData.causticMotion, AccessFlags.Write);
-                    builder.AllowPassCulling(false);
-                    builder.SetRenderFunc(static (CausticsComputePassData data, ComputeGraphContext context) =>
-                    {
-                        data.lighting.directLight.traceCaustics.RecordComputeResolve(data.context, context.cmd, data.combinedTexture, data.frameIndex, data.causticResolved, data.causticMotion);
-                    });
-                }
-
-                using (var builder = renderGraph.AddUnsafePass<CausticsBlurPassData>("Fluid Sim 2D Caustics Blur", out var passData))
-                {
-                    passData.lighting = lighting;
-                    passData.context = lightingContext;
-                    passData.causticResolved = causticResolvedHandle;
-                    passData.causticBlur = causticBlurHandle;
-                    passData.causticMotion = causticMotionHandle;
-                    passData.causticMotionDilated = causticMotionDilatedHandle;
-                    passData.causticMotionDilationScratch = causticMotionDilationScratchHandle;
-                    UseIfValid(builder, passData.causticResolved, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.causticMotion, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.causticBlur, AccessFlags.Write);
-                    UseIfValid(builder, passData.causticMotionDilated, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.causticMotionDilationScratch, AccessFlags.ReadWrite);
-                    builder.AllowPassCulling(false);
-                    builder.SetRenderFunc(static (CausticsBlurPassData data, UnsafeGraphContext context) =>
-                    {
-                        CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-                        data.lighting.directLight.traceCaustics.temporalCaustics.RecordBlurAndMotion(data.context, nativeCommandBuffer);
-                    });
-                }
-
-                using (var builder = renderGraph.AddUnsafePass<CausticsTemporalPassData>("Fluid Sim 2D Caustics Temporal", out var passData))
-                {
-                    passData.lighting = lighting;
-                    passData.context = lightingContext;
-                    passData.transport = materialTransportHandle;
-                    passData.causticResolved = causticResolvedHandle;
-                    passData.causticTemporal = causticTemporalHandle;
-                    passData.causticHistory = causticHistoryHandle;
-                    passData.causticMotion = causticMotionHandle;
-                    passData.causticMotionDilated = causticMotionDilatedHandle;
-                    passData.causticMotionDilationScratch = causticMotionDilationScratchHandle;
-                    UseIfValid(builder, passData.causticResolved, AccessFlags.Read);
-                    UseIfValid(builder, passData.causticTemporal, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.causticHistory, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.causticMotion, AccessFlags.Read);
-                    UseIfValid(builder, passData.causticMotionDilated, AccessFlags.Read);
-                    UseIfValid(builder, passData.causticMotionDilationScratch, AccessFlags.Read);
-                    UseIfValid(builder, passData.transport, AccessFlags.Read);
-                    builder.AllowPassCulling(false);
-                    builder.SetRenderFunc(static (CausticsTemporalPassData data, UnsafeGraphContext context) =>
-                    {
-                        CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-                        RenderTexture temporalMotionTexture = data.lighting.directLight.traceCaustics.temporalCaustics.GetTemporalMotionTextureAfterBlur();
-                        data.lighting.directLight.traceCaustics.temporalCaustics.RecordTemporal(data.context, nativeCommandBuffer, temporalMotionTexture);
-                    });
-                }
-
+                RecordCausticsPasses(renderGraph, "Fluid Sim 2D", lighting, lightingContext, lightingInputs, lightingResources, causticsFrameIndex);
             }
 
             if (renderSoftLight)
             {
-                using (var builder = renderGraph.AddUnsafePass<CausticsSoftLightPassData>("Fluid Sim 2D Caustics Soft Light", out var passData))
-                {
-                    passData.lighting = lighting;
-                    passData.context = lightingContext;
-                    passData.transport = materialTransportHandle;
-                    passData.causticResolved = causticResolvedHandle;
-                    passData.causticTemporal = causticTemporalHandle;
-                    passData.gaussianSoftLight0 = gaussianSoftLight0Handle;
-                    passData.gaussianSoftLight1 = gaussianSoftLight1Handle;
-                    passData.radianceCascade0 = radianceCascade0Handle;
-                    passData.radianceCascade1 = radianceCascade1Handle;
-                    passData.radianceCascadeSdfSeedA = radianceCascadeSdfSeedAHandle;
-                    passData.radianceCascadeSdfSeedB = radianceCascadeSdfSeedBHandle;
-                    passData.radianceCascadeSdfPayloadA = radianceCascadeSdfPayloadAHandle;
-                    passData.radianceCascadeSdfPayloadB = radianceCascadeSdfPayloadBHandle;
-                    passData.radianceCascadeSdfResolved = radianceCascadeSdfResolvedHandle;
-                    passData.radianceCascadeSdfResolvedPayload = radianceCascadeSdfResolvedPayloadHandle;
-                    UseIfValid(builder, passData.transport, AccessFlags.Read);
-                    UseIfValid(builder, passData.causticResolved, AccessFlags.Read);
-                    UseIfValid(builder, passData.causticTemporal, AccessFlags.Read);
-                    UseIfValid(builder, passData.gaussianSoftLight0, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.gaussianSoftLight1, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.radianceCascade0, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.radianceCascade1, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.radianceCascadeSdfSeedA, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.radianceCascadeSdfSeedB, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.radianceCascadeSdfPayloadA, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.radianceCascadeSdfPayloadB, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.radianceCascadeSdfResolved, AccessFlags.ReadWrite);
-                    UseIfValid(builder, passData.radianceCascadeSdfResolvedPayload, AccessFlags.ReadWrite);
-                    builder.AllowPassCulling(false);
-                    builder.SetRenderFunc(static (CausticsSoftLightPassData data, UnsafeGraphContext context) =>
-                    {
-                        CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-                        data.lighting.RecordSoftLight(data.context, nativeCommandBuffer, data.lighting.directLight.traceCaustics.GetSharpCausticsTexture());
-                    });
-                }
+                RecordSoftLightPass(renderGraph, "Fluid Sim 2D", lighting, lightingContext, lightingInputs, lightingResources);
             }
 
             using (var builder = renderGraph.AddUnsafePass<CompositePassData>("Fluid Sim 2D Composite", out var passData))
@@ -426,13 +283,13 @@ namespace Seb.Fluid2D.Simulation
                 passData.materialAlbedo = materialAlbedoHandle;
                 passData.materialNormal = materialNormalHandle;
                 passData.materialTransport = materialTransportHandle;
-                passData.causticResolved = causticResolvedHandle;
-                passData.causticTemporal = causticTemporalHandle;
-                passData.causticMotion = causticMotionHandle;
-                passData.gaussianSoftLight0 = gaussianSoftLight0Handle;
-                passData.gaussianSoftLight1 = gaussianSoftLight1Handle;
-                passData.radianceCascade0 = radianceCascade0Handle;
-                passData.radianceCascade1 = radianceCascade1Handle;
+                passData.causticResolved = lightingResources.causticResolved;
+                passData.causticTemporal = lightingResources.causticTemporal;
+                passData.causticMotion = lightingResources.causticMotion;
+                passData.gaussianSoftLight0 = lightingResources.gaussianSoftLight0;
+                passData.gaussianSoftLight1 = lightingResources.gaussianSoftLight1;
+                passData.radianceCascade0 = lightingResources.radianceCascade0;
+                passData.radianceCascade1 = lightingResources.radianceCascade1;
                 UseIfValid(builder, passData.color, AccessFlags.Write);
                 UseIfValid(builder, passData.depth, AccessFlags.ReadWrite);
                 UseIfValid(builder, passData.combined, AccessFlags.Read);
@@ -476,20 +333,159 @@ namespace Seb.Fluid2D.Simulation
 
         void RecordJumpFloodRenderGraph(RenderGraph renderGraph, Camera camera, UniversalResourceData resourceData)
         {
-            if (!display.JumpFloodRenderer.PrepareForRender(display, camera))
+            JumpFloodRenderer2D jumpFloodRenderer = display.JumpFloodRenderer;
+            if (!jumpFloodRenderer.PrepareForRender(display, camera))
             {
                 return;
+            }
+
+            ParticleFluidLighting2D lighting = display.Lighting;
+            if (lighting != null && !lighting.isActiveAndEnabled)
+            {
+                lighting = null;
+            }
+
+            TextureHandle seedAHandle = jumpFloodSeedA.Import(renderGraph, jumpFloodRenderer.SeedA, "FluidSim2D JFA Seed A");
+            TextureHandle seedBHandle = jumpFloodSeedB.Import(renderGraph, jumpFloodRenderer.SeedB, "FluidSim2D JFA Seed B");
+            TextureHandle payloadAHandle = jumpFloodPayloadA.Import(renderGraph, jumpFloodRenderer.PayloadA, "FluidSim2D JFA Payload A");
+            TextureHandle payloadBHandle = jumpFloodPayloadB.Import(renderGraph, jumpFloodRenderer.PayloadB, "FluidSim2D JFA Payload B");
+            TextureHandle normalPayloadAHandle = jumpFloodNormalPayloadA.Import(renderGraph, jumpFloodRenderer.NormalPayloadA, "FluidSim2D JFA Normal Payload A");
+            TextureHandle normalPayloadBHandle = jumpFloodNormalPayloadB.Import(renderGraph, jumpFloodRenderer.NormalPayloadB, "FluidSim2D JFA Normal Payload B");
+            TextureHandle gradientHandle = gradient.Import(renderGraph, display.gradientTexture != null ? display.gradientTexture : Texture2D.blackTexture, "FluidSim2D Gradient");
+            TextureHandle gradient2Handle = gradient2.Import(renderGraph, display.gradientTexture2 != null ? display.gradientTexture2 : Texture2D.blackTexture, "FluidSim2D Gradient 2");
+            TextureHandle debugHeatMapHandle = debugHeatMap.Import(renderGraph, display.debugHeatMapTexture != null ? display.debugHeatMapTexture : Texture2D.blackTexture, "FluidSim2D Debug Heat Map");
+            TextureHandle debugSignedHeatMapHandle = debugSignedHeatMap.Import(renderGraph, display.debugSignedHeatMapTexture != null ? display.debugSignedHeatMapTexture : Texture2D.blackTexture, "FluidSim2D Debug Signed Heat Map");
+            TextureHandle materialAlbedoHandle = materialAlbedo.Import(renderGraph, jumpFloodRenderer.MaterialMaps.albedoTexture, "FluidSim2D JFA Material Albedo");
+            TextureHandle materialNormalHandle = materialNormal.Import(renderGraph, jumpFloodRenderer.MaterialMaps.normalTexture, "FluidSim2D JFA Material Normal");
+            TextureHandle materialTransportHandle = materialTransport.Import(renderGraph, jumpFloodRenderer.MaterialMaps.transportTexture, "FluidSim2D JFA Material Transport");
+            bool renderCaustics = lighting != null && lighting.directLight.lightingMode == ParticleFluidLighting2D.LightingMode.Caustics;
+            TextureHandle velocity0TraceHandle = renderCaustics
+                ? velocityPhase0Accumulation.Import(renderGraph, Texture2D.blackTexture, "FluidSim2D JFA Velocity Phase 0 Fallback")
+                : TextureHandle.nullHandle;
+            TextureHandle velocity1TraceHandle = renderCaustics
+                ? velocityPhase1Accumulation.Import(renderGraph, Texture2D.blackTexture, "FluidSim2D JFA Velocity Phase 1 Fallback")
+                : TextureHandle.nullHandle;
+            bool renderPhaseDiffuseLight = lighting != null && lighting.gaussianSss.ShouldRender();
+            bool renderRadianceCascadeLight = lighting != null && lighting.radianceCascadeGi.radianceCascadeEnabled;
+            bool renderSoftLight = renderPhaseDiffuseLight || renderRadianceCascadeLight;
+            LightingResourceHandles lightingResources = lighting != null
+                ? ImportLightingResources(renderGraph, lighting, "FluidSim2D JFA", renderCaustics, renderPhaseDiffuseLight, renderRadianceCascadeLight)
+                : default;
+            ParticleFluidLighting2D.FrameContext lightingContext = default;
+            int causticsFrameIndex = renderCaustics ? lighting.directLight.traceCaustics.causticFrameIndex++ : 0;
+            LightingInputHandles lightingInputs = new()
+            {
+                transport = materialTransportHandle,
+                materialNormal = materialNormalHandle,
+                velocity0 = velocity0TraceHandle,
+                velocity1 = velocity1TraceHandle,
+                gradient = gradientHandle,
+                gradient2 = gradient2Handle
+            };
+            if (lighting != null)
+            {
+                ParticleFluidLightingInputSet lightingInputSet = jumpFloodRenderer.MaterialMaps.CreateLightingInputs(
+                    jumpFloodRenderer.CurrentRenderRegion,
+                    jumpFloodRenderer.CurrentSourceSize);
+                lightingContext = lighting.PrepareLighting(camera, lightingInputSet);
+                Texture causticTexture = lighting.directLight.GetCurrentDirectLightTexture();
+                lighting.ApplySettings(lightingContext, renderCaustics, renderSoftLight, causticTexture);
+            }
+
+            JumpFloodResultHandles jumpFloodResult = RecordJumpFloodField(
+                renderGraph,
+                display,
+                camera,
+                jumpFloodRenderer,
+                seedAHandle,
+                seedBHandle,
+                payloadAHandle,
+                payloadBHandle,
+                normalPayloadAHandle,
+                normalPayloadBHandle,
+                gradientHandle,
+                gradient2Handle,
+                debugHeatMapHandle,
+                debugSignedHeatMapHandle);
+
+            if (materialTransportHandle.IsValid() || materialAlbedoHandle.IsValid() || materialNormalHandle.IsValid())
+            {
+                using var materialBuilder = renderGraph.AddUnsafePass<JumpFloodMaterialMapPassData>("Fluid Sim 2D Jump Flood Material Maps", out var materialPass);
+                materialPass.display = display;
+                materialPass.jumpFloodRenderer = jumpFloodRenderer;
+                materialPass.camera = camera;
+                materialPass.result = jumpFloodResult.result;
+                materialPass.payload = jumpFloodResult.payload;
+                materialPass.normalPayload = jumpFloodResult.normalPayload;
+                materialPass.gradient = gradientHandle;
+                materialPass.gradient2 = gradient2Handle;
+                materialPass.albedo = materialAlbedoHandle;
+                materialPass.materialNormal = materialNormalHandle;
+                materialPass.transport = materialTransportHandle;
+                UseIfValid(materialBuilder, materialPass.result, AccessFlags.Read);
+                UseIfValid(materialBuilder, materialPass.payload, AccessFlags.Read);
+                UseIfValid(materialBuilder, materialPass.normalPayload, AccessFlags.Read);
+                UseIfValid(materialBuilder, materialPass.gradient, AccessFlags.Read);
+                UseIfValid(materialBuilder, materialPass.gradient2, AccessFlags.Read);
+                UseIfValid(materialBuilder, materialPass.albedo, AccessFlags.Write);
+                UseIfValid(materialBuilder, materialPass.materialNormal, AccessFlags.Write);
+                UseIfValid(materialBuilder, materialPass.transport, AccessFlags.Write);
+                materialBuilder.AllowPassCulling(false);
+                materialBuilder.SetRenderFunc(static (JumpFloodMaterialMapPassData data, UnsafeGraphContext context) =>
+                {
+                    CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+                    data.jumpFloodRenderer.RecordMaterialMaps(data.display, data.camera, nativeCommandBuffer);
+                });
+            }
+
+            if (lighting != null)
+            {
+                if (renderCaustics)
+                {
+                    RecordCausticsPasses(renderGraph, "Fluid Sim 2D JFA", lighting, lightingContext, lightingInputs, lightingResources, causticsFrameIndex);
+                }
+
+                if (renderSoftLight)
+                {
+                    RecordSoftLightPass(renderGraph, "Fluid Sim 2D JFA", lighting, lightingContext, lightingInputs, lightingResources);
+                }
             }
 
             using var builder = renderGraph.AddUnsafePass<JumpFloodPassData>("Fluid Sim 2D", out var passData);
 
             passData.display = display;
-            passData.jumpFloodRenderer = display.JumpFloodRenderer;
+            passData.jumpFloodRenderer = jumpFloodRenderer;
             passData.camera = camera;
             passData.color = resourceData.activeColorTexture;
             passData.depth = resourceData.activeDepthTexture;
+            passData.result = jumpFloodResult.result;
+            passData.payload = jumpFloodResult.payload;
+            passData.normalPayload = jumpFloodResult.normalPayload;
+            passData.materialAlbedo = materialAlbedoHandle;
+            passData.materialNormal = materialNormalHandle;
+            passData.materialTransport = materialTransportHandle;
+            passData.causticResolved = lightingResources.causticResolved;
+            passData.causticTemporal = lightingResources.causticTemporal;
+            passData.causticMotion = lightingResources.causticMotion;
+            passData.gaussianSoftLight0 = lightingResources.gaussianSoftLight0;
+            passData.gaussianSoftLight1 = lightingResources.gaussianSoftLight1;
+            passData.radianceCascade0 = lightingResources.radianceCascade0;
+            passData.radianceCascade1 = lightingResources.radianceCascade1;
             UseIfValid(builder, passData.color, AccessFlags.Write);
             UseIfValid(builder, passData.depth, AccessFlags.ReadWrite);
+            UseIfValid(builder, passData.result, AccessFlags.Read);
+            UseIfValid(builder, passData.payload, AccessFlags.Read);
+            UseIfValid(builder, passData.normalPayload, AccessFlags.Read);
+            UseIfValid(builder, passData.materialAlbedo, AccessFlags.Read);
+            UseIfValid(builder, passData.materialNormal, AccessFlags.Read);
+            UseIfValid(builder, passData.materialTransport, AccessFlags.Read);
+            UseIfValid(builder, passData.causticResolved, AccessFlags.Read);
+            UseIfValid(builder, passData.causticTemporal, AccessFlags.Read);
+            UseIfValid(builder, passData.causticMotion, AccessFlags.Read);
+            UseIfValid(builder, passData.gaussianSoftLight0, AccessFlags.Read);
+            UseIfValid(builder, passData.gaussianSoftLight1, AccessFlags.Read);
+            UseIfValid(builder, passData.radianceCascade0, AccessFlags.Read);
+            UseIfValid(builder, passData.radianceCascade1, AccessFlags.Read);
             builder.AllowPassCulling(false);
             builder.SetRenderFunc(static (JumpFloodPassData data, UnsafeGraphContext context) =>
             {
@@ -503,7 +499,7 @@ namespace Seb.Fluid2D.Simulation
                 }
 
                 CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-                data.jumpFloodRenderer.RecordComposite(data.display, data.camera, nativeCommandBuffer, data.color);
+                data.jumpFloodRenderer.RecordCompositeWithPreparedLightingAndMaterialMaps(data.display, data.camera, nativeCommandBuffer, data.color);
             });
         }
 
@@ -547,12 +543,301 @@ namespace Seb.Fluid2D.Simulation
             });
         }
 
+        static JumpFloodResultHandles RecordJumpFloodField(
+            RenderGraph renderGraph,
+            ParticleDisplay2D display,
+            Camera camera,
+            JumpFloodRenderer2D jumpFloodRenderer,
+            TextureHandle seedAHandle,
+            TextureHandle seedBHandle,
+            TextureHandle payloadAHandle,
+            TextureHandle payloadBHandle,
+            TextureHandle normalPayloadAHandle,
+            TextureHandle normalPayloadBHandle,
+            TextureHandle gradientHandle,
+            TextureHandle gradient2Handle,
+            TextureHandle debugHeatMapHandle,
+            TextureHandle debugSignedHeatMapHandle)
+        {
+            using (var clearBuilder = renderGraph.AddComputePass<JumpFloodComputePassData>("Fluid Sim 2D Jump Flood Clear", out var clearPass))
+            {
+                clearPass.display = display;
+                clearPass.jumpFloodRenderer = jumpFloodRenderer;
+                clearPass.camera = camera;
+                clearPass.result = seedAHandle;
+                clearPass.payload = payloadAHandle;
+                clearPass.normalPayload = normalPayloadAHandle;
+                UseIfValid(clearBuilder, clearPass.result, AccessFlags.Write);
+                UseIfValid(clearBuilder, clearPass.payload, AccessFlags.Write);
+                UseIfValid(clearBuilder, clearPass.normalPayload, AccessFlags.Write);
+                clearBuilder.AllowPassCulling(false);
+                clearBuilder.SetRenderFunc(static (JumpFloodComputePassData data, ComputeGraphContext context) =>
+                {
+                    data.jumpFloodRenderer.RecordClear(data.display, data.camera, context.cmd, data.result, data.payload, data.normalPayload);
+                });
+            }
+
+            using (var seedBuilder = renderGraph.AddComputePass<JumpFloodSeedPassData>("Fluid Sim 2D Jump Flood Seed", out var seedPass))
+            {
+                seedPass.display = display;
+                seedPass.jumpFloodRenderer = jumpFloodRenderer;
+                seedPass.camera = camera;
+                seedPass.result = seedAHandle;
+                seedPass.payload = payloadAHandle;
+                seedPass.normalPayload = normalPayloadAHandle;
+                seedPass.gradient = gradientHandle;
+                seedPass.gradient2 = gradient2Handle;
+                seedPass.debugHeatMap = debugHeatMapHandle;
+                seedPass.debugSignedHeatMap = debugSignedHeatMapHandle;
+                UseIfValid(seedBuilder, seedPass.result, AccessFlags.Write);
+                UseIfValid(seedBuilder, seedPass.payload, AccessFlags.Write);
+                UseIfValid(seedBuilder, seedPass.normalPayload, AccessFlags.Write);
+                UseIfValid(seedBuilder, seedPass.gradient, AccessFlags.Read);
+                UseIfValid(seedBuilder, seedPass.gradient2, AccessFlags.Read);
+                UseIfValid(seedBuilder, seedPass.debugHeatMap, AccessFlags.Read);
+                UseIfValid(seedBuilder, seedPass.debugSignedHeatMap, AccessFlags.Read);
+                seedBuilder.AllowPassCulling(false);
+                seedBuilder.SetRenderFunc(static (JumpFloodSeedPassData data, ComputeGraphContext context) =>
+                {
+                    data.jumpFloodRenderer.RecordSeed(data.display, data.camera, context.cmd, data.result, data.payload, data.normalPayload, data.gradient, data.gradient2, data.debugHeatMap, data.debugSignedHeatMap);
+                });
+            }
+
+            TextureHandle currentSeed = seedAHandle;
+            TextureHandle currentPayload = payloadAHandle;
+            TextureHandle currentNormalPayload = normalPayloadAHandle;
+            TextureHandle nextSeed = seedBHandle;
+            TextureHandle nextPayload = payloadBHandle;
+            TextureHandle nextNormalPayload = normalPayloadBHandle;
+            RenderTexture currentSeedTexture = jumpFloodRenderer.SeedA;
+            RenderTexture currentPayloadTexture = jumpFloodRenderer.PayloadA;
+            RenderTexture currentNormalPayloadTexture = jumpFloodRenderer.NormalPayloadA;
+            RenderTexture nextSeedTexture = jumpFloodRenderer.SeedB;
+            RenderTexture nextPayloadTexture = jumpFloodRenderer.PayloadB;
+            RenderTexture nextNormalPayloadTexture = jumpFloodRenderer.NormalPayloadB;
+
+            for (int step = jumpFloodRenderer.GetInitialJumpFloodStep(); step >= 1; step >>= 1)
+            {
+                using var stepBuilder = renderGraph.AddComputePass<JumpFloodStepPassData>($"Fluid Sim 2D Jump Flood Step {step}", out var stepPass);
+                stepPass.display = display;
+                stepPass.jumpFloodRenderer = jumpFloodRenderer;
+                stepPass.camera = camera;
+                stepPass.step = step;
+                stepPass.src = currentSeed;
+                stepPass.payloadSrc = currentPayload;
+                stepPass.normalPayloadSrc = currentNormalPayload;
+                stepPass.dst = nextSeed;
+                stepPass.payloadDst = nextPayload;
+                stepPass.normalPayloadDst = nextNormalPayload;
+                UseIfValid(stepBuilder, stepPass.src, AccessFlags.Read);
+                UseIfValid(stepBuilder, stepPass.payloadSrc, AccessFlags.Read);
+                UseIfValid(stepBuilder, stepPass.normalPayloadSrc, AccessFlags.Read);
+                UseIfValid(stepBuilder, stepPass.dst, AccessFlags.Write);
+                UseIfValid(stepBuilder, stepPass.payloadDst, AccessFlags.Write);
+                UseIfValid(stepBuilder, stepPass.normalPayloadDst, AccessFlags.Write);
+                stepBuilder.AllowPassCulling(false);
+                stepBuilder.SetRenderFunc(static (JumpFloodStepPassData data, ComputeGraphContext context) =>
+                {
+                    data.jumpFloodRenderer.RecordStep(data.display, data.camera, context.cmd, data.step, data.src, data.payloadSrc, data.normalPayloadSrc, data.dst, data.payloadDst, data.normalPayloadDst);
+                });
+
+                (currentSeed, nextSeed) = (nextSeed, currentSeed);
+                (currentPayload, nextPayload) = (nextPayload, currentPayload);
+                (currentNormalPayload, nextNormalPayload) = (nextNormalPayload, currentNormalPayload);
+                (currentSeedTexture, nextSeedTexture) = (nextSeedTexture, currentSeedTexture);
+                (currentPayloadTexture, nextPayloadTexture) = (nextPayloadTexture, currentPayloadTexture);
+                (currentNormalPayloadTexture, nextNormalPayloadTexture) = (nextNormalPayloadTexture, currentNormalPayloadTexture);
+            }
+
+            jumpFloodRenderer.SetResults(currentSeedTexture, currentPayloadTexture, currentNormalPayloadTexture);
+            return new JumpFloodResultHandles
+            {
+                result = currentSeed,
+                payload = currentPayload,
+                normalPayload = currentNormalPayload
+            };
+        }
+
         static void UseIfValid(IBaseRenderGraphBuilder builder, TextureHandle texture, AccessFlags accessFlags)
         {
             if (texture.IsValid())
             {
                 builder.UseTexture(texture, accessFlags);
             }
+        }
+
+        LightingResourceHandles ImportLightingResources(RenderGraph renderGraph, ParticleFluidLighting2D lighting, string prefix, bool renderCaustics, bool renderPhaseDiffuseLight, bool renderRadianceCascadeLight)
+        {
+            LightingResourceHandles handles = default;
+            bool renderSoftLight = renderPhaseDiffuseLight || renderRadianceCascadeLight;
+            bool renderSdfRadianceCascade = renderSoftLight && renderRadianceCascadeLight;
+
+            handles.causticResolved = renderCaustics ? causticResolved.Import(renderGraph, lighting.directLight.traceCaustics.causticResolvedTexture, $"{prefix} Caustic Resolved") : TextureHandle.nullHandle;
+            handles.causticBlur = renderCaustics ? causticBlur.Import(renderGraph, lighting.directLight.traceCaustics.temporalCaustics.causticBlurTexture, $"{prefix} Caustic Blur") : TextureHandle.nullHandle;
+            handles.causticTemporal = renderCaustics && lighting.directLight.temporalSettings.denoisingEnabled ? causticTemporal.Import(renderGraph, lighting.directLight.traceCaustics.temporalCaustics.causticTemporalTexture, $"{prefix} Caustic Temporal") : TextureHandle.nullHandle;
+            handles.causticHistory = renderCaustics && lighting.directLight.temporalSettings.denoisingEnabled ? causticHistory.Import(renderGraph, lighting.directLight.traceCaustics.temporalCaustics.causticHistoryTexture, $"{prefix} Caustic History") : TextureHandle.nullHandle;
+            handles.causticMotion = renderCaustics ? causticMotion.Import(renderGraph, lighting.directLight.traceCaustics.causticMotionTexture, $"{prefix} Caustic Motion") : TextureHandle.nullHandle;
+            handles.causticMotionDilated = renderCaustics ? causticMotionDilated.Import(renderGraph, lighting.directLight.traceCaustics.temporalCaustics.causticMotionDilatedTexture, $"{prefix} Caustic Motion Dilated") : TextureHandle.nullHandle;
+            handles.causticMotionDilationScratch = renderCaustics ? causticMotionDilationScratch.Import(renderGraph, lighting.directLight.traceCaustics.temporalCaustics.causticMotionDilationScratchTexture, $"{prefix} Caustic Motion Dilation Scratch") : TextureHandle.nullHandle;
+            handles.gaussianSoftLight0 = renderPhaseDiffuseLight ? softLight0.Import(renderGraph, lighting.gaussianSss.gaussianSoftLightTexture0, $"{prefix} Gaussian Soft Light 0") : TextureHandle.nullHandle;
+            handles.gaussianSoftLight1 = renderPhaseDiffuseLight ? softLight1.Import(renderGraph, lighting.gaussianSss.gaussianSoftLightTexture1, $"{prefix} Gaussian Soft Light 1") : TextureHandle.nullHandle;
+            handles.radianceCascade0 = renderRadianceCascadeLight ? radianceCascade0.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeTexture0, $"{prefix} Radiance Cascade 0") : TextureHandle.nullHandle;
+            handles.radianceCascade1 = renderRadianceCascadeLight ? radianceCascade1.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeTexture1, $"{prefix} Radiance Cascade 1") : TextureHandle.nullHandle;
+            handles.radianceCascadeSdfSeedA = renderSdfRadianceCascade ? radianceCascadeSdfSeedA.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfSeedA, $"{prefix} RC SDF Seed A") : TextureHandle.nullHandle;
+            handles.radianceCascadeSdfSeedB = renderSdfRadianceCascade ? radianceCascadeSdfSeedB.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfSeedB, $"{prefix} RC SDF Seed B") : TextureHandle.nullHandle;
+            handles.radianceCascadeSdfPayloadA = renderSdfRadianceCascade ? radianceCascadeSdfPayloadA.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfPayloadA, $"{prefix} RC SDF Payload A") : TextureHandle.nullHandle;
+            handles.radianceCascadeSdfPayloadB = renderSdfRadianceCascade ? radianceCascadeSdfPayloadB.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfPayloadB, $"{prefix} RC SDF Payload B") : TextureHandle.nullHandle;
+            handles.radianceCascadeSdfResolved = renderSdfRadianceCascade ? radianceCascadeSdfResolved.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfNormalA, $"{prefix} RC SDF Resolved") : TextureHandle.nullHandle;
+            handles.radianceCascadeSdfResolvedPayload = renderSdfRadianceCascade ? radianceCascadeSdfResolvedPayload.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfNormalB, $"{prefix} RC SDF Resolved Payload") : TextureHandle.nullHandle;
+
+            return handles;
+        }
+
+        static void RecordCausticsPasses(RenderGraph renderGraph, string prefix, ParticleFluidLighting2D lighting, ParticleFluidLighting2D.FrameContext context, LightingInputHandles inputs, LightingResourceHandles resources, int frameIndex)
+        {
+            using (var builder = renderGraph.AddComputePass<CausticsComputePassData>($"{prefix} Caustics Clear", out var passData))
+            {
+                passData.lighting = lighting;
+                passData.context = context;
+                passData.frameIndex = frameIndex;
+                passData.causticResolved = resources.causticResolved;
+                passData.causticMotion = resources.causticMotion;
+                UseIfValid(builder, passData.causticResolved, AccessFlags.Write);
+                UseIfValid(builder, passData.causticMotion, AccessFlags.Write);
+                builder.AllowPassCulling(false);
+                builder.SetRenderFunc(static (CausticsComputePassData data, ComputeGraphContext context) =>
+                {
+                    data.lighting.directLight.traceCaustics.RecordComputeClear(data.context, context.cmd, data.frameIndex, data.causticResolved, data.causticMotion);
+                });
+            }
+
+            using (var builder = renderGraph.AddComputePass<CausticsComputePassData>($"{prefix} Caustics Trace", out var passData))
+            {
+                passData.lighting = lighting;
+                passData.context = context;
+                passData.frameIndex = frameIndex;
+                passData.transport = inputs.transport;
+                passData.materialNormal = inputs.materialNormal;
+                passData.velocity0 = inputs.velocity0;
+                passData.velocity1 = inputs.velocity1;
+                passData.gradient = inputs.gradient;
+                passData.gradient2 = inputs.gradient2;
+                UseIfValid(builder, passData.transport, AccessFlags.Read);
+                UseIfValid(builder, passData.materialNormal, AccessFlags.Read);
+                UseIfValid(builder, passData.velocity0, AccessFlags.Read);
+                UseIfValid(builder, passData.velocity1, AccessFlags.Read);
+                UseIfValid(builder, passData.gradient, AccessFlags.Read);
+                UseIfValid(builder, passData.gradient2, AccessFlags.Read);
+                builder.AllowPassCulling(false);
+                builder.SetRenderFunc(static (CausticsComputePassData data, ComputeGraphContext context) =>
+                {
+                    data.lighting.directLight.traceCaustics.RecordComputeTrace(data.context, context.cmd, data.frameIndex, data.transport, data.materialNormal, data.velocity0, data.velocity1, data.gradient, data.gradient2);
+                });
+            }
+
+            using (var builder = renderGraph.AddComputePass<CausticsComputePassData>($"{prefix} Caustics Resolve", out var passData))
+            {
+                passData.lighting = lighting;
+                passData.context = context;
+                passData.frameIndex = frameIndex;
+                passData.causticResolved = resources.causticResolved;
+                passData.causticMotion = resources.causticMotion;
+                UseIfValid(builder, passData.causticResolved, AccessFlags.Write);
+                UseIfValid(builder, passData.causticMotion, AccessFlags.Write);
+                builder.AllowPassCulling(false);
+                builder.SetRenderFunc(static (CausticsComputePassData data, ComputeGraphContext context) =>
+                {
+                    data.lighting.directLight.traceCaustics.RecordComputeResolve(data.context, context.cmd, data.frameIndex, data.causticResolved, data.causticMotion);
+                });
+            }
+
+            using (var builder = renderGraph.AddUnsafePass<CausticsBlurPassData>($"{prefix} Caustics Blur", out var passData))
+            {
+                passData.lighting = lighting;
+                passData.context = context;
+                passData.causticResolved = resources.causticResolved;
+                passData.causticBlur = resources.causticBlur;
+                passData.causticMotion = resources.causticMotion;
+                passData.causticMotionDilated = resources.causticMotionDilated;
+                passData.causticMotionDilationScratch = resources.causticMotionDilationScratch;
+                UseIfValid(builder, passData.causticResolved, AccessFlags.ReadWrite);
+                UseIfValid(builder, passData.causticMotion, AccessFlags.ReadWrite);
+                UseIfValid(builder, passData.causticBlur, AccessFlags.Write);
+                UseIfValid(builder, passData.causticMotionDilated, AccessFlags.ReadWrite);
+                UseIfValid(builder, passData.causticMotionDilationScratch, AccessFlags.ReadWrite);
+                builder.AllowPassCulling(false);
+                builder.SetRenderFunc(static (CausticsBlurPassData data, UnsafeGraphContext context) =>
+                {
+                    CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+                    data.lighting.directLight.traceCaustics.temporalCaustics.RecordBlurAndMotion(data.context, nativeCommandBuffer);
+                });
+            }
+
+            using (var builder = renderGraph.AddUnsafePass<CausticsTemporalPassData>($"{prefix} Caustics Temporal", out var passData))
+            {
+                passData.lighting = lighting;
+                passData.context = context;
+                passData.transport = inputs.transport;
+                passData.causticResolved = resources.causticResolved;
+                passData.causticTemporal = resources.causticTemporal;
+                passData.causticHistory = resources.causticHistory;
+                passData.causticMotion = resources.causticMotion;
+                passData.causticMotionDilated = resources.causticMotionDilated;
+                passData.causticMotionDilationScratch = resources.causticMotionDilationScratch;
+                UseIfValid(builder, passData.causticResolved, AccessFlags.Read);
+                UseIfValid(builder, passData.causticTemporal, AccessFlags.ReadWrite);
+                UseIfValid(builder, passData.causticHistory, AccessFlags.ReadWrite);
+                UseIfValid(builder, passData.causticMotion, AccessFlags.Read);
+                UseIfValid(builder, passData.causticMotionDilated, AccessFlags.Read);
+                UseIfValid(builder, passData.causticMotionDilationScratch, AccessFlags.Read);
+                UseIfValid(builder, passData.transport, AccessFlags.Read);
+                builder.AllowPassCulling(false);
+                builder.SetRenderFunc(static (CausticsTemporalPassData data, UnsafeGraphContext context) =>
+                {
+                    CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+                    RenderTexture temporalMotionTexture = data.lighting.directLight.traceCaustics.temporalCaustics.GetTemporalMotionTextureAfterBlur();
+                    data.lighting.directLight.traceCaustics.temporalCaustics.RecordTemporal(data.context, nativeCommandBuffer, temporalMotionTexture);
+                });
+            }
+        }
+
+        static void RecordSoftLightPass(RenderGraph renderGraph, string prefix, ParticleFluidLighting2D lighting, ParticleFluidLighting2D.FrameContext context, LightingInputHandles inputs, LightingResourceHandles resources)
+        {
+            using var builder = renderGraph.AddUnsafePass<CausticsSoftLightPassData>($"{prefix} Caustics Soft Light", out var passData);
+            passData.lighting = lighting;
+            passData.context = context;
+            passData.transport = inputs.transport;
+            passData.causticResolved = resources.causticResolved;
+            passData.causticTemporal = resources.causticTemporal;
+            passData.gaussianSoftLight0 = resources.gaussianSoftLight0;
+            passData.gaussianSoftLight1 = resources.gaussianSoftLight1;
+            passData.radianceCascade0 = resources.radianceCascade0;
+            passData.radianceCascade1 = resources.radianceCascade1;
+            passData.radianceCascadeSdfSeedA = resources.radianceCascadeSdfSeedA;
+            passData.radianceCascadeSdfSeedB = resources.radianceCascadeSdfSeedB;
+            passData.radianceCascadeSdfPayloadA = resources.radianceCascadeSdfPayloadA;
+            passData.radianceCascadeSdfPayloadB = resources.radianceCascadeSdfPayloadB;
+            passData.radianceCascadeSdfResolved = resources.radianceCascadeSdfResolved;
+            passData.radianceCascadeSdfResolvedPayload = resources.radianceCascadeSdfResolvedPayload;
+            UseIfValid(builder, passData.transport, AccessFlags.Read);
+            UseIfValid(builder, passData.causticResolved, AccessFlags.Read);
+            UseIfValid(builder, passData.causticTemporal, AccessFlags.Read);
+            UseIfValid(builder, passData.gaussianSoftLight0, AccessFlags.ReadWrite);
+            UseIfValid(builder, passData.gaussianSoftLight1, AccessFlags.ReadWrite);
+            UseIfValid(builder, passData.radianceCascade0, AccessFlags.ReadWrite);
+            UseIfValid(builder, passData.radianceCascade1, AccessFlags.ReadWrite);
+            UseIfValid(builder, passData.radianceCascadeSdfSeedA, AccessFlags.ReadWrite);
+            UseIfValid(builder, passData.radianceCascadeSdfSeedB, AccessFlags.ReadWrite);
+            UseIfValid(builder, passData.radianceCascadeSdfPayloadA, AccessFlags.ReadWrite);
+            UseIfValid(builder, passData.radianceCascadeSdfPayloadB, AccessFlags.ReadWrite);
+            UseIfValid(builder, passData.radianceCascadeSdfResolved, AccessFlags.ReadWrite);
+            UseIfValid(builder, passData.radianceCascadeSdfResolvedPayload, AccessFlags.ReadWrite);
+            builder.AllowPassCulling(false);
+            builder.SetRenderFunc(static (CausticsSoftLightPassData data, UnsafeGraphContext context) =>
+            {
+                CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+                data.lighting.RecordSoftLight(data.context, nativeCommandBuffer, data.lighting.directLight.traceCaustics.GetSharpCausticsTexture());
+            });
         }
 
         sealed class ImportedTexture
@@ -622,8 +907,6 @@ namespace Seb.Fluid2D.Simulation
         {
             public ParticleFluidLighting2D lighting;
             public ParticleFluidLighting2D.FrameContext context;
-            public RenderTexture combinedTexture;
-            public TextureHandle combined;
             public int frameIndex;
             public TextureHandle transport;
             public TextureHandle materialNormal;
@@ -633,6 +916,44 @@ namespace Seb.Fluid2D.Simulation
             public TextureHandle gradient2;
             public TextureHandle causticResolved;
             public TextureHandle causticMotion;
+        }
+
+        struct LightingInputHandles
+        {
+            public TextureHandle transport;
+            public TextureHandle materialNormal;
+            public TextureHandle velocity0;
+            public TextureHandle velocity1;
+            public TextureHandle gradient;
+            public TextureHandle gradient2;
+        }
+
+        struct LightingResourceHandles
+        {
+            public TextureHandle causticResolved;
+            public TextureHandle causticBlur;
+            public TextureHandle causticTemporal;
+            public TextureHandle causticHistory;
+            public TextureHandle causticMotion;
+            public TextureHandle causticMotionDilated;
+            public TextureHandle causticMotionDilationScratch;
+            public TextureHandle gaussianSoftLight0;
+            public TextureHandle gaussianSoftLight1;
+            public TextureHandle radianceCascade0;
+            public TextureHandle radianceCascade1;
+            public TextureHandle radianceCascadeSdfSeedA;
+            public TextureHandle radianceCascadeSdfSeedB;
+            public TextureHandle radianceCascadeSdfPayloadA;
+            public TextureHandle radianceCascadeSdfPayloadB;
+            public TextureHandle radianceCascadeSdfResolved;
+            public TextureHandle radianceCascadeSdfResolvedPayload;
+        }
+
+        struct JumpFloodResultHandles
+        {
+            public TextureHandle result;
+            public TextureHandle payload;
+            public TextureHandle normalPayload;
         }
 
         class CausticsBlurPassData
@@ -748,6 +1069,67 @@ namespace Seb.Fluid2D.Simulation
             public Camera camera;
             public TextureHandle color;
             public TextureHandle depth;
+            public TextureHandle result;
+            public TextureHandle payload;
+            public TextureHandle normalPayload;
+            public TextureHandle materialAlbedo;
+            public TextureHandle materialNormal;
+            public TextureHandle materialTransport;
+            public TextureHandle causticResolved;
+            public TextureHandle causticTemporal;
+            public TextureHandle causticMotion;
+            public TextureHandle gaussianSoftLight0;
+            public TextureHandle gaussianSoftLight1;
+            public TextureHandle radianceCascade0;
+            public TextureHandle radianceCascade1;
         }
+
+        class JumpFloodComputePassData
+        {
+            public ParticleDisplay2D display;
+            public JumpFloodRenderer2D jumpFloodRenderer;
+            public Camera camera;
+            public TextureHandle result;
+            public TextureHandle payload;
+            public TextureHandle normalPayload;
+        }
+
+        class JumpFloodSeedPassData : JumpFloodComputePassData
+        {
+            public TextureHandle gradient;
+            public TextureHandle gradient2;
+            public TextureHandle debugHeatMap;
+            public TextureHandle debugSignedHeatMap;
+        }
+
+        class JumpFloodStepPassData
+        {
+            public ParticleDisplay2D display;
+            public JumpFloodRenderer2D jumpFloodRenderer;
+            public Camera camera;
+            public int step;
+            public TextureHandle src;
+            public TextureHandle payloadSrc;
+            public TextureHandle normalPayloadSrc;
+            public TextureHandle dst;
+            public TextureHandle payloadDst;
+            public TextureHandle normalPayloadDst;
+        }
+
+        class JumpFloodMaterialMapPassData
+        {
+            public ParticleDisplay2D display;
+            public JumpFloodRenderer2D jumpFloodRenderer;
+            public Camera camera;
+            public TextureHandle result;
+            public TextureHandle payload;
+            public TextureHandle normalPayload;
+            public TextureHandle gradient;
+            public TextureHandle gradient2;
+            public TextureHandle albedo;
+            public TextureHandle materialNormal;
+            public TextureHandle transport;
+        }
+
     }
 }

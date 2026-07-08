@@ -74,19 +74,18 @@ namespace Seb.Fluid2D.Rendering
 			temporalCaustics.Release();
 		}
 
-		public void RecordComputeClear(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex, TextureHandle causticResolvedHandle, TextureHandle causticMotionHandle)
+		public void RecordComputeClear(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, int frameIndex, TextureHandle causticResolvedHandle, TextureHandle causticMotionHandle)
 		{
-			CausticsComputePassState state = ApplyComputeCommonParams(context, targetCommandBuffer, combinedAccumulationTexture, frameIndex);
+			CausticsComputePassState state = ApplyComputeCommonParams(context, targetCommandBuffer, frameIndex);
 			BindComputeBuffers(targetCommandBuffer, state.compute, state.clearKernel);
 			targetCommandBuffer.SetComputeTextureParam(state.compute, state.clearKernel, "CausticResult", causticResolvedHandle);
 			targetCommandBuffer.SetComputeTextureParam(state.compute, state.clearKernel, "CausticMotionResult", causticMotionHandle);
 			DispatchCompute(targetCommandBuffer, state.compute, state.clearKernel, state.width, state.height);
 		}
 
-		public void RecordComputeTrace(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, RenderTexture combinedAccumulationTexture, TextureHandle combinedHandle, int frameIndex, TextureHandle transportHandle, TextureHandle materialNormalHandle, TextureHandle velocityPhase0Handle, TextureHandle velocityPhase1Handle, TextureHandle gradientHandle, TextureHandle gradient2Handle)
+		public void RecordComputeTrace(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, int frameIndex, TextureHandle transportHandle, TextureHandle materialNormalHandle, TextureHandle velocityPhase0Handle, TextureHandle velocityPhase1Handle, TextureHandle gradientHandle, TextureHandle gradient2Handle)
 		{
-			CausticsComputePassState state = ApplyComputeCommonParams(context, targetCommandBuffer, combinedAccumulationTexture, frameIndex);
-			targetCommandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "CombinedTex", combinedHandle);
+			CausticsComputePassState state = ApplyComputeCommonParams(context, targetCommandBuffer, frameIndex);
 			targetCommandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "MaterialTransportTex", transportHandle);
 			targetCommandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "MaterialNormalTex", materialNormalHandle);
 			targetCommandBuffer.SetComputeTextureParam(state.compute, state.traceKernel, "VelocityTex0", velocityPhase0Handle);
@@ -97,21 +96,23 @@ namespace Seb.Fluid2D.Rendering
 			DispatchTrace(targetCommandBuffer, state.compute, state.traceKernel, state.totalRayBudget, state.raysPerPixel);
 		}
 
-		public void RecordComputeResolve(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex, TextureHandle causticResolvedHandle, TextureHandle causticMotionHandle)
+		public void RecordComputeResolve(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, int frameIndex, TextureHandle causticResolvedHandle, TextureHandle causticMotionHandle)
 		{
-			CausticsComputePassState state = ApplyComputeCommonParams(context, targetCommandBuffer, combinedAccumulationTexture, frameIndex);
+			CausticsComputePassState state = ApplyComputeCommonParams(context, targetCommandBuffer, frameIndex);
 			BindComputeBuffers(targetCommandBuffer, state.compute, state.resolveKernel);
 			targetCommandBuffer.SetComputeTextureParam(state.compute, state.resolveKernel, "CausticResult", causticResolvedHandle);
 			targetCommandBuffer.SetComputeTextureParam(state.compute, state.resolveKernel, "CausticMotionResult", causticMotionHandle);
 			DispatchCompute(targetCommandBuffer, state.compute, state.resolveKernel, state.width, state.height);
 		}
 
-		CausticsComputePassState ApplyComputeCommonParams(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, RenderTexture combinedAccumulationTexture, int frameIndex)
+		CausticsComputePassState ApplyComputeCommonParams(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, int frameIndex)
 		{
 			ParticleDisplay2D display = context.display;
 			ParticleFluidLighting2D particleFluidLighting2D = owner.Owner;
-			ComputeShader compute = owner.computeShader;
-			bool renderCausticMotion = owner.lightingMode == ParticleFluidLighting2D.LightingMode.Caustics && (owner.temporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.CausticMotion || particleFluidLighting2D.debugMode == ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion);
+			ParticleFluidDirectLight.CausticsTraceSettings traceSettings = owner.traceSettings;
+			ParticleFluidDirectLight.CausticsTemporalSettings temporalSettings = owner.temporalSettings;
+			ComputeShader compute = owner.causticsCompute;
+			bool renderCausticMotion = owner.lightingMode == ParticleFluidLighting2D.LightingMode.Caustics && (temporalSettings.temporalMotionSource == ParticleFluidLighting2D.TemporalMotionSource.CausticMotion || particleFluidLighting2D.debugMode == ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion);
 			int clearKernel = compute.FindKernel("Clear");
 			int traceKernel = compute.FindKernel("Trace");
 			int resolveKernel = compute.FindKernel("Resolve");
@@ -119,13 +120,11 @@ namespace Seb.Fluid2D.Rendering
 			int width = causticResolvedTexture.width;
 			int height = causticResolvedTexture.height;
 			ParticleFluidLighting2D.PhaseMaterialSettings[] materials = particleFluidLighting2D.PhaseMaterials;
-			int raysPerPixel = Mathf.Max(1, owner.raysPerPixel);
+			int raysPerPixel = Mathf.Max(1, traceSettings.raysPerPixel);
 			int totalRayBudget = particleFluidLighting2D.lightManager.UploadCausticsLightGpuData(causticLightParamsBuffer, context, new Vector2Int(width, height), context.renderRegion.size, raysPerPixel);
 
 			Texture transportTexture = particleFluidLighting2D.materialTransportTexture != null ? particleFluidLighting2D.materialTransportTexture : Texture2D.blackTexture;
 			Texture materialNormalTexture = particleFluidLighting2D.materialNormalTexture != null ? particleFluidLighting2D.materialNormalTexture : Texture2D.blackTexture;
-			Texture combinedTexture = combinedAccumulationTexture != null ? combinedAccumulationTexture : Texture2D.blackTexture;
-			targetCommandBuffer.SetComputeVectorParam(compute, "combinedResolution", new Vector2(combinedTexture.width, combinedTexture.height));
 			targetCommandBuffer.SetComputeVectorParam(compute, "transportResolution", new Vector2(transportTexture.width, transportTexture.height));
 			targetCommandBuffer.SetComputeVectorParam(compute, "materialNormalResolution", new Vector2(materialNormalTexture.width, materialNormalTexture.height));
 			targetCommandBuffer.SetComputeVectorParam(compute, "causticSize", new Vector2(width,height));
@@ -139,19 +138,19 @@ namespace Seb.Fluid2D.Rendering
 				materialParams[offset + 1] = new Vector4(diffuseTint.r, diffuseTint.g, diffuseTint.b, material.absorptionDiffuseTintBlend);
 			}
 			causticMaterialParamsBuffer.SetData(materialParams);
-			targetCommandBuffer.SetComputeIntParam(compute, "causticsRaySteps", owner.extraRayTravelSteps);
-			targetCommandBuffer.SetComputeIntParam(compute, "causticsRayStride", owner.rayStride);
+			targetCommandBuffer.SetComputeIntParam(compute, "causticsRaySteps", traceSettings.extraRayTravelSteps);
+			targetCommandBuffer.SetComputeIntParam(compute, "causticsRayStride", traceSettings.rayStride);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsRaysPerPixel", raysPerPixel);
-			targetCommandBuffer.SetComputeIntParam(compute, "causticsColourSampleStride", owner.colourSampleStride);
+			targetCommandBuffer.SetComputeIntParam(compute, "causticsColourSampleStride", traceSettings.colourSampleStride);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsMotionEnabled", renderCausticMotion ? 1 : 0);
-			targetCommandBuffer.SetComputeIntParam(compute, "causticsStochasticReflection", owner.stochasticReflection ? 1 : 0);
-			targetCommandBuffer.SetComputeFloatParam(compute, "causticsDispersionStrength", owner.dispersionStrength);
-			targetCommandBuffer.SetComputeFloatParam(compute, "causticsDispersionRotation", owner.dispersionRotation);
+			targetCommandBuffer.SetComputeIntParam(compute, "causticsStochasticReflection", traceSettings.stochasticReflection ? 1 : 0);
+			targetCommandBuffer.SetComputeFloatParam(compute, "causticsDispersionStrength", traceSettings.dispersionStrength);
+			targetCommandBuffer.SetComputeFloatParam(compute, "causticsDispersionRotation", traceSettings.dispersionRotation);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsAbsorptionAlbedoBrightnessInfluence", particleFluidLighting2D.absorptionAlbedoBrightnessInfluence);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsAbsorptionAlbedoSaturationInfluence", particleFluidLighting2D.absorptionAlbedoSaturationInfluence);
-			targetCommandBuffer.SetComputeFloatParam(compute, "causticsRayBrightness", owner.rayBrightness);
-			targetCommandBuffer.SetComputeFloatParam(compute, "causticsTemporalJitterPixels", owner.temporalJitterPixels);
-			targetCommandBuffer.SetComputeFloatParam(compute, "causticsSurfaceNormalJitterPixels", owner.surfaceNormalJitterPixels);
+			targetCommandBuffer.SetComputeFloatParam(compute, "causticsRayBrightness", traceSettings.rayBrightness);
+			targetCommandBuffer.SetComputeFloatParam(compute, "causticsTemporalJitterPixels", traceSettings.temporalJitterPixels);
+			targetCommandBuffer.SetComputeFloatParam(compute, "causticsSurfaceNormalJitterPixels", traceSettings.surfaceNormalJitterPixels);
 			targetCommandBuffer.SetComputeFloatParam(compute, "causticsDeltaTime", display.sim.CurrentSimulationDeltaTime);
 			targetCommandBuffer.SetComputeIntParam(compute, "causticsFrameIndex", frameIndex);
 			targetCommandBuffer.SetComputeIntParam(compute, "useEllipticalBounds", display.sim.analyticBoundary.useEllipticalBounds ? 1 : 0);
@@ -194,7 +193,7 @@ namespace Seb.Fluid2D.Rendering
 				return Texture2D.blackTexture;
 			}
 
-			return owner.denoisingEnabled ? (Texture)temporalCaustics.causticTemporalTexture : causticResolvedTexture;
+			return owner.temporalSettings.denoisingEnabled ? (Texture)temporalCaustics.causticTemporalTexture : causticResolvedTexture;
 		}
 	}
 }

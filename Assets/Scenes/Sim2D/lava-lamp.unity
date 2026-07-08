@@ -365,7 +365,7 @@ MonoBehaviour:
     densityThreshold: 0.18
     edgeSoftness: 0.05
     phaseBlendWidth: 1
-    transportPhaseBlendWidth: 1
+    transportPhaseBlendWidth: 4
     phase0RenderBias: 0.95
     phaseBiasNormalStrength: 2.25
     sharpness: 1
@@ -645,35 +645,38 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Rendering.ParticleFluidDirectLight
   blurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
   temporalShader: {fileID: 4800000, guid: 73c5a11f4158468ab8fbd99b9bd1e938, type: 3}
-  computeShader: {fileID: 7200000, guid: 8f4e77c1b8284da4ca6c929de309e7a1, type: 3}
+  causticsCompute: {fileID: 7200000, guid: 8f4e77c1b8284da4ca6c929de309e7a1, type: 3}
   projectedShadowCompute: {fileID: 7200000, guid: 5b61f463d7b3490ea86cc45d7f3b3c8c, type: 3}
   lightingMode: 2
   textureScale: 0.5
-  stochasticReflection: 1
-  dispersionStrength: 0.33
-  dispersionRotation: 0.1
-  extraRayTravelSteps: 192
-  rayBrightness: 1.38
-  rayStride: 1
-  raysPerPixel: 10
-  colourSampleStride: 5
-  blur: 2
-  denoisingEnabled: 1
-  temporalHistoryWeight: 0.95
-  temporalHistoryClampStrength: 0.6
-  temporalClampRejection: 0.5
-  temporalRejectedSpatialFilter: 0.5
-  temporalMotionSource: 0
-  motionBlurRadius: 100
-  temporalMotionBlur: 25
-  temporalMotionDilationRadius: 20
-  temporalMotionDilationIterations: 3
-  temporalJitterPixels: 0.75
-  surfaceNormalJitterPixels: 2
-  projectedShadowOffset: -0.5
-  projectedShadowExpansion: 0.05
-  projectedShadowHistoryRejection: 1
-  projectedShadowMapBins: 2048
+  traceSettings:
+    stochasticReflection: 1
+    dispersionStrength: 0.33
+    dispersionRotation: 0.1
+    extraRayTravelSteps: 192
+    rayBrightness: 1.38
+    rayStride: 1
+    raysPerPixel: 10
+    colourSampleStride: 5
+    blur: 2
+    temporalJitterPixels: 0.75
+    surfaceNormalJitterPixels: 2
+  temporalSettings:
+    denoisingEnabled: 1
+    temporalHistoryWeight: 0.95
+    temporalHistoryClampStrength: 0.6
+    temporalClampRejection: 0.5
+    temporalRejectedSpatialFilter: 0.5
+    temporalMotionSource: 0
+    motionBlurRadius: 100
+    temporalMotionBlur: 25
+    temporalMotionDilationRadius: 20
+    temporalMotionDilationIterations: 3
+    projectedShadowHistoryRejection: 1
+  projectedShadowSettings:
+    offset: -0.5
+    expansion: 0.05
+    mapBins: 2048
 --- !u!114 &271053327
 MonoBehaviour:
   m_ObjectHideFlags: 0
