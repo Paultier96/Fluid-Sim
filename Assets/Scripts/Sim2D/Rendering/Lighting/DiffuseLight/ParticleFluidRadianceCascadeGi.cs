@@ -22,12 +22,14 @@ namespace Seb.Fluid2D.Rendering
 		[Range(1, 64)] public int radianceCascadeRaySteps = 16;
 		[Min(0f)] public float radianceCascadeIntensity = 1f;
 		[Min(0f)] public float radianceCascadeBlobEmissionStrength = 1f;
+		[Min(0f)] public float radianceCascadeDistanceAttenuation = 0f;
+		[Min(0f)] public float radianceCascadeBoundaryCullPaddingPixels = 8f;
 		public bool radianceCascadeDirectionalLightEnabled = true;
 		[Min(0f)] public float radianceCascadeDirectionalLightStrength = 1f;
 		[Range(0f, 1f)] public float radianceCascadeDirectionalLightCascadeStart = 1f;
 		[Min(0f)] public float radianceCascadeSdfPhase0InsetPixels = 1.5f;
+		[Min(0f)] public float radianceCascadeSdfPhase0OutlinePixels = 3f;
 		public bool radianceCascadeSdfBoundarySourceMultiplyAlbedo = true;
-		public bool radianceCascadeSdfApproximateAbsorption = false;
 		[Range(0f, 1f)] public float radianceCascadeDirectCausticStrength = 1f;
 
 		internal ParticleFluidLighting2D owner;
@@ -58,8 +60,9 @@ namespace Seb.Fluid2D.Rendering
 		{
 			if (renderRadianceCascade)
 			{
-				int width = Mathf.Max(1, Mathf.RoundToInt(causticSize.x * radianceCascadeTextureScale));
-				int height = Mathf.Max(1, Mathf.RoundToInt(causticSize.y * radianceCascadeTextureScale));
+				int cascadeTileDivisor = 1 << (Mathf.Clamp(radianceCascadeCount, 1, 6) - 1);
+				int width = RoundUpToMultiple(Mathf.Max(1, Mathf.RoundToInt(causticSize.x * radianceCascadeTextureScale)), cascadeTileDivisor);
+				int height = RoundUpToMultiple(Mathf.Max(1, Mathf.RoundToInt(causticSize.y * radianceCascadeTextureScale)), cascadeTileDivisor);
 				ComputeHelper.CreateRenderTexture(ref radianceCascadeTexture0, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Radiance Cascade 0");
 				ComputeHelper.CreateRenderTexture(ref radianceCascadeTexture1, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Radiance Cascade 1");
 				ComputeHelper.CreateRenderTexture(ref softLightPhase0Texture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Soft Light Phase 0");
@@ -82,6 +85,12 @@ namespace Seb.Fluid2D.Rendering
 			radianceCascadeSdfPayloadB = null;
 			radianceCascadeSdfNormalA = null;
 			radianceCascadeSdfNormalB = null;
+		}
+
+		static int RoundUpToMultiple(int value, int multiple)
+		{
+			multiple = Mathf.Max(1, multiple);
+			return Mathf.Max(multiple, ((value + multiple - 1) / multiple) * multiple);
 		}
 
 		internal void ResetDebugOutputs()
@@ -229,14 +238,15 @@ namespace Seb.Fluid2D.Rendering
 		void SetCommonParams(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, int width, int height, Texture sharpCaustics, RenderTexture sdfResult, RenderTexture sdfPayload, bool useGaussianBoundarySource)
 		{
 			ParticleDisplay2D display = context.display;
-			ParticleFluidLighting2D.PhaseMaterialSettings[] materials = owner.PhaseMaterials;
 			bool useBoundarySourceTexture = false;
+			float boundarySourceNormalization = 1f;
 			Texture boundarySourceTexture = Texture2D.blackTexture;
 			if (owner.directLight != null && owner.directLight.lightingMode == ParticleFluidLighting2D.LightingMode.Caustics)
 			{
 				if (useGaussianBoundarySource && softLightPhase0Texture != null)
 				{
 					boundarySourceTexture = softLightPhase0Texture;
+					boundarySourceNormalization = 1f / Mathf.Max(owner.gaussianSss.gaussianDiffuseScatterStrength, 0.0001f);
 					useBoundarySourceTexture = true;
 				}
 				else if (sharpCaustics != null)
@@ -255,21 +265,19 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetGlobalInt("_RaySteps", Mathf.Max(radianceCascadeRaySteps, 1));
 			targetCommandBuffer.SetGlobalFloat("_RadianceIntensity", radianceCascadeIntensity);
 			targetCommandBuffer.SetGlobalFloat("_BlobEmissionStrength", radianceCascadeBlobEmissionStrength);
+			targetCommandBuffer.SetGlobalFloat("_RadianceDistanceAttenuation", Mathf.Max(radianceCascadeDistanceAttenuation, 0f));
+			targetCommandBuffer.SetGlobalFloat("_RadianceBoundaryCullPaddingPixels", Mathf.Max(radianceCascadeBoundaryCullPaddingPixels, 0f));
 			ApplyLightGlobals(targetCommandBuffer, context.display.sim.analyticBoundary);
 			targetCommandBuffer.SetGlobalFloat("_DirectionalLightStrength", radianceCascadeDirectionalLightStrength);
 			targetCommandBuffer.SetGlobalFloat("_DirectionalLightCascadeStart", radianceCascadeDirectionalLightCascadeStart);
 			targetCommandBuffer.SetGlobalFloat("_SdfPhase0InsetPixels", Mathf.Max(radianceCascadeSdfPhase0InsetPixels, 0f));
+			targetCommandBuffer.SetGlobalFloat("_SdfPhase0OutlinePixels", Mathf.Max(radianceCascadeSdfPhase0OutlinePixels, 0f));
 			targetCommandBuffer.SetGlobalInt("_UseBoundarySourceTex", useBoundarySourceTexture ? 1 : 0);
+			targetCommandBuffer.SetGlobalFloat("_BoundarySourceNormalization", boundarySourceNormalization);
 			targetCommandBuffer.SetGlobalInt("_SdfBoundarySourceMultiplyAlbedo", radianceCascadeSdfBoundarySourceMultiplyAlbedo ? 1 : 0);
-			targetCommandBuffer.SetGlobalInt("_SdfApproximateAbsorption", radianceCascadeSdfApproximateAbsorption ? 1 : 0);
-			targetCommandBuffer.SetGlobalInt("_HybridPhase1Only", useGaussianBoundarySource ? 1 : 0);
+			ParticleFluidLayoutBindings.ApplyBoundaryGlobals(targetCommandBuffer, context.display.sim.analyticBoundary);
 			targetCommandBuffer.SetGlobalVector("domainWorldCenter", context.renderRegion.center);
 			targetCommandBuffer.SetGlobalVector("domainWorldSize", context.renderRegion.size);
-			targetCommandBuffer.SetGlobalFloat("causticsPhase0Absorption", materials[0].absorption);
-			targetCommandBuffer.SetGlobalVector("radianceCascadePhase0AbsorptionTint", materials[0].diffuseLightTint);
-			targetCommandBuffer.SetGlobalFloat("radianceCascadePhase0AbsorptionTintBlend", materials[0].radianceCascadeAbsorptionDiffuseTintBlend);
-			targetCommandBuffer.SetGlobalFloat("causticsAbsorptionAlbedoBrightnessInfluence", owner.absorptionAlbedoBrightnessInfluence);
-			targetCommandBuffer.SetGlobalFloat("causticsAbsorptionAlbedoSaturationInfluence", owner.absorptionAlbedoSaturationInfluence);
 		}
 
 		void ApplyLightGlobals(CommandBuffer targetCommandBuffer, ParticleFluidAnalyticBoundary2D analyticBoundary)

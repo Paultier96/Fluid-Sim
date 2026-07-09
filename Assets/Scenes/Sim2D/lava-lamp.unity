@@ -130,7 +130,7 @@ GameObject:
   - component: {fileID: 68059455}
   - component: {fileID: 68059456}
   m_Layer: 0
-  m_Name: ParticleFluidLight2D (1)
+  m_Name: bottomBulb
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -145,7 +145,7 @@ Transform:
   m_GameObject: {fileID: 68059453}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: -13, z: 8}
+  m_LocalPosition: {x: 0, y: -13, z: 1}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -165,11 +165,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Rendering.ParticleFluidPointLight2D
   temperatureKelvin: 2700
   color: {r: 1, g: 1, b: 1, a: 1}
-  intensity: 0.25
+  intensity: 0.5
   sampleBias: 5
   followsMouse: 0
   range: 50
   falloff: 1
+  sourceRadius: 0.1
 --- !u!1 &271053315
 GameObject:
   m_ObjectHideFlags: 0
@@ -557,7 +558,6 @@ MonoBehaviour:
     indexOfRefraction: 1.442
     absorption: 1.61
     absorptionDiffuseTintBlend: 0
-    radianceCascadeAbsorptionDiffuseTintBlend: 0
     reflectance: 0.09775279
     roughness: 0.2
     metallic: 0
@@ -570,7 +570,6 @@ MonoBehaviour:
     indexOfRefraction: 1.333
     absorption: 0.05
     absorptionDiffuseTintBlend: 0
-    radianceCascadeAbsorptionDiffuseTintBlend: 0
     reflectance: 0.5
     roughness: 0.3
     metallic: 0
@@ -583,7 +582,6 @@ MonoBehaviour:
     indexOfRefraction: 1.516
     absorption: 0
     absorptionDiffuseTintBlend: 0
-    radianceCascadeAbsorptionDiffuseTintBlend: 0
     reflectance: 0
     roughness: 0.35
     metallic: 0
@@ -706,16 +704,18 @@ MonoBehaviour:
   radianceCascadeEnabled: 1
   radianceCascadeTextureScale: 0.5
   radianceCascadeCount: 6
-  radianceCascadeRayRange: 0.23
+  radianceCascadeRayRange: 35
   radianceCascadeRaySteps: 16
   radianceCascadeIntensity: 1.5
   radianceCascadeBlobEmissionStrength: 80
+  radianceCascadeDistanceAttenuation: 0.25
+  radianceCascadeBoundaryCullPaddingPixels: 1
   radianceCascadeDirectionalLightEnabled: 1
   radianceCascadeDirectionalLightStrength: 0.05
-  radianceCascadeDirectionalLightCascadeStart: 0.527
-  radianceCascadeSdfPhase0InsetPixels: 1.5
+  radianceCascadeDirectionalLightCascadeStart: 1
+  radianceCascadeSdfPhase0InsetPixels: 0
+  radianceCascadeSdfPhase0OutlinePixels: 1
   radianceCascadeSdfBoundarySourceMultiplyAlbedo: 1
-  radianceCascadeSdfApproximateAbsorption: 0
   radianceCascadeDirectCausticStrength: 1
 --- !u!114 &271053329
 MonoBehaviour:
@@ -802,6 +802,7 @@ Transform:
   - {fileID: 755991884}
   - {fileID: 68059455}
   - {fileID: 964666368}
+  - {fileID: 1874339690}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &755991882
@@ -815,7 +816,7 @@ GameObject:
   - component: {fileID: 755991884}
   - component: {fileID: 755991885}
   m_Layer: 0
-  m_Name: ParticleFluidLight2D
+  m_Name: skyLight
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -850,7 +851,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Rendering.ParticleFluidDirectionalLight2D
   temperatureKelvin: 5500
   color: {r: 1, g: 1, b: 1, a: 1}
-  intensity: 7.5
+  intensity: 10
   sampleBias: 1
   azimuthDegrees: 130
   elevationDegrees: 50
@@ -1021,7 +1022,7 @@ GameObject:
   - component: {fileID: 964666368}
   - component: {fileID: 964666369}
   m_Layer: 0
-  m_Name: ParticleFluidLight2D (2)
+  m_Name: kicker
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -1167,6 +1168,58 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1874339689
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1874339690}
+  - component: {fileID: 1874339691}
+  m_Layer: 0
+  m_Name: pointer
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 0
+--- !u!4 &1874339690
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1874339689}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: -13, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 271053333}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1874339691
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1874339689}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e391b6a4bccfe1947a08974b62d11844, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Rendering.ParticleFluidPointLight2D
+  temperatureKelvin: 2700
+  color: {r: 1, g: 1, b: 1, a: 1}
+  intensity: 50
+  sampleBias: 1
+  followsMouse: 1
+  range: 25
+  falloff: 5
+  sourceRadius: 0.1
 --- !u!1 &2055861082
 GameObject:
   m_ObjectHideFlags: 0

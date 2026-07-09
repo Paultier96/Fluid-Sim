@@ -79,6 +79,7 @@ float CausticsLightLaunchOffset(int lightIndex) { return CausticsLightRayAllocat
 float CausticsLightLaunchSpacing(int lightIndex) { return CausticsLightRayAllocation(lightIndex).w; }
 float CausticsLightTemperatureKelvin(int lightIndex) { return CausticsLightExtra(lightIndex).x; }
 float CausticsLightDispersionScale(int lightIndex) { return CausticsLightExtra(lightIndex).y; }
+float CausticsLightPointSourceRadius(int lightIndex) { return CausticsLightExtra(lightIndex).z; }
 
 float4 LoadCausticsMaterialField(int materialIndex, int fieldIndex)
 {
@@ -384,6 +385,11 @@ float2 RandomUnitVector(uint seed)
 	return float2(cos(angle), sin(angle));
 }
 
+float2 RandomUnitDisk(uint seed)
+{
+	return RandomUnitVector(seed) * sqrt(Hash01(seed ^ 0x9e3779b9u));
+}
+
 float3 VisibleWavelengthToRgb(float wavelengthNm)
 {
 	float w = wavelengthNm;
@@ -657,6 +663,7 @@ bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir, out float3 lightM
 	float3 lightDirection = CausticsLightLaunchDirection(lightIndex);
 	launchAnchor = CausticsLightLaunchAnchor(lightIndex);
 	launchFalloff = CausticsLightLaunchFalloff(lightIndex);
+	float pointSourceRadius = max(CausticsLightPointSourceRadius(lightIndex), 0.0);
 	float lightAngularRadius = CausticsLightAngularRadius(lightIndex);
 	float launchSpanStart = CausticsLightLaunchSpanStart(lightIndex);
 	float launchSpanLength = CausticsLightLaunchSpanLength(lightIndex);
@@ -688,6 +695,10 @@ bool InitializeRay(uint3 id, out float2 uv, out float2 rayDir, out float3 lightM
 		float angle = launchSpanStart + ((float)localBaseRay + rayOffset) / max((float)localRayCount, 1.0) * angleRange + temporalJitter.x * 0.01;
 		rayDir = float2(cos(angle), sin(angle));
 		rayDir = Rotate2D(rayDir, angleJitter);
+		if (pointSourceRadius > 0.000001)
+		{
+			launchAnchor.xy += RandomUnitDisk(initialRaySeed ^ 0xa511e9b3u) * pointSourceRadius;
+		}
 		uv = WorldToUv(launchAnchor.xy) + rayDir * temporalJitter.y / causticSize;
 		return true;
 	}

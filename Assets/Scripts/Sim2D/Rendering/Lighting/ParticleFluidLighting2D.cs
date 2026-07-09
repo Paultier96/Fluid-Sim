@@ -20,8 +20,6 @@ using UnityEngine.Serialization;
 			[Min(0f)] public float absorption = 0f;
 			[Tooltip("Blends ray absorption colour from the phase albedo gradient toward Diffuse Light Tint. 0 uses the current albedo-based absorption; 1 uses Diffuse Light Tint.")]
 			[Range(0f, 1f)] public float absorptionDiffuseTintBlend = 0f;
-			[Tooltip("Blends volumetric radiance-cascade absorption colour from the phase albedo gradient toward Diffuse Light Tint. This does not affect direct caustic absorption.")]
-			[Range(0f, 1f)] public float radianceCascadeAbsorptionDiffuseTintBlend = 0f;
 			[Range(0f, 1f)] public float reflectance = 0f;
 			[Range(0.02f, 1f)] public float roughness = 0.35f;
 			[Range(0f, 1f)] public float metallic = 0f;
@@ -242,7 +240,6 @@ using UnityEngine.Serialization;
 			destination.indexOfRefraction = source.indexOfRefraction;
 			destination.absorption = source.absorption;
 			destination.absorptionDiffuseTintBlend = source.absorptionDiffuseTintBlend;
-			destination.radianceCascadeAbsorptionDiffuseTintBlend = source.radianceCascadeAbsorptionDiffuseTintBlend;
 			destination.reflectance = source.reflectance;
 			destination.roughness = source.roughness;
 			destination.metallic = source.metallic;

@@ -37,24 +37,29 @@ Shader "Hidden/RadianceCascadesSdf"
 			int _RaySteps;
 			float _RadianceIntensity;
 			float _BlobEmissionStrength;
+			float _RadianceDistanceAttenuation;
+			float _RadianceBoundaryCullPaddingPixels;
 			int _DirectionalLightEnabled;
 			float _DirectionalLightStrength;
 			float _DirectionalLightCascadeStart;
 			float _SdfPhase0InsetPixels;
+			float _SdfPhase0OutlinePixels;
 			int _UseBoundarySourceTex;
+			float _BoundarySourceNormalization;
 			int _SdfBoundarySourceMultiplyAlbedo;
-			int _SdfApproximateAbsorption;
-			int _HybridPhase1Only;
 			float3 _DirectionalLightDirection;
 			float3 _DirectionalLightColor;
 			float _DirectionalLightIntensity;
 			float2 domainWorldCenter;
 			float2 domainWorldSize;
-			float causticsPhase0Absorption;
-			float3 radianceCascadePhase0AbsorptionTint;
-			float radianceCascadePhase0AbsorptionTintBlend;
-			float causticsAbsorptionAlbedoBrightnessInfluence;
-			float causticsAbsorptionAlbedoSaturationInfluence;
+			int useEllipticalBounds;
+			float2 ellipseBoundsCenter;
+			float2 ellipseBoundsSize;
+			float obstacleY;
+			float analyticBoundaryExpansion;
+
+			#include "../Shared/ParticleFluidCommon.hlsl"
+			#include "../Shared/ParticleFluidAnalyticBoundary.hlsl"
 
 			v2f vert(appdata v)
 			{
@@ -84,6 +89,19 @@ Shader "Hidden/RadianceCascadesSdf"
 			float RayWorldStepScale(float2 rayDirection)
 			{
 				return max(length(rayDirection * max(domainWorldSize, float2(0.0001, 0.0001))), 0.0001);
+			}
+
+			float RadianceCascadeWorldTexel()
+			{
+				return max(
+					max(domainWorldSize.x / max(_CascadeResolution.x, 1.0), domainWorldSize.y / max(_CascadeResolution.y, 1.0)),
+					0.0005
+				);
+			}
+
+			float RadianceDistanceAttenuation(float distanceWorld)
+			{
+				return exp(-max(_RadianceDistanceAttenuation, 0.0) * max(distanceWorld, 0.0));
 			}
 
 			float DistanceToUvBounds(float2 rayOrigin, float2 rayDirection)
@@ -150,6 +168,31 @@ Shader "Hidden/RadianceCascadesSdf"
 				return _DirectionalLightColor * (_DirectionalLightIntensity * _DirectionalLightStrength * max(_RadianceIntensity, 0.0) * directionalRadiance);
 			}
 
+			float4 SampleUpperCascadeTexel(float2 pixel)
+			{
+				float2 clampedPixel = clamp(pixel, 0.0, max(_CascadeResolution - 1.0, 0.0));
+				return tex2Dlod(_UpperCascadeTex, float4((clampedPixel + 0.5) / max(_CascadeResolution, 1.0), 0.0, 0.0));
+			}
+
+			float4 SampleUpperCascadeTile(float2 localPosition, float2 tileIndex, float2 tileSize)
+			{
+				float2 tileMin = tileIndex * tileSize;
+				float2 tileMax = tileMin + max(tileSize - 1.0, 0.0);
+				float2 samplePixel = tileMin + clamp(localPosition - 0.5, 0.0, max(tileSize - 1.0, 0.0));
+				float2 pixel0 = floor(samplePixel);
+				float2 pixel1 = pixel0 + 1.0;
+				float2 t = frac(samplePixel);
+
+				pixel0 = clamp(pixel0, tileMin, tileMax);
+				pixel1 = clamp(pixel1, tileMin, tileMax);
+
+				float4 a = SampleUpperCascadeTexel(float2(pixel0.x, pixel0.y));
+				float4 b = SampleUpperCascadeTexel(float2(pixel1.x, pixel0.y));
+				float4 c = SampleUpperCascadeTexel(float2(pixel0.x, pixel1.y));
+				float4 d = SampleUpperCascadeTexel(float2(pixel1.x, pixel1.y));
+				return lerp(lerp(a, b, t.x), lerp(c, d, t.x), t.y);
+			}
+
 			float4 SampleSdfField(float2 uv, out float3 payload)
 			{
 				float4 sdf = tex2Dlod(_ResultTex, float4(uv, 0.0, 0.0));
@@ -157,13 +200,8 @@ Shader "Hidden/RadianceCascadesSdf"
 				return sdf;
 			}
 
-			bool SkipHybridPhase0(float2 rayOrigin)
+			bool CullPhase0Interior(float2 rayOrigin, int blockSqrtCount)
 			{
-				if (_HybridPhase1Only == 0)
-				{
-					return false;
-				}
-
 				float3 payload;
 				float4 sdfSample = SampleSdfField(rayOrigin, payload);
 				if (sdfSample.w < 0.0)
@@ -176,7 +214,7 @@ Shader "Hidden/RadianceCascadesSdf"
 					0.0005
 				);
 				float sourceInsetWorld = worldTexel * max(_SdfPhase0InsetPixels, 0.0);
-				float interiorSafeWorld = max(worldTexel * 3.0, 0.0015);
+				float interiorSafeWorld = worldTexel * max(_SdfPhase0OutlinePixels, 0.0) * max((float)blockSqrtCount, 1.0);
 				return sdfSample.r < -(sourceInsetWorld + interiorSafeWorld);
 			}
 
@@ -211,7 +249,7 @@ Shader "Hidden/RadianceCascadesSdf"
 				float sourceScale = max(_BlobEmissionStrength, 0.0) * max(_RadianceIntensity, 0.0);
 				if (_UseBoundarySourceTex != 0)
 				{
-					float3 sourceTex = tex2Dlod(_BoundarySourceTex, float4(uv, 0.0, 0.0)).rgb;
+					float3 sourceTex = tex2Dlod(_BoundarySourceTex, float4(uv, 0.0, 0.0)).rgb * max(_BoundarySourceNormalization, 0.0);
 					if (_SdfBoundarySourceMultiplyAlbedo != 0)
 					{
 						sourceTex *= albedo;
@@ -220,29 +258,6 @@ Shader "Hidden/RadianceCascadesSdf"
 				}
 
 				return SampleSkyLitBoundary(uv, albedo) * sourceScale;
-			}
-
-			float3 ApproximateAbsorptionColour(float3 albedo)
-			{
-				float maxChannel = max(max(albedo.r, albedo.g), albedo.b);
-				float3 hueColour = maxChannel > 0.0001 ? albedo / maxChannel : float3(1.0, 1.0, 1.0);
-				float brightness = lerp(1.0, maxChannel, saturate(causticsAbsorptionAlbedoBrightnessInfluence));
-				float luminance = dot(hueColour, float3(0.2126, 0.7152, 0.0722));
-				float3 controlledHue = lerp(float3(luminance, luminance, luminance), hueColour, saturate(causticsAbsorptionAlbedoSaturationInfluence));
-				float3 brightnessControlledAlbedo = controlledHue * brightness;
-				return lerp(brightnessControlledAlbedo, max(radianceCascadePhase0AbsorptionTint, 0.0), saturate(radianceCascadePhase0AbsorptionTintBlend));
-			}
-
-			float3 ApplyApproximateAbsorption(float3 radiance, float3 albedo, float depthWorld)
-			{
-				if (_SdfApproximateAbsorption == 0 || causticsPhase0Absorption <= 0.0 || depthWorld <= 0.0)
-				{
-					return radiance;
-				}
-
-				float3 transmissionColour = max(ApproximateAbsorptionColour(albedo), float3(0.001, 0.001, 0.001));
-				float3 spectralAbsorption = -log(transmissionColour) * causticsPhase0Absorption + causticsPhase0Absorption * 0.1;
-				return radiance * exp(-spectralAbsorption * depthWorld);
 			}
 
 			bool HasBoundaryHit(float2 rayOrigin, float2 rayDirection, float startT, float endT, float hitThresholdWorld)
@@ -310,8 +325,8 @@ Shader "Hidden/RadianceCascadesSdf"
 				float sourceStepWorld = worldTexel * 0.5;
 				float sourceInsetWorld = worldTexel * max(_SdfPhase0InsetPixels, 0.0);
 				float hitThresholdWorld = worldTexel * max(_SdfPhase0InsetPixels, 0.0);
-				float t = rayRange.x;
-				float endT = rayRange.y;
+				float t = rayRange.x / worldStepScale;
+				float endT = rayRange.y / worldStepScale;
 
 				for (int i = 0; i < 128; i++)
 				{
@@ -336,9 +351,9 @@ Shader "Hidden/RadianceCascadesSdf"
 					float sdf = sdfSample.r;
 					if (sdf <= -sourceInsetWorld)
 					{
-						float depthWorld = max(-sdf - sourceInsetWorld, 0.0);
 						float3 sourceRadiance = SampleBoundaryRadiance(currentPosition, payload) * sourceStepWorld;
-						return float4(ApplyApproximateAbsorption(sourceRadiance, payload, depthWorld), 0.0);
+						float traveledWorld = t * worldStepScale;
+						return float4(sourceRadiance * RadianceDistanceAttenuation(traveledWorld), 0.0);
 					}
 
 					float distanceToBoundary = abs(sdf);
@@ -347,19 +362,29 @@ Shader "Hidden/RadianceCascadesSdf"
 					t += advanceWorld / worldStepScale;
 				}
 
-				return float4(SampleVisibleDirectionalLight(rayOrigin, rayDirection, rayRange.y, hitThresholdWorld), 1.0);
+				return float4(SampleVisibleDirectionalLight(rayOrigin, rayDirection, endT, hitThresholdWorld), 1.0);
 			}
 
 			float4 frag(v2f input) : SV_Target
 			{
-				float2 pixelIndex = floor(input.uv.xy * _CascadeResolution);
+				float2 pixelIndex = min(floor(saturate(input.uv.xy) * _CascadeResolution), max(_CascadeResolution - 1.0, 0.0));
 				int blockSqrtCount = 1 << _CascadeLevel;
 				float2 blockDim = _CascadeResolution / blockSqrtCount;
-				float2 block2DIndex = floor(pixelIndex / blockDim);
+				float2 block2DIndex = clamp(floor(pixelIndex / blockDim), 0.0, blockSqrtCount - 1.0);
 				float blockIndex = block2DIndex.x + block2DIndex.y * blockSqrtCount;
 				float2 coordsInBlock = fmod(pixelIndex, blockDim);
 				float2 rayOrigin = (coordsInBlock + 0.5) * blockSqrtCount / _CascadeResolution;
-				if (SkipHybridPhase0(rayOrigin))
+				if (useEllipticalBounds != 0)
+				{
+					float cullPaddingWorld = RadianceCascadeWorldTexel() * max(_RadianceBoundaryCullPaddingPixels, 0.0) * max((float)blockSqrtCount, 1.0);
+					float2 rayOriginWorld = ParticleFluidWorldFromUv(rayOrigin, domainWorldCenter, domainWorldSize);
+					if (OuterAnalyticBoundaryDistance(rayOriginWorld) > cullPaddingWorld)
+					{
+						return 0.0;
+					}
+				}
+
+				if (CullPhase0Interior(rayOrigin, blockSqrtCount))
 				{
 					return 0.0;
 				}
@@ -378,10 +403,9 @@ Shader "Hidden/RadianceCascadesSdf"
 					{
 						float2 position = coordsInBlock * 0.5 + 0.25;
 						float2 positionOffset = float2(fmod(angleIndex, blockSqrtCount * 2), floor(angleIndex / (blockSqrtCount * 2)));
-						position = clamp(position, 0.5, blockDim * 0.5 - 0.5);
-						float2 upperUv = (position + positionOffset * blockDim * 0.5) / _CascadeResolution;
-						float4 upperRadiance = tex2D(_UpperCascadeTex, upperUv);
-						radiance.rgb += upperRadiance.rgb * radiance.a;
+						float4 upperRadiance = SampleUpperCascadeTile(position, positionOffset, blockDim * 0.5);
+						float upperDistanceAttenuation = lerp(RadianceDistanceAttenuation(rayRange.y), 1.0, saturate(upperRadiance.a));
+						radiance.rgb += upperRadiance.rgb * radiance.a * upperDistanceAttenuation;
 						radiance.a *= upperRadiance.a;
 					}
 					finalResult += radiance * 0.25;

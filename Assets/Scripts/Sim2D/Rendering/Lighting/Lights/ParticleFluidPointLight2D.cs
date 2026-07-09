@@ -10,6 +10,7 @@ namespace Seb.Fluid2D.Rendering
 		public bool followsMouse = false;
 		[Min(0.0001f)] public float range = 20f;
 		[Min(0.1f)] public float falloff = 2f;
+		[Min(0f)] public float sourceRadius = 0f;
 		
 		const float TwoPi = 2f * Mathf.PI;
 		const int BoundaryEllipseSamples = 128;
@@ -110,6 +111,21 @@ namespace Seb.Fluid2D.Rendering
 			{
 				float angle = i / (float)48 * Mathf.PI * 2f;
 				Vector3 current = transform.position + new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), 0f) * radius;
+				Gizmos.DrawLine(previous, current);
+				previous = current;
+			}
+
+			float emitterRadius = Mathf.Max(sourceRadius, 0f);
+			if (emitterRadius <= 0f)
+			{
+				return;
+			}
+
+			previous = transform.position + Vector3.right * emitterRadius;
+			for (int i = 1; i <= 32; i++)
+			{
+				float angle = i / (float)32 * Mathf.PI * 2f;
+				Vector3 current = transform.position + new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), 0f) * emitterRadius;
 				Gizmos.DrawLine(previous, current);
 				previous = current;
 			}

@@ -217,7 +217,7 @@ namespace Seb.Fluid2D.Rendering
 					pointLight != null ? pointLight.GetPointLightVector() : Vector4.zero,
 					new Vector4(pointLight != null ? pointLight.falloff : 0f, launchAngularRadiusDegrees[i] * Mathf.Deg2Rad, launchSpanStarts[i], launchSpanLengths[i]),
 					new Vector4(lightRayBudgets[i], lightSubRaysPerPixel[i], launchSpanOffsets[i], lightRaySpacings[i]),
-					new Color(light != null ? light.temperatureKelvin : 6500f, light != null ? GetSaturationDispersionScale(light.color) : 1f, 0f, 0f)
+					new Color(light != null ? light.temperatureKelvin : 6500f, light != null ? GetSaturationDispersionScale(light.color) : 1f, pointLight != null ? Mathf.Max(pointLight.sourceRadius, 0f) : 0f, 0f)
 				);
 			}
 
