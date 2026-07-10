@@ -77,8 +77,6 @@ namespace Seb.Fluid2D.Simulation
         readonly ImportedTexture radianceCascadeSdfSeedB = new();
         readonly ImportedTexture radianceCascadeSdfPayloadA = new();
         readonly ImportedTexture radianceCascadeSdfPayloadB = new();
-        readonly ImportedTexture radianceCascadeSdfResolved = new();
-        readonly ImportedTexture radianceCascadeSdfResolvedPayload = new();
         readonly ImportedTexture jumpFloodSeedA = new();
         readonly ImportedTexture jumpFloodSeedB = new();
         readonly ImportedTexture jumpFloodPayloadA = new();
@@ -687,8 +685,6 @@ namespace Seb.Fluid2D.Simulation
             handles.radianceCascadeSdfSeedB = renderSdfRadianceCascade ? radianceCascadeSdfSeedB.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfSeedB, $"{prefix} RC SDF Seed B") : TextureHandle.nullHandle;
             handles.radianceCascadeSdfPayloadA = renderSdfRadianceCascade ? radianceCascadeSdfPayloadA.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfPayloadA, $"{prefix} RC SDF Payload A") : TextureHandle.nullHandle;
             handles.radianceCascadeSdfPayloadB = renderSdfRadianceCascade ? radianceCascadeSdfPayloadB.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfPayloadB, $"{prefix} RC SDF Payload B") : TextureHandle.nullHandle;
-            handles.radianceCascadeSdfResolved = renderSdfRadianceCascade ? radianceCascadeSdfResolved.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfNormalA, $"{prefix} RC SDF Resolved") : TextureHandle.nullHandle;
-            handles.radianceCascadeSdfResolvedPayload = renderSdfRadianceCascade ? radianceCascadeSdfResolvedPayload.Import(renderGraph, lighting.radianceCascadeGi.radianceCascadeSdfNormalB, $"{prefix} RC SDF Resolved Payload") : TextureHandle.nullHandle;
 
             return handles;
         }
@@ -817,8 +813,6 @@ namespace Seb.Fluid2D.Simulation
             passData.radianceCascadeSdfSeedB = resources.radianceCascadeSdfSeedB;
             passData.radianceCascadeSdfPayloadA = resources.radianceCascadeSdfPayloadA;
             passData.radianceCascadeSdfPayloadB = resources.radianceCascadeSdfPayloadB;
-            passData.radianceCascadeSdfResolved = resources.radianceCascadeSdfResolved;
-            passData.radianceCascadeSdfResolvedPayload = resources.radianceCascadeSdfResolvedPayload;
             UseIfValid(builder, passData.transport, AccessFlags.Read);
             UseIfValid(builder, passData.causticResolved, AccessFlags.Read);
             UseIfValid(builder, passData.causticTemporal, AccessFlags.Read);
@@ -830,8 +824,6 @@ namespace Seb.Fluid2D.Simulation
             UseIfValid(builder, passData.radianceCascadeSdfSeedB, AccessFlags.ReadWrite);
             UseIfValid(builder, passData.radianceCascadeSdfPayloadA, AccessFlags.ReadWrite);
             UseIfValid(builder, passData.radianceCascadeSdfPayloadB, AccessFlags.ReadWrite);
-            UseIfValid(builder, passData.radianceCascadeSdfResolved, AccessFlags.ReadWrite);
-            UseIfValid(builder, passData.radianceCascadeSdfResolvedPayload, AccessFlags.ReadWrite);
             builder.AllowPassCulling(false);
             builder.SetRenderFunc(static (CausticsSoftLightPassData data, UnsafeGraphContext context) =>
             {
@@ -945,8 +937,6 @@ namespace Seb.Fluid2D.Simulation
             public TextureHandle radianceCascadeSdfSeedB;
             public TextureHandle radianceCascadeSdfPayloadA;
             public TextureHandle radianceCascadeSdfPayloadB;
-            public TextureHandle radianceCascadeSdfResolved;
-            public TextureHandle radianceCascadeSdfResolvedPayload;
         }
 
         struct JumpFloodResultHandles
@@ -995,8 +985,6 @@ namespace Seb.Fluid2D.Simulation
             public TextureHandle radianceCascadeSdfSeedB;
             public TextureHandle radianceCascadeSdfPayloadA;
             public TextureHandle radianceCascadeSdfPayloadB;
-            public TextureHandle radianceCascadeSdfResolved;
-            public TextureHandle radianceCascadeSdfResolvedPayload;
         }
 
         class TransportMapPassData

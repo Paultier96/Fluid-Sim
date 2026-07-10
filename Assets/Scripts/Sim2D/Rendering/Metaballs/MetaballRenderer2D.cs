@@ -327,11 +327,6 @@ namespace Seb.Fluid2D.Rendering
 						: Texture2D.blackTexture;
 					debugTex1 = softLightPhase1Tex;
 					break;
-				case 18:
-					debugTex0 = lighting != null && lighting.currentGaussianInitTexture != null
-						? lighting.currentGaussianInitTexture
-						: Texture2D.blackTexture;
-					break;
 				case 17:
 					debugTex0 = softLightPhase1Tex;
 					break;
@@ -536,7 +531,6 @@ namespace Seb.Fluid2D.Rendering
 			return settings.debugMode switch
 			{
 				ParticleFluidLighting2D.LightingDebugVisualization.Caustics => 7,
-				ParticleFluidLighting2D.LightingDebugVisualization.SoftLightInit => 18,
 				ParticleFluidLighting2D.LightingDebugVisualization.SoftLight => 8,
 				ParticleFluidLighting2D.LightingDebugVisualization.RadianceCascadeRaw => 17,
 				ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion => 10,

@@ -626,9 +626,9 @@ MonoBehaviour:
   phaseDiffuseLightInitShader: {fileID: 4800000, guid: 360b06a430e2db14781966c0c9ce23b7, type: 3}
   gaussianDiffuseBlurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
   gaussianDiffuseEnabled: 1
-  gaussianDiffuseScatterStrength: 0.33
+  gaussianDiffuseScatterStrength: 0.5
   gaussianDiffuseRadius: 50
-  gaussianDiffuseTextureScale: 0.25
+  gaussianDiffuseTextureScale: 0.5
 --- !u!114 &271053326
 MonoBehaviour:
   m_ObjectHideFlags: 0

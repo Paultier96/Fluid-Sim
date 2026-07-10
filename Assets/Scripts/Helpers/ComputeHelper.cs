@@ -18,7 +18,7 @@ namespace Seb.Helpers
 	public static class ComputeHelper
 	{
 		public const FilterMode defaultFilterMode = FilterMode.Bilinear;
-		public const GraphicsFormat defaultGraphicsFormat = GraphicsFormat.R32G32B32A32_SFloat;
+		public const GraphicsFormat defaultGraphicsFormat = GraphicsFormat.R16G16B16A16_SFloat;
 		static readonly uint[] argsBufferArray = new uint[5];
 
 		public static void Dispatch(ComputeShader cs, Vector3Int numIterations, int kernelIndex = 0)

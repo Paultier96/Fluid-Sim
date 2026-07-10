@@ -57,7 +57,6 @@ using UnityEngine.Serialization;
 		{
 			None,
 			Caustics,
-			SoftLightInit,
 			SoftLight,
 			RadianceCascadeRaw,
 			CausticMotion,
@@ -145,7 +144,6 @@ using UnityEngine.Serialization;
 		internal Vector2 currentCausticWorldSize;
 		internal Texture currentSoftLightPhase0Texture;
 		internal Texture currentSoftLightPhase1Texture;
-		internal Texture currentGaussianInitTexture;
 		internal Texture currentGaussianBlurTexture;
 
 		void Awake()
@@ -262,15 +260,7 @@ using UnityEngine.Serialization;
 		{
 			currentSoftLightPhase0Texture = Texture2D.blackTexture;
 			currentSoftLightPhase1Texture = Texture2D.blackTexture;
-			currentGaussianInitTexture = Texture2D.blackTexture;
 			currentGaussianBlurTexture = Texture2D.blackTexture;
-			ParticleFluidGaussianSss tempQualifier = gaussianSss;
-			if (tempQualifier != null)
-			{
-				tempQualifier.currentInitTexture = Texture2D.blackTexture;
-			}
-
-			radianceCascadeGi?.ResetDebugOutputs();
 		}
 
 
@@ -467,11 +457,6 @@ using UnityEngine.Serialization;
 			{
 				phase0SoftLightTexture = gaussianSss.Render(context, targetCommandBuffer, sharpCaustics, materialTransportTexture, directLight.textureScale);
 				gaussianBlurredTexture = phase0SoftLightTexture;
-				if (renderRadianceCascade && gaussianSss.gaussianDiffuseEnabled && radianceCascadeGi.softLightPhase0Texture != null)
-				{
-					targetCommandBuffer.Blit(phase0SoftLightTexture, radianceCascadeGi.softLightPhase0Texture);
-					phase0SoftLightTexture = radianceCascadeGi.softLightPhase0Texture;
-				}
 			}
 
 			if (renderRadianceCascade)
@@ -479,7 +464,6 @@ using UnityEngine.Serialization;
 				phase1GITexture = radianceCascadeGi.Render(context, targetCommandBuffer, sharpCaustics, renderGaussian && gaussianSss.gaussianDiffuseEnabled);
 			}
 
-			currentGaussianInitTexture = gaussianSss != null ? gaussianSss.currentInitTexture : Texture2D.blackTexture;
 			currentGaussianBlurTexture = gaussianBlurredTexture;
 			currentSoftLightPhase0Texture = phase0SoftLightTexture;
 			currentSoftLightPhase1Texture = phase1GITexture;
