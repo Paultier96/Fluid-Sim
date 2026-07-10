@@ -21,6 +21,11 @@ namespace Seb.Fluid2D.Rendering
 		public float GetCausticExposure()
 		{
 			return Mathf.Max(0f, Luminance(EffectiveColor) * intensity);
+
+			static float Luminance(Color color)
+			{
+				return color.r * 0.2126f + color.g * 0.7152f + color.b * 0.0722f;
+			}
 		}
 
 		public float GetCausticSampleWeight()
@@ -47,11 +52,6 @@ namespace Seb.Fluid2D.Rendering
 		}
 
 		protected abstract void DrawLightGizmos();
-
-		protected static float Luminance(Color colour)
-		{
-			return colour.r * 0.2126f + colour.g * 0.7152f + colour.b * 0.0722f;
-		}
 	}
 }
 

@@ -14,7 +14,6 @@ namespace Seb.Fluid2D.Rendering
 		public Shader gaussianDiffuseBlurShader;
 
 		[Header("Subsurface Scattering")]
-		public bool gaussianDiffuseEnabled = true;
 		[Min(0f)] public float gaussianDiffuseScatterStrength = 0.33f;
 		[Min(0f)] public float gaussianDiffuseRadius = 50f;
 		[Range(0.01f, 1f)] public float gaussianDiffuseTextureScale = 0.25f;
@@ -37,7 +36,7 @@ namespace Seb.Fluid2D.Rendering
 
 		internal bool ShouldRender()
 		{
-			return gaussianDiffuseEnabled && gaussianDiffuseScatterStrength > 0f && gaussianDiffuseRadius > 0f;
+			return isActiveAndEnabled && gaussianDiffuseScatterStrength > 0f && gaussianDiffuseRadius > 0f;
 		}
 
 		internal void EnsureMaterials()

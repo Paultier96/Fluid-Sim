@@ -107,7 +107,7 @@ namespace Seb.Fluid2D.Rendering
 
 			if (lighting == null)
 			{
-				lighting = display != null ? display.Lighting : null;
+				lighting = display != null ? display.ActiveLighting : null;
 			}
 
 			if (lighting == null)
@@ -217,4 +217,3 @@ namespace Seb.Fluid2D.Rendering
 		}
 	}
 }
-

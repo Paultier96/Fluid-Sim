@@ -3,8 +3,7 @@
 #pragma kernel Resolve
 
 Texture2D<float4> MaterialTransportTex;
-Texture2D<float4> VelocityTex0;
-Texture2D<float4> VelocityTex1;
+Texture2D<float4> VelocityTex;
 Texture2D<float4> ColourMap;
 Texture2D<float4> ColourMap2;
 RWStructuredBuffer<uint> CausticAccum;
@@ -140,15 +139,13 @@ int PhaseFromTransport(float4 transport)
 	return transport.a < 0.5 ? 0 : 1;
 }
 
-float4 LoadPhaseVelocityPacked(int2 pixel, int phase)
+float4 LoadVelocityPacked(int2 pixel)
 {
 	pixel = clamp(pixel, int2(0, 0), int2(transportResolution.x - 1, transportResolution.y - 1));
-	return phase == 0
-		? VelocityTex0.Load(int3(pixel, 0))
-		: VelocityTex1.Load(int3(pixel, 0));
+	return VelocityTex.Load(int3(pixel, 0));
 }
 
-float4 SamplePhaseVelocityPackedNeighborhood(int2 pixel, int phase, int radius)
+float4 SampleVelocityPackedNeighborhood(int2 pixel, int radius)
 {
 	float4 packedVelocity = 0.0;
 	[loop]
@@ -159,20 +156,20 @@ float4 SamplePhaseVelocityPackedNeighborhood(int2 pixel, int phase, int radius)
 		{
 			int distance = abs(x) + abs(y);
 			float sampleWeight = 1.0 / (1.0 + (float)distance);
-			packedVelocity += LoadPhaseVelocityPacked(pixel + int2(x, y), phase) * sampleWeight;
+			packedVelocity += LoadVelocityPacked(pixel + int2(x, y)) * sampleWeight;
 		}
 	}
 
 	return packedVelocity;
 }
 
-float2 SamplePhaseVelocity(float2 uv, int phase)
+float2 SampleVelocity(float2 uv)
 {
 	int2 pixel = VelocityPixel(uv);
-	float4 packedVelocity = SamplePhaseVelocityPackedNeighborhood(pixel, phase, 1);
+	float4 packedVelocity = SampleVelocityPackedNeighborhood(pixel, 1);
 	if (packedVelocity.b <= 0.0001)
 	{
-		packedVelocity = SamplePhaseVelocityPackedNeighborhood(pixel, phase, 3);
+		packedVelocity = SampleVelocityPackedNeighborhood(pixel, 3);
 	}
 
 	if (packedVelocity.b <= 0.0001)
@@ -956,7 +953,7 @@ void Trace(uint3 id : SV_DispatchThreadID)
 			int selectedPhase = causticsPhase == 0 ? 0 : 1;
 			if (causticsMotionEnabled != 0)
 			{
-				float2 surfaceMotionUv = SamplePhaseVelocity(uv, selectedPhase) * max(causticsDeltaTime, 0.0) / max(causticsWorldSize, 0.0001);
+				float2 surfaceMotionUv = SampleVelocity(uv) * max(causticsDeltaTime, 0.0) / max(causticsWorldSize, 0.0001);
 				if (hasRayMotion)
 				{
 					rayMotionUv = lerp(rayMotionUv, surfaceMotionUv, 0.025);

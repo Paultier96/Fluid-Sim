@@ -27,8 +27,6 @@ float4 CombinedTex_TexelSize;
 sampler2D NormalTex;
 sampler2D MaterialAlbedoTex;
 sampler2D MaterialTransportTex;
-sampler2D VelocityTex0;
-sampler2D VelocityTex1;
 sampler2D ColourMap;
 sampler2D ColourMap2;
 sampler2D DebugHeatMap;
@@ -423,5 +421,6 @@ float4 fragUnlitAlbedo(v2f i) : SV_Target
 			#pragma fragment fragUnlitAlbedo
 			ENDCG
 		}
+
 	}
 }

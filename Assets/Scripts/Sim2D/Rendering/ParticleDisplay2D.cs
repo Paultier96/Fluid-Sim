@@ -161,7 +161,19 @@ namespace Seb.Fluid2D.Rendering
 		}
 
 		public FluidSim2D sim;
-		[SerializeField] ParticleFluidLighting2D lighting;
+		public ParticleFluidLighting2D lighting;
+		private ParticleFluidLighting2D activeLighting;
+		internal ParticleFluidLighting2D ActiveLighting
+		{
+			get
+			{
+				if (activeLighting != null)
+				{
+					return activeLighting;
+				}
+				return lighting != null && lighting.isActiveAndEnabled ? lighting : null;
+			}
+		}
 		public Mesh mesh;
 		public RenderMode renderMode = RenderMode.DirectParticles;
 		public Shader directParticleShader;
@@ -213,6 +225,32 @@ namespace Seb.Fluid2D.Rendering
 			EnsureMaterials();
 			needsUpdate = true;
 			lastDebugMode = debugMode;
+		}
+
+		internal void RegisterLighting(ParticleFluidLighting2D particleFluidLighting)
+		{
+			if (particleFluidLighting == null)
+			{
+				return;
+			}
+
+			if (lighting == null)
+			{
+				lighting = particleFluidLighting;
+			}
+
+			if (particleFluidLighting == lighting || activeLighting == null)
+			{
+				activeLighting = particleFluidLighting;
+			}
+		}
+
+		internal void UnregisterLighting(ParticleFluidLighting2D particleFluidLighting)
+		{
+			if (activeLighting == particleFluidLighting)
+			{
+				activeLighting = null;
+			}
 		}
 
 #if UNITY_EDITOR
@@ -632,37 +670,11 @@ namespace Seb.Fluid2D.Rendering
 			ComputeHelper.Release(vectorArgsBuffer);
 			metaballRenderer?.Release();
 			jumpFloodRenderer?.Release();
-			ResolveLighting()?.Release();
+			lighting?.Release();
 			if (vectorArrowMesh != null)
 			{
 				DestroyImmediate(vectorArrowMesh);
 			}
 		}
-
-		internal ParticleFluidLighting2D Lighting => ResolveLighting();
-
-		ParticleFluidLighting2D ResolveLighting()
-		{
-			if (lighting != null)
-			{
-				return lighting;
-			}
-
-			lighting = GetComponent<ParticleFluidLighting2D>();
-			if (lighting != null)
-			{
-				return lighting;
-			}
-
-			if (transform.parent != null)
-			{
-				lighting = transform.parent.GetComponentInChildren<ParticleFluidLighting2D>(true);
-			}
-
-			lighting ??= FindAnyObjectByType<ParticleFluidLighting2D>();
-
-			return lighting;
-		}
-    }
+	}
 }
-

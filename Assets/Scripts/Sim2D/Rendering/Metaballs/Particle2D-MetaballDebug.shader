@@ -24,8 +24,7 @@ struct v2f {
 
 sampler2D CombinedTex;
 sampler2D NormalTex;
-sampler2D VelocityTex0;
-sampler2D VelocityTex1;
+sampler2D VelocityTex;
 sampler2D ColourMap;
 sampler2D ColourMap2;
 sampler2D DebugHeatMap;
@@ -251,12 +250,12 @@ float NormalizedData(float weightedData, float weight, float fallback)
 #include "../Lighting/Shared/ParticleFluidGradientSampling.cginc"
 #include "../Lighting/Shared/ParticleFluidPhaseAA.cginc"
 
-bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density0, out float density1, out float3 litColour, out float3 albedoColour)
+bool ResolveMetaball(v2f i, out float alpha, out float3 litColour)
 {
 	float2 materialUv = i.uv;
 	float4 combined = tex2D(CombinedTex, materialUv);
-	density0 = Phase0Density(combined);
-	density1 = combined.a;
+	float density0 = Phase0Density(combined);
+	float density1 = combined.a;
 	float density = max(density0, density1);
 	float particleAlpha = smoothstep(max(densityThreshold - edgeSoftness, 0), densityThreshold + edgeSoftness, density);
 	if (useEllipticalBounds != 0)
@@ -272,13 +271,11 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 	}
 	if (alpha <= 0.0001)
 	{
-		phaseT = 0.0;
 		litColour = 0.0;
-		albedoColour = 0.0;
 		return false;
 	}
 
-	phaseT = ParticleFluidShiftedPhaseT(density0, density1, phase0RenderBias, phaseBlendWidth);
+	float phaseT = ParticleFluidShiftedPhaseT(density0, density1, phase0RenderBias, phaseBlendWidth);
 
 	float data0 = combined.r / max(density0, 0.0001);
 	float data1 = combined.b / max(density1, 0.0001);
@@ -291,7 +288,6 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 			float blobWeight = max(density0, 0.0001);
 			float3 blobCol = combined.rgb / blobWeight;
 			litColour = saturate(lerp(blobCol, float3(0, 0, 0), phaseT));
-			albedoColour = litColour;
 			return true;
 		}
 
@@ -313,7 +309,6 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 			#else
 				litColour = GammaToLinearSpace(debugColour);
 			#endif
-			albedoColour = litColour;
 			return true;
 		}
 
@@ -322,7 +317,6 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 			float curvature = data0;
 			float heatT = 0.5 + curvature * 0.5;
 			litColour = SampleDebugHeatMap(DebugSignedHeatMap, heatT, heatT);
-			albedoColour = litColour;
 			return true;
 		}
 
@@ -330,7 +324,6 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 		{
 			float viscosityRaw = lerp(data0, data1, phaseT);
 			litColour = SampleDebugHeatMap(DebugHeatMap, viscosityRaw, viscosityRaw);
-			albedoColour = litColour;
 			return true;
 		}
 
@@ -338,7 +331,6 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 		{
 			float densityRaw = lerp(data0, data1, phaseT);
 			litColour = SampleDebugHeatMap(DebugHeatMap, densityRaw, densityRaw);
-			albedoColour = litColour;
 			return true;
 		}
 
@@ -346,7 +338,6 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 		{
 			float tempRaw = lerp(data0, data1, phaseT);
 			litColour = SampleDebugHeatMap(DebugHeatMap, tempRaw, tempRaw);
-			albedoColour = litColour;
 			return true;
 		}
 
@@ -354,12 +345,10 @@ bool ResolveMetaball(v2f i, out float alpha, out float phaseT, out float density
 		float2 mapped = saturate(0.5 + force * 0.5);
 		float mag = saturate(length(force));
 		litColour = float3(mapped, mag);
-		albedoColour = litColour;
 		return true;
 	}
 
 	litColour = ParticleFluidSampleGradientColour(combined, density0, density1, data0, data1, phaseT, screenSpaceRefractionCanCrossPhases, densityThreshold, phase0RenderBias);
-	albedoColour = litColour;
 	return true;
 }
 
@@ -464,11 +453,9 @@ float4 frag(v2f i) : SV_Target
 			return float4(0.0, 0.0, 0.0, 1.0);
 		}
 
-		float4 packedVelocity0 = tex2D(VelocityTex0, materialUv);
-		float4 packedVelocity1 = tex2D(VelocityTex1, materialUv);
-		float phaseT = ParticleFluidShiftedPhaseT(density0, density1, phase0RenderBias, phaseBlendWidth);
-		float2 weightedVelocity = lerp(packedVelocity0.rg, packedVelocity1.rg, phaseT);
-		float weight = lerp(packedVelocity0.b, packedVelocity1.b, phaseT);
+		float4 packedVelocity = tex2D(VelocityTex, materialUv);
+		float2 weightedVelocity = packedVelocity.rg;
+		float weight = packedVelocity.b;
 		float2 velocity = weight > 0.0001 ? weightedVelocity / weight : 0.0;
 		float2 debugMotion = velocity * max(motionDebugDeltaTime, 0.0);
 		float motionScale = max(debugGradientMax, 0.0001);
@@ -482,12 +469,8 @@ float4 frag(v2f i) : SV_Target
 	}
 
 	float alpha;
-	float phaseT;
-	float density0;
-	float density1;
 	float3 colour;
-	float3 albedo;
-	if (!ResolveMetaball(i, alpha, phaseT, density0, density1, colour, albedo))
+	if (!ResolveMetaball(i, alpha, colour))
 	{
 		discard;
 	}

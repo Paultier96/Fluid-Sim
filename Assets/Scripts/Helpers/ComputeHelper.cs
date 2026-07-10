@@ -231,11 +231,13 @@ namespace Seb.Helpers
 
 		public static RenderTexture CreateRenderTexture(int width, int height, FilterMode filterMode, GraphicsFormat format, string name = "Unnamed", DepthMode depthMode = DepthMode.None, bool useMipMaps = false)
 		{
-			RenderTexture texture = new RenderTexture(width, height, (int)depthMode);
-			texture.graphicsFormat = format;
-			texture.enableRandomWrite = true;
-			texture.autoGenerateMips = false;
-			texture.useMipMap = useMipMaps;
+			RenderTexture texture = new RenderTexture(width, height, (int)depthMode)
+			{
+				graphicsFormat = format,
+				enableRandomWrite = true,
+				autoGenerateMips = false,
+				useMipMap = useMipMaps
+			};
 			texture.Create();
 
 			texture.name = name;
@@ -264,6 +266,20 @@ namespace Seb.Helpers
 		public static RenderTexture CreateRenderTexture(int width, int height)
 		{
 			return CreateRenderTexture(width, height, defaultFilterMode, defaultGraphicsFormat);
+		}
+		
+		public static void CreateRenderTexture(ref RenderTexture texture, Vector2Int resolution)
+		{
+			 CreateRenderTexture(ref texture, resolution.x, resolution.y);
+		}
+		
+		
+
+		public static bool CreateRenderTexture(ref RenderTexture texture, Vector2Int resolution, FilterMode filterMode,
+			GraphicsFormat format, string name = "Unnamed", DepthMode depthMode = DepthMode.None,
+			bool useMipMaps = false)
+		{
+			return CreateRenderTexture(ref texture, resolution.x, resolution.y, filterMode, format, name, depthMode, useMipMaps);
 		}
 
 

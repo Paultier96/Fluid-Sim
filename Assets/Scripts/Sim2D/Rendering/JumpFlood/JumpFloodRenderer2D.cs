@@ -338,14 +338,7 @@ namespace Seb.Fluid2D.Rendering
 
 		static ParticleFluidLighting2D GetActiveLighting(ParticleDisplay2D display)
 		{
-			if (display == null)
-			{
-				return null;
-			}
-
-			ParticleFluidLighting2D lighting = display.Lighting;
-			return lighting != null && lighting.isActiveAndEnabled ? lighting : null;
+			return display != null ? display.ActiveLighting : null;
 		}
 	}
 }
-

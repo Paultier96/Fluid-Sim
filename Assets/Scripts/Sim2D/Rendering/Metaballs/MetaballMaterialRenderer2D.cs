@@ -57,6 +57,7 @@ namespace Seb.Fluid2D.Rendering
 			material.SetTexture("NormalTex", normalTexture != null ? normalTexture : Texture2D.blackTexture);
 		}
 
+
 		public void RenderSurfaceMaps(CommandBuffer commandBuffer, Bounds materialRegion, Camera camera)
 		{
 			if (!IsReady || commandBuffer == null || camera == null)

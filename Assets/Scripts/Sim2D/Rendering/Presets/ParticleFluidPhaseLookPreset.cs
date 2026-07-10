@@ -9,9 +9,9 @@ namespace Seb.Fluid2D.Rendering
 
 		[Min(0f)] public float gaussianDiffuseScatterStrength = 0f;
 		[Min(0f)] public float gaussianDiffuseRadius = 24f;
-		public ParticleFluidLighting2D.PhaseMaterialSettings phase0Material = new(1.442f);
-		public ParticleFluidLighting2D.PhaseMaterialSettings phase1Material = new(1.333f);
-		public ParticleFluidLighting2D.PhaseMaterialSettings boundaryMaterial = new(1.516f);
+		public ParticleFluidLighting2D.PhaseMaterialSettings phase0Material = new();
+		public ParticleFluidLighting2D.PhaseMaterialSettings phase1Material = new();
+		public ParticleFluidLighting2D.PhaseMaterialSettings boundaryMaterial = new();
 		public Gradient phase0ColourMap;
 		public Gradient phase1ColourMap;
 

@@ -59,9 +59,9 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.EndSample("Particle Fluid/Unlit Fallback");
 		}
 
-		public ParticleFluidLightingInputSet CreateLightingInputs(Bounds renderRegion, Vector2Int sourceSize, Texture velocityPhase0Texture = null, Texture velocityPhase1Texture = null)
+		public ParticleFluidLightingInputSet CreateLightingInputs(Bounds renderRegion, Vector2Int sourceSize, Texture velocityTexture = null)
 		{
-			return new ParticleFluidLightingInputSet(albedoTexture, normalTexture, transportTexture, renderRegion, sourceSize, velocityPhase0Texture, velocityPhase1Texture);
+			return new ParticleFluidLightingInputSet(albedoTexture, normalTexture, transportTexture, renderRegion, sourceSize, velocityTexture);
 		}
 
 		public void Release()

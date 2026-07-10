@@ -132,7 +132,7 @@ namespace Seb.Fluid2D.Rendering
 			material.SetVectorArray("particleLightData", lightData);
 		}
 
-		internal int UploadCausticsLightGpuData(ComputeBuffer buffer, ParticleFluidLighting2D.FrameContext context, Vector2Int resolution, Vector2 currentWorldSize, int raysPerPixel)
+		internal int UploadCausticsLightGpuData(ComputeBuffer buffer, ParticleFluidLighting2D.FrameContext context, Vector2Int resolution, int raysPerPixel)
 		{
 			Vector3[] launchDirections = new Vector3[lightSlots.Length];
 			bool[] lightEnabled = new bool[lightSlots.Length];
@@ -157,7 +157,7 @@ namespace Seb.Fluid2D.Rendering
 					launchDirections[i] = Vector3.zero;
 					launchAngularRadiusDegrees[i] = 0f;
 					pointLight.GetCausticRaySpan(context.display.sim.analyticBoundary, pointLightBoundaryAngles, out launchSpanStarts[i], out launchSpanLengths[i]);
-					launchSpanRayCounts[i] = pointLight.GetCausticPointRayCount(currentWorldSize, resolution);
+					launchSpanRayCounts[i] = pointLight.GetCausticPointRayCount(context.renderRegion.size, resolution);
 					launchSpanOffsets[i] = 0f;
 				}
 				else

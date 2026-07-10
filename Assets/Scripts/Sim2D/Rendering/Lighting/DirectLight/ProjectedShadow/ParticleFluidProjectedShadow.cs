@@ -108,9 +108,9 @@ namespace Seb.Fluid2D.Rendering
 			EnsureResources(false, 0);
 		}
 
-		internal bool ShouldRender(ParticleFluidDirectLight owner)
+		internal bool ShouldRender(ParticleFluidDirectLight directLight)
 		{
-			return owner.lightingMode == ParticleFluidLighting2D.LightingMode.Shadows && owner.Owner.lightManager.GetMainDirectionalLight() != null;
+			return directLight.lightingMode == ParticleFluidDirectLight.LightingMode.Shadows && directLight.particleFluidLighting2D.lightManager.GetMainDirectionalLight() != null;
 		}
 
 		internal void ApplyToMaterial(Material material, bool enabled, Vector2 direction, ParticleFluidDirectLight.ProjectedShadowSettings settings)

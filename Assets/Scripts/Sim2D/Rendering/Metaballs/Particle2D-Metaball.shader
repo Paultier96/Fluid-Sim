@@ -265,64 +265,7 @@ Shader "Instanced/Particle2DMetaball" {
 				if (r2 >= 1.0) discard;
 
 				float kernel = exp(-r2 * max(metaballSharpness, 0.01)) * metaballIntensity;
-				return i.phase < 0.5 ? float4(i.velocity * kernel, kernel, 0.0) : 0.0;
-			}
-
-			ENDCG
-		}
-
-		Pass {
-			CGPROGRAM
-
-			#pragma vertex vert
-			#pragma fragment frag
-			#pragma target 4.5
-
-			#include "UnityCG.cginc"
-
-			StructuredBuffer<float2> Positions2D;
-			StructuredBuffer<float2> Velocities;
-			StructuredBuffer<int> Phases;
-			StructuredBuffer<float> Curvatures;
-
-			float scale;
-			float metaballSharpness;
-			float metaballIntensity;
-			float2 metaballRenderWorldCenter;
-			float2 metaballRenderWorldSize;
-
-			struct v2f {
-				float4 pos : SV_POSITION;
-				float2 uv : TEXCOORD0;
-				float2 velocity : TEXCOORD1;
-				float curvature : TEXCOORD2;
-				nointerpolation float phase : TEXCOORD3;
-			};
-
-			v2f vert(appdata_full v, uint instanceID : SV_InstanceID)
-			{
-				float3 centreWorld = float3(Positions2D[instanceID], 0);
-				float3 worldVertPos = centreWorld + mul(unity_ObjectToWorld, v.vertex * scale);
-
-				v2f o;
-				float2 clipXY = (worldVertPos.xy - metaballRenderWorldCenter) / max(metaballRenderWorldSize, float2(0.0001, 0.0001)) * 2.0;
-				clipXY.y = -clipXY.y;
-				o.pos = float4(clipXY, 0.0, 1.0);
-				o.uv = v.texcoord;
-				o.velocity = Velocities[instanceID];
-				o.curvature = Curvatures[instanceID];
-				o.phase = Phases[instanceID];
-				return o;
-			}
-
-			float4 frag(v2f i) : SV_Target
-			{
-				float2 p = (i.uv - 0.5) * 2;
-				float r2 = dot(p, p);
-				if (r2 >= 1.0) discard;
-
-				float kernel = exp(-r2 * max(metaballSharpness, 0.01)) * metaballIntensity;
-				return i.phase >= 0.5 ? float4(i.velocity * kernel, kernel, 0.0) : 0.0;
+				return float4(i.velocity * kernel, kernel, 0.0);
 			}
 
 			ENDCG

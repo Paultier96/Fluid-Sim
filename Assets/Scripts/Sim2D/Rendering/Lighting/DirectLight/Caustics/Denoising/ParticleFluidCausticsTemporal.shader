@@ -25,8 +25,7 @@ struct v2f {
 
 sampler2D _MainTex;
 sampler2D MaterialTransportTex;
-sampler2D VelocityTex0;
-sampler2D VelocityTex1;
+sampler2D VelocityTex;
 sampler2D CausticHistoryTex;
 sampler2D CausticMotionTex;
 sampler2D CausticProjectedShadowMapTex;
@@ -182,11 +181,9 @@ float4 fragCausticTemporal(v2f i) : SV_Target
 	float2 historyUv = stationaryHistoryUv;
 	if (causticTemporalMotionSource == 1)
 	{
-		float phaseT = tex2D(MaterialTransportTex, i.uv).a;
-		float4 packedVelocity0 = tex2D(VelocityTex0, i.uv);
-		float4 packedVelocity1 = tex2D(VelocityTex1, i.uv);
-		float2 weightedVelocity = lerp(packedVelocity0.rg, packedVelocity1.rg, phaseT);
-		float weight = lerp(packedVelocity0.b, packedVelocity1.b, phaseT);
+		float4 packedVelocity = tex2D(VelocityTex, i.uv);
+		float2 weightedVelocity = packedVelocity.rg;
+		float weight = packedVelocity.b;
 		float2 velocityWorld = weight > 0.0001 ? weightedVelocity / weight : 0.0;
 		float2 motionWorld = velocityWorld * max(motionDebugDeltaTime, 0.0);
 		float2 motionHistoryUv = stationaryHistoryUv - motionWorld / max(causticHistoryWorldSize, float2(0.0001, 0.0001));

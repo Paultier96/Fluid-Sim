@@ -702,21 +702,21 @@ MonoBehaviour:
   radianceCascadeSdfCompute: {fileID: 7200000, guid: 69252249d2a3f704b85a0ec12b63e07e, type: 3}
   radianceCascadeSdfShader: {fileID: 4800000, guid: 8521f648322323d4fbdfe9824745de1a, type: 3}
   radianceCascadeEnabled: 1
-  radianceCascadeTextureScale: 0.5
+  TextureScale: 0.5
   radianceCascadeCount: 6
-  radianceCascadeRayRange: 35
-  radianceCascadeRaySteps: 16
-  radianceCascadeIntensity: 1.5
-  radianceCascadeBlobEmissionStrength: 80
-  radianceCascadeDistanceAttenuation: 0.25
-  radianceCascadeBoundaryCullPaddingPixels: 1
-  radianceCascadeDirectionalLightEnabled: 1
-  radianceCascadeDirectionalLightStrength: 0.05
-  radianceCascadeDirectionalLightCascadeStart: 1
-  radianceCascadeSdfPhase0InsetPixels: 0
-  radianceCascadeSdfPhase0OutlinePixels: 1
-  radianceCascadeSdfBoundarySourceMultiplyAlbedo: 1
-  radianceCascadeDirectCausticStrength: 1
+  rayRange: 35
+  RaySteps: 16
+  intensity: 1.5
+  blobEmissionStrength: 80
+  distanceAttenuation: 0.25
+  boundaryCullPaddingPixels: 1
+  directionalLightEnabled: 1
+  directionalLightStrength: 0.05
+  directionalLightCascadeStart: 1
+  sdfPhase0InsetPixels: 0
+  sdfPhase0OutlinePixels: 1
+  sdfBoundarySourceMultiplyAlbedo: 1
+  directCausticStrength: 1
 --- !u!114 &271053329
 MonoBehaviour:
   m_ObjectHideFlags: 0

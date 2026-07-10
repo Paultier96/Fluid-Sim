@@ -291,8 +291,16 @@ float3 SampleSpecularCausticIrradiance(float2 materialUv, float3 normal, float p
 	float2 outwardDir = normal.xy / normalXYLength;
 	float virtualCapDistance = min(normal.z / max(normalXYLength, 0.02), 128.0);
 	float2 outwardOffset = outwardDir * MaterialAlbedoTex_TexelSize.xy * particleSpecularCausticSampleOffset * max(phaseScale, 0.0001) * virtualCapDistance;
-	float2 specularUv = saturate(materialUv + outwardOffset);
-	float3 offsetIrradiance = tex2D(CausticTex, specularUv).rgb;
+	float2 specularUv = materialUv + outwardOffset;
+	float3 offsetIrradiance = 1.0;
+	if (specularUv.x >= 0.0 && specularUv.x <= 1.0 && specularUv.y >= 0.0 && specularUv.y <= 1.0)
+	{
+		float2 specularWorldPos = ParticleFluidWorldFromUv(specularUv, domainWorldCenter, domainWorldSize);
+		if (useEllipticalBounds == 0 || AnalyticBoundaryDistance(specularWorldPos) <= 0.0)
+		{
+			offsetIrradiance = tex2D(CausticTex, specularUv).rgb;
+		}
+	}
 	float offsetBlend = smoothstep(0.05, 0.35, normalXYLength);
 	return lerp(baseIrradiance, offsetIrradiance, offsetBlend);
 }
