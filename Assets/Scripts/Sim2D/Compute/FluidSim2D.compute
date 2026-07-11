@@ -24,300 +24,12 @@
 // Includes
 #include "./FluidMaths2D.hlsl"
 #include "./SpatialHash.hlsl"
-
-static const int NumThreads = 64;
-static const uint UnassignedBlobID = 0xFFFFFFFEu;
-static const uint IgnoredPhaseBlobID = 0xFFFFFFFFu;
-
-// Buffers
-RWStructuredBuffer<float2> Positions;
-RWStructuredBuffer<float2> PredictedPositions;
-RWStructuredBuffer<float2> Velocities;
-RWStructuredBuffer<float2> Densities;
-RWStructuredBuffer<uint> Phases;
-RWStructuredBuffer<uint> IsGhost;
-RWStructuredBuffer<uint> BlobIDs;
-RWStructuredBuffer<uint> BlobIDsPrevious;
-RWStructuredBuffer<uint> BlobIDsScratch;
-RWStructuredBuffer<uint> BlobSizes;
-RWStructuredBuffer<float> Temperatures;
-RWStructuredBuffer<float> ParticleTargetDensities;
-StructuredBuffer<float2> PositionsRO;
-StructuredBuffer<float2> PredictedPositionsRO;
-StructuredBuffer<float2> VelocitiesRO;
-StructuredBuffer<uint> IsGhostRO;
-StructuredBuffer<float> TemperaturesRO;
-StructuredBuffer<float> ParticleTargetDensitiesRO;
-StructuredBuffer<float> PhaseCohesionMatrix;
-const float blobBlobCohesion;
-const int carrierWedgePhase;
-const float carrierWedgeDistanceMultiplier;
-const float carrierWedgeStrength;
-const float carrierWedgeViscosityMultiplier;
-const bool carrierWedgeInterfaceOnly;
-const float carrierWedgeInterfaceThreshold;
-const float carrierWedgeCoilStrengthMultiplier;
-const float carrierWedgeMaxAcceleration;
-const float carrierWedgeMaxDirectionDot;
-const float surfaceTension;
-const int surfaceTensionInterfaceMode; // 0 = blob-aware, 1 = phase-based
-const float surfaceTensionThreshold; // min gradient magnitude to apply force
-const float blobBlobSurfaceTension;
-const float blobSelfSurfaceTension;
-const int blobSelfSurfaceTensionPhase;
-const float maxSurfaceTensionCurvature;
-// Non-coalescence (interface repulsion) per-phase parameters
-StructuredBuffer<float> PhaseNonCoalescenceRadiusMultiplier;
-StructuredBuffer<float> PhaseNonCoalescenceStrength;
-RWStructuredBuffer<float2> DebugData; // debug colour output (mode-dependent): gradient.xy, curvature.xx, or viscosity.xx
-RWStructuredBuffer<float2> DebugVectorData; // vector overlay output: surface tension force.xy, non-coalescence force.xy, curvature normal.xy, or convection.xy
-RWStructuredBuffer<float> DebugVectorSign; // signed scalar for vector overlay colouring, used by curvature combs
-RWStructuredBuffer<float2> ColorGradients; // per-particle color gradient
-StructuredBuffer<float2> ColorGradientsRO;
-StructuredBuffer<float2> DensitiesRO;
-StructuredBuffer<uint> PhasesRO;
-StructuredBuffer<uint> BlobIDsRO;
-
-// Spatial hashing
-RWStructuredBuffer<uint> SpatialKeys;
-RWStructuredBuffer<uint> SpatialOffsets;
-StructuredBuffer<uint> SpatialKeysRO;
-StructuredBuffer<uint> SpatialOffsetsRO;
-StructuredBuffer<uint> SortedIndices;
-
-// Settings
-const uint numParticles;
-const int numFluidParticles;  // Only first numFluidParticles are actual fluid
-const int numSpatialParticles; // Number of particles represented in spatial hash buffers
-const float gravity;
-const float deltaTime;
-const float collisionDamping;
-const float smoothingRadius;
-// Soft boundary repulsion parameters
-const float edgeForce;      // magnitude of repulsive acceleration at zero distance
-const float edgeForceDst;   // distance from boundary over which repulsion fades to zero
-const int wallFilmPhase;
-const float wallFilmDistance;
-const float wallFilmStrength;
-const int wallFilmAttractionPhase;
-const float wallFilmAttractionStrength;
-const float wallFilmMaxAcceleration;
-const float wallPressureStrength; // pressure-support contribution near walls
-const float wallPressureRadius;   // support distance from wall (0 => smoothingRadius)
-StructuredBuffer<float> PhaseTargetDensities;
-const float pressureMultiplier;
-const float nearPressureMultiplier;
-StructuredBuffer<float> PhaseViscosities;
-StructuredBuffer<float> PhaseViscosityTemperatureSensitivity;
-const float interfaceViscosityMultiplier;
-const float2 boundsSize;
-const float2 interactionInputPoint;
-const float interactionInputStrength;
-const float interactionInputRadius;
-// Add new per-phase thermal expansion settings
-StructuredBuffer<float> PhaseThermalExpansion; // how much density changes per degree
-
-StructuredBuffer<float> PhaseInteractionMatrix;
-int NumPhases;
-int debugVisualizationMode;
-int debugVectorFieldMode;
-const float ambientTemperature;
-const float crossPhaseThermalDiffusion;
-StructuredBuffer<float> PhaseThermalConductivity;
-StructuredBuffer<float> PhaseSpecificHeatCapacity;
-const float heatCoolingRate;
-const float ghostCoolingMultiplier;
-const float ambientCoolingRate;
-const float wallCoolingRate;
-const float wallCoolingDistance;
-const float heatSourceTransferRate;
-const float2 heatSourcePos;
-const float2 heatSourceSize;
-const int heatSourceShape; // 0 = rectangular, 1 = elliptical
-const float heatSourceTemperature;
-const float heatSourceFalloffPower;
-const float buoyancyInversionStrength;
-const float buoyancyInversionClamp;
-const bool restrictBlobMergingToCoil;
-const float2 blobMergeCoilPos;
-const float2 blobMergeCoilSize;
-const int blobMergeCoilShape; // 0 = rectangular, 1 = elliptical
-const float coilVelocityDamping;
-const float coilAttractionStrength;
-const int coilVelocityDampingPhase;
-
-const float obstacleY;
-
-// Elliptical bounds parameters (when using elliptical bounds instead of rectangular)
-const float2 ellipseBoundsSize;  // Semi-axes (radii) of the ellipse
-const float2 ellipseBoundsCenter;
-const bool useEllipticalBounds;
-
-void GetEllipseSurfaceData(float2 pos, float2 center, float2 radii, out float2 closestPoint, out float2 outwardNormal, out float signedDistance)
-{
-	float2 localPos = pos - center;
-	float2 p = abs(localPos);
-	float2 ab = max(radii, 1e-6);
-	float a2 = ab.x * ab.x;
-	float b2 = ab.y * ab.y;
-	float2 signLocal = float2((localPos.x < 0) ? -1.0 : 1.0, (localPos.y < 0) ? -1.0 : 1.0);
-
-	// Handle center explicitly (direction undefined there).
-	if (p.x < 1e-8 && p.y < 1e-8)
-	{
-		float2 closestLocalCenter = float2(0, ab.y);
-		closestPoint = center + closestLocalCenter;
-		outwardNormal = float2(0, 1);
-		signedDistance = -ab.y;
-		return;
-	}
-	
-	float ellipseValue = (p.x * p.x) / a2 + (p.y * p.y) / b2;
-	bool inside = (ellipseValue < 1.0);
-	
-	// Solve nearest-point parameter t using Newton's method:
-	// f(t) = (a^2 px^2)/(t+a^2)^2 + (b^2 py^2)/(t+b^2)^2 - 1 = 0
-	float minAxis2 = min(a2, b2);
-	float t = inside ? (-0.5 * minAxis2) : 0.0;
-	for (int i = 0; i < 8; i++)
-	{
-		float ta = max(t + a2, 1e-8);
-		float tb = max(t + b2, 1e-8);
-		float invTa2 = 1.0 / (ta * ta);
-		float invTb2 = 1.0 / (tb * tb);
-		float f = (a2 * p.x * p.x) * invTa2 + (b2 * p.y * p.y) * invTb2 - 1.0;
-		float df = -2.0 * (a2 * p.x * p.x) / (ta * ta * ta) - 2.0 * (b2 * p.y * p.y) / (tb * tb * tb);
-		float step = f / min(df, -1e-8);
-		t -= step;
-		if (inside)
-		{
-			t = clamp(t, -minAxis2 + 1e-6, -1e-7);
-		}
-		else
-		{
-			t = max(t, 0.0);
-		}
-	}
-	
-	float2 closestAbs = float2(
-		(a2 * p.x) / max(t + a2, 1e-8),
-		(b2 * p.y) / max(t + b2, 1e-8)
-	);
-	float2 closestLocal = closestAbs * signLocal;
-	closestPoint = center + closestLocal;
-	
-	float2 normalVec = float2(
-		closestLocal.x / a2,
-		closestLocal.y / b2
-	);
-	float normalLen = length(normalVec);
-	outwardNormal = (normalLen > 1e-6) ? (normalVec / normalLen) : normalize(localPos + 1e-6);
-	
-	float unsignedDist = length(localPos - closestLocal);
-	signedDistance = inside ? -unsignedDist : unsignedDist;
-}
-
-// Calculate signed distance from point to ellipse boundary
-// Returns negative if inside, positive if outside
-float SignedDistanceToEllipse(float2 pos, float2 center, float2 radii)
-{
-	float2 closestPoint;
-	float2 outwardNormal;
-	float signedDistance;
-	GetEllipseSurfaceData(pos, center, radii, closestPoint, outwardNormal, signedDistance);
-	return signedDistance;
-}
-
-bool IsInsideBlobMergeCoil(float2 pos)
-{
-	float2 halfSize = blobMergeCoilSize * 0.5;
-	if (halfSize.x <= 0 || halfSize.y <= 0) return false;
-
-	float2 relPos = pos - blobMergeCoilPos;
-	if (blobMergeCoilShape == 0)
-	{
-		return abs(relPos.x) < halfSize.x && abs(relPos.y) < halfSize.y;
-	}
-
-	float2 normalizedOffset = relPos / max(halfSize, float2(1e-6, 1e-6));
-	return dot(normalizedOffset, normalizedOffset) < 1.0;
-}
-
-float SampleBlobMergeCoilWeight(float2 pos)
-{
-	float2 halfSize = blobMergeCoilSize * 0.5;
-	if (halfSize.x <= 0 || halfSize.y <= 0) return 0.0;
-
-	float2 relPos = pos - blobMergeCoilPos;
-	float normalizedDistance = 0;
-	if (blobMergeCoilShape == 0)
-	{
-		normalizedDistance = max(abs(relPos.x) / max(halfSize.x, 1e-6), abs(relPos.y) / max(halfSize.y, 1e-6));
-	}
-	else
-	{
-		float2 normalizedOffset = relPos / max(halfSize, float2(1e-6, 1e-6));
-		normalizedDistance = length(normalizedOffset);
-	}
-
-	return 1.0 - smoothstep(0.0, 1.0, normalizedDistance);
-}
-
-float2 DirectionToBlobMergeCoilCenter(float2 pos)
-{
-	float2 toCenter = blobMergeCoilPos - pos;
-	float dst = length(toCenter);
-	return (dst > 1e-6) ? toCenter / dst : float2(0, 0);
-}
-
-float DensityKernel(float dst, float radius)
-{
-	return SpikyKernelPow2(dst, radius);
-}
-
-float NearDensityKernel(float dst, float radius)
-{
-	return SpikyKernelPow3(dst, radius);
-}
-
-float DensityDerivative(float dst, float radius)
-{
-	return DerivativeSpikyPow2(dst, radius);
-}
-
-float NearDensityDerivative(float dst, float radius)
-{
-	return DerivativeSpikyPow3(dst, radius);
-}
-
-float GetSurfaceTension(uint phaseA, uint phaseB)
-{
-	return surfaceTension;
-}
-
-bool IsSameSurfaceTensionRegion(uint phaseA, uint blobA, uint phaseB, uint blobB)
-{
-	if (surfaceTensionInterfaceMode == 1)
-	{
-		return phaseA == phaseB;
-	}
-
-	return blobA == blobB;
-}
-
-float GetTemperatureAdjustedViscosity(uint phase, float temperature)
-{
-	float baseViscosity = PhaseViscosities[phase];
-	float sensitivity = PhaseViscosityTemperatureSensitivity[phase];
-	float deltaT = temperature - ambientTemperature;
-	float scale = clamp(1.0 - sensitivity * deltaT, 0.05, 10.0);
-	return baseViscosity * scale;
-}
-
-float ViscosityKernel(float dst, float radius)
-{
-	return SmoothingKernelPoly6(dst, smoothingRadius);
-}
+#include "./FluidSim2DParameters.hlsl"
+#include "./FluidSim2DBoundary.hlsl"
+#include "./FluidSim2DPressure.hlsl"
+#include "./FluidSim2DThermal.hlsl"
+#include "./FluidSim2DSurfaceTension.hlsl"
+#include "./FluidSim2DDebug.hlsl"
 
 float2 CalculateDensity(float2 pos)
 {
@@ -326,22 +38,8 @@ float2 CalculateDensity(float2 pos)
 	float density = 0;
 	float nearDensity = 0;
 
-	// Neighbour search
-	for (int i = 0; i < 9; i++)
+	FOR_EACH_HASH_NEIGHBOR(originCell, numSpatialParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
 	{
-		uint hash = HashCell2D(originCell + offsets2D[i]);
-		uint key = KeyFromHash(hash, numSpatialParticles);
-		uint currIndex = SpatialOffsets[key];
-
-		while (currIndex < numSpatialParticles)
-		{
-			uint neighbourIndex = currIndex;
-			currIndex ++;
-			
-			uint neighbourKey = SpatialKeys[neighbourIndex];
-			// Exit if no longer looking at correct bin
-			if (neighbourKey != key) break;
-
 			float2 neighbourPos = PredictedPositions[neighbourIndex];
 			float2 offsetToNeighbour = neighbourPos - pos;
 			float sqrDstToNeighbour = dot(offsetToNeighbour, offsetToNeighbour);
@@ -351,133 +49,12 @@ float2 CalculateDensity(float2 pos)
 
 			// Calculate density and near density
 			float dst = sqrt(sqrDstToNeighbour);
-			density += DensityKernel(dst, smoothingRadius);
-			nearDensity += NearDensityKernel(dst, smoothingRadius);
-		}
+			density += SpikyKernelPow2(dst, smoothingRadius);
+			nearDensity += SpikyKernelPow3(dst, smoothingRadius);
 	}
+	END_FOR_EACH_HASH_NEIGHBOR
 
 	return float2(density, nearDensity);
-}
-
-float PressureFromDensity(float density, uint particleIndex)
-{
-    float target = ParticleTargetDensities[particleIndex];
-    return (density - target) * pressureMultiplier;
-}
-
-float NearPressureFromDensity(float nearDensity)
-{
-	return nearPressureMultiplier * nearDensity;
-}
-
-float GetPhaseInteraction(uint a, uint b)
-{
-    return PhaseInteractionMatrix[a * NumPhases + b];
-}
-
-bool IsInsideHeatSource(float2 pos)
-{
-	if (heatSourceShape == 0) // Rectangular
-	{
-		float2 relPos = pos - heatSourcePos;
-		float2 halfSize = heatSourceSize * 0.5;
-		return abs(relPos.x) < halfSize.x && abs(relPos.y) < halfSize.y;
-	}
-	if (heatSourceShape == 1) // Elliptical
-	{
-		float2 radii = max(heatSourceSize * 0.5, float2(1e-6, 1e-6));
-		float2 normalizedOffset = (pos - heatSourcePos) / radii;
-		return dot(normalizedOffset, normalizedOffset) < 1.0;
-	}
-	return false;
-}
-
-float SampleHeatSourceWeight(float2 pos)
-{
-	if (heatSourceShape == 0) // Rectangular
-	{
-		return IsInsideHeatSource(pos) ? 1.0 : 0.0;
-	}
-	if (heatSourceShape == 1) // Elliptical
-	{
-		float2 radii = max(heatSourceSize * 0.5, float2(1e-6, 1e-6));
-		float normalizedRadius = length((pos - heatSourcePos) / radii);
-		if (normalizedRadius < 1.0)
-		{
-			float smoothFalloff = 1.0 - smoothstep(0.0, 1.0, normalizedRadius);
-			return pow(saturate(smoothFalloff), max(heatSourceFalloffPower, 0.01));
-		}
-	}
-	return 0.0;
-}
-
-bool TryGetAnalyticWallDistanceAndNormal(float2 pos, out float wallDist, out float2 inwardNormal)
-{
-	wallDist = 1e9;
-	inwardNormal = 0;
-
-	if (useEllipticalBounds)
-	{
-		float2 closestPoint;
-		float2 outwardNormal;
-		float signedDist;
-		GetEllipseSurfaceData(pos, ellipseBoundsCenter, ellipseBoundsSize, closestPoint, outwardNormal, signedDist);
-		if (signedDist < 0)
-		{
-			wallDist = -signedDist;
-			inwardNormal = -outwardNormal;
-		}
-	}
-	else
-	{
-		float2 halfSize = boundsSize * 0.5;
-		float2 edgeDst = halfSize - abs(pos);
-		if (edgeDst.x <= edgeDst.y)
-		{
-			wallDist = edgeDst.x;
-			inwardNormal = float2(-sign(pos.x), 0);
-		}
-		else
-		{
-			wallDist = edgeDst.y;
-			inwardNormal = float2(0, -sign(pos.y));
-		}
-	}
-
-	return wallDist >= 0 && dot(inwardNormal, inwardNormal) > 0;
-}
-
-float2 CalculateWallFilmAcceleration(float2 pos, uint phase)
-{
-	if ((wallFilmStrength <= 0 && wallFilmAttractionStrength <= 0) || wallFilmDistance <= 0) return 0;
-
-	float wallDist;
-	float2 inwardNormal;
-	if (!TryGetAnalyticWallDistanceAndNormal(pos, wallDist, inwardNormal)) return 0;
-	if (wallDist >= wallFilmDistance) return 0;
-
-	float filmT = 1.0 - saturate(wallDist / max(wallFilmDistance, 1e-6));
-	float strength = 0;
-	if (wallFilmPhase < 0 || wallFilmPhase == (int)phase)
-	{
-		strength += wallFilmStrength;
-	}
-	if (wallFilmAttractionPhase < 0 || wallFilmAttractionPhase == (int)phase)
-	{
-		strength -= wallFilmAttractionStrength;
-	}
-	if (abs(strength) <= 1e-6) return 0;
-
-	float2 acceleration = inwardNormal * strength * filmT * filmT;
-	if (wallFilmMaxAcceleration > 0)
-	{
-		float mag = length(acceleration);
-		if (mag > wallFilmMaxAcceleration)
-		{
-			acceleration *= wallFilmMaxAcceleration / max(mag, 1e-6);
-		}
-	}
-	return acceleration;
 }
 
 float2 ExternalForces(float2 pos, float2 velocity, uint phase)
@@ -501,123 +78,17 @@ float2 ExternalForces(float2 pos, float2 velocity, uint phase)
         }
     }
 
-    // Soft boundary repulsion: apply a smooth inward acceleration when within edgeForceDst of a boundary
-    float2 boundaryRepel = float2(0,0);
-    if (edgeForce > 0 && edgeForceDst > 0)
-    {
-        if (useEllipticalBounds)
-        {
-            float2 closestPoint;
-            float2 outwardNormal;
-            float signedDist;
-            GetEllipseSurfaceData(pos, ellipseBoundsCenter, ellipseBoundsSize, closestPoint, outwardNormal, signedDist);
-            if (signedDist < 0)
-            {
-                float distToBoundary = -signedDist;
-                if (distToBoundary < edgeForceDst)
-                {
-                    float strength = edgeForce * (edgeForceDst - distToBoundary) / edgeForceDst;
-                    // push inward (towards center)
-                    boundaryRepel += -outwardNormal * strength;
-                }
-            }
-
-            float floorDist = pos.y - obstacleY;
-            if (floorDist >= 0 && floorDist < edgeForceDst)
-            {
-                float strength = edgeForce * (edgeForceDst - floorDist) / edgeForceDst;
-                boundaryRepel.y += strength;
-            }
-        }
-        else
-        {
-            float2 halfSize = boundsSize * 0.5;
-            float2 edgeDst = halfSize - abs(pos);
-            if (edgeDst.x < edgeForceDst)
-            {
-                float strength = edgeForce * (edgeForceDst - edgeDst.x) / edgeForceDst;
-                boundaryRepel.x += -sign(pos.x) * strength; // push towards centre
-            }
-            if (edgeDst.y < edgeForceDst)
-            {
-                float strength = edgeForce * (edgeForceDst - edgeDst.y) / edgeForceDst;
-                boundaryRepel.y += -sign(pos.y) * strength;
-            }
-        }
-    }
-
-	return acceleration + boundaryRepel + CalculateWallFilmAcceleration(pos, phase);
-}
-
-float2 CalculateWallPressureSupportForce(float2 pos, float density, float pressure, float nearPressure, uint particleIndex, float epsilon)
-{
-    if (wallPressureStrength <= 0) return 0;
-
-    float supportRadius = (wallPressureRadius > 0) ? wallPressureRadius : smoothingRadius;
-    if (supportRadius <= 0) return 0;
-
-    float wallDist = 1e9;
-    float2 inwardNormal = 0;
-
-    if (useEllipticalBounds)
-    {
-        float2 closestPoint;
-        float2 outwardNormal;
-        float signedDist;
-        GetEllipseSurfaceData(pos, ellipseBoundsCenter, ellipseBoundsSize, closestPoint, outwardNormal, signedDist);
-        if (signedDist >= 0) return 0; // outside boundary: collision handling will resolve this case
-        wallDist = -signedDist;
-        inwardNormal = -outwardNormal;
-
-        float floorDist = pos.y - obstacleY;
-        if (floorDist < wallDist)
-        {
-            if (floorDist <= 0) return 0;
-            wallDist = floorDist;
-            inwardNormal = float2(0, 1);
-        }
-    }
-    else
-    {
-        float2 halfSize = boundsSize * 0.5;
-        float2 edgeDst = halfSize - abs(pos);
-        if (edgeDst.x <= edgeDst.y)
-        {
-            wallDist = edgeDst.x;
-            inwardNormal = float2(-sign(pos.x), 0);
-        }
-        else
-        {
-            wallDist = edgeDst.y;
-            inwardNormal = float2(0, -sign(pos.y));
-        }
-
-        if (wallDist <= 0) return 0;
-    }
-
-    if (wallDist >= supportRadius || dot(inwardNormal, inwardNormal) <= 0) return 0;
-
-    float targetDensity = max(ParticleTargetDensities[particleIndex], epsilon);
-    float densityDeficit = max(targetDensity - density, 0);
-    float boundaryPressure = (max(pressure, 0) + nearPressure + densityDeficit * pressureMultiplier) * wallPressureStrength;
-    if (boundaryPressure <= 0) return 0;
-
-    float boundaryKernel = 1.0 - saturate(wallDist / supportRadius);
-    return inwardNormal * boundaryKernel * boundaryPressure / targetDensity;
+	return acceleration + CalculateBoundaryRepulsion(pos) + CalculateWallFilmAcceleration(pos, phase);
 }
 
 [numthreads(NumThreads, 1, 1)]
 void ApplyThermalBuoyancy(uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
+	if (IsInvalidParticle(id.x)) return;
 
-	// Skip ghost particles
-	if (IsGhost[id.x] != 0)
+	if (!IsFluidParticle(id.x))
 	{
-		if (debugVectorFieldMode == 4)
-		{
-			DebugVectorData[id.x] = 0;
-		}
+		ClearThermalBuoyancyDebug(id.x);
 		return;
 	}
 
@@ -629,35 +100,24 @@ void ApplyThermalBuoyancy(uint3 id : SV_DispatchThreadID)
 	float weightedEnvDensitySum = 0;
 	float weightSum = 0;
 
-	for (int i = 0; i < 9; i++)
+	FOR_EACH_HASH_NEIGHBOR(originCell, numSpatialParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
 	{
-		uint hash = HashCell2D(originCell + offsets2D[i]);
-		uint key = KeyFromHash(hash, numSpatialParticles);
-		uint currIndex = SpatialOffsets[key];
-
-		while (currIndex < numSpatialParticles)
-		{
-			uint neighbourIndex = currIndex;
-			currIndex++;
-
             if (neighbourIndex == id.x) continue;
-            if (IsGhost[neighbourIndex] != 0) continue;
+            if (!IsFluidParticle(neighbourIndex)) continue;
 
-			uint neighbourKey = SpatialKeys[neighbourIndex];
-			if (neighbourKey != key) break;
-			if (Phases[neighbourIndex] == myPhase) continue;
+			if (IsPhase(neighbourIndex, myPhase)) continue;
 
 			float2 offset = PredictedPositions[neighbourIndex] - pos;
 			float sqrDst = dot(offset, offset);
 			if (sqrDst > sqrRadius || sqrDst == 0) continue;
 
 			float dst = sqrt(sqrDst);
-			float weight = DensityKernel(dst, smoothingRadius);
+			float weight = SpikyKernelPow2(dst, smoothingRadius);
 			float neighbourTargetDensity = ParticleTargetDensities[neighbourIndex];
 			weightedEnvDensitySum += neighbourTargetDensity * weight;
 			weightSum += weight;
-		}
 	}
+	END_FOR_EACH_HASH_NEIGHBOR
 
 	float rho_i = ParticleTargetDensities[id.x];
 	float rho_env = 0;
@@ -672,17 +132,14 @@ void ApplyThermalBuoyancy(uint3 id : SV_DispatchThreadID)
 		int otherPhaseCount = 0;
 		for (int phase = 0; phase < NumPhases; phase++)
 		{
-			if ((uint)phase == myPhase) continue;
+			if (IsPhaseValue(myPhase, (uint)phase)) continue;
 			otherPhaseDensitySum += PhaseTargetDensities[phase];
 			otherPhaseCount++;
 		}
 
 		if (otherPhaseCount == 0)
 		{
-			if (debugVectorFieldMode == 4)
-			{
-				DebugVectorData[id.x] = 0;
-			}
+			ClearThermalBuoyancyDebug(id.x);
 			return;
 		}
 		rho_env = otherPhaseDensitySum / otherPhaseCount;
@@ -710,72 +167,21 @@ void HandleCollisions(uint particleIndex)
 
 	if (useEllipticalBounds)
 	{
-		// Elliptical bounds collision
-		float2 posRelative = pos - ellipseBoundsCenter;
-		float2 radii = ellipseBoundsSize;
-		
-		// Normalize in ellipse space (map ellipse to unit circle)
-		float2 normalizedPos = posRelative / radii;
-		float normalizedDist = length(normalizedPos);
-		
-		if (normalizedDist > 1.0)
-		{
-			// Project onto ellipse by normalizing in ellipse space, then scaling back
-			float2 projectedNormalized = normalize(normalizedPos);
-			float2 boundaryPos = projectedNormalized * radii;
-			pos = ellipseBoundsCenter + boundaryPos;
-			
-			// Calculate outward normal at the boundary point
-			// For an ellipse, the outward normal is proportional to (x/a², y/b²)
-			float2 normalVector = boundaryPos / (radii * radii);
-			float2 normal = normalize(normalVector);
-			
-			// Reflect velocity across the normal
-			vel -= 2.0 * dot(vel, normal) * normal;
-			vel *= collisionDamping;
-		}
-
-		if (pos.y < obstacleY)
-		{
-			pos.y = obstacleY;
-			if (vel.y < 0)
-			{
-				vel.y *= -1 * collisionDamping;
-			}
-		}
+		CollideWithEllipseBounds(pos, vel);
+		CollideWithObstacleFloor(pos, vel);
 	}
 	else
 	{
-		// Original rectangular bounds collision
-		const float2 halfSize = boundsSize * 0.5;
-		float2 edgeDst = halfSize - abs(pos);
-
-		if (edgeDst.x <= 0)
-		{
-			pos.x = halfSize.x * sign(pos.x);
-			vel.x *= -1 * collisionDamping;
-		}
-		if (edgeDst.y <= 0)
-		{
-			pos.y = halfSize.y * sign(pos.y);
-			vel.y *= -1 * collisionDamping;
-		}
+		CollideWithRectBounds(pos, vel);
 	}
 
-	// Update position and velocity
 	Positions[particleIndex] = pos;
 	Velocities[particleIndex] = vel;
 }
-
 [numthreads(NumThreads, 1, 1)]
 void ExternalForces(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= numParticles)
-        return;
-
-    // Skip ghost particles
-    if (IsGhost[id.x] != 0)
-        return;
+    if (!IsFluidParticle(id.x)) return;
 
     float2 externalAcceleration = ExternalForces(Positions[id.x], Velocities[id.x], Phases[id.x]);
     Velocities[id.x] += externalAcceleration * deltaTime;
@@ -847,7 +253,7 @@ void ReorderCopyback (uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads, 1, 1)]
 void InitializeBlobIDs(uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
+	if (IsInvalidParticle(id.x)) return;
 	BlobIDsPrevious[id.x] = BlobIDs[id.x];
 	BlobIDs[id.x] = id.x;
 }
@@ -855,7 +261,7 @@ void InitializeBlobIDs(uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads, 1, 1)]
 void PropagateBlobIDs(uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
+	if (IsInvalidParticle(id.x)) return;
 
 	uint myPhase = Phases[id.x];
 	float2 pos = PredictedPositions[id.x];
@@ -863,38 +269,30 @@ void PropagateBlobIDs(uint3 id : SV_DispatchThreadID)
 	float blobConnectivityRadius = smoothingRadius * 2;
 	float sqrBlobRadius = blobConnectivityRadius * blobConnectivityRadius;
 	uint myPreviousBlob = BlobIDsPrevious[id.x];
-	bool myWasUnassigned = myPreviousBlob == UnassignedBlobID;
+	bool myWasUnassigned = IsUnassignedBlob(myPreviousBlob);
 
 	uint minBlob = myWasUnassigned ? IgnoredPhaseBlobID : BlobIDs[id.x];
 
 	// Phase 1 blobs are irrelevant - treat all phase 1 as one blob (ID = UINT_MAX)
-	if (myPhase == 1)
+	if (IsPhaseValue(myPhase, 1))
 	{
 		BlobIDsScratch[id.x] = IgnoredPhaseBlobID;
 		return;
 	}
 
 	// Only propagate blob IDs within the wax phase.
-	for (int i = 0; i < 9; i++)
+	FOR_EACH_HASH_NEIGHBOR(originCell, numParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
 	{
-		uint hash = HashCell2D(originCell + offsets2D[i]);
-		uint key = KeyFromHash(hash, numParticles);
-		uint currIndex = SpatialOffsets[key];
-
-		while (currIndex < numParticles)
-		{
-			uint neighbourIndex = currIndex++;
 			if (neighbourIndex == id.x) continue;
-			if (SpatialKeys[neighbourIndex] != key) break;
 
-			if (Phases[neighbourIndex] != 0) continue;
+			if (!IsPhase(neighbourIndex, 0)) continue;
 
 			float2 offset = PredictedPositions[neighbourIndex] - pos;
 			float sqrDst = dot(offset, offset);
 			if (sqrDst > sqrBlobRadius) continue;
 
-			bool samePreviousBlob = BlobIDsPrevious[neighbourIndex] == myPreviousBlob;
-			bool neighbourWasUnassigned = BlobIDsPrevious[neighbourIndex] == UnassignedBlobID;
+			bool samePreviousBlob = IsSameBlob(BlobIDsPrevious[neighbourIndex], myPreviousBlob);
+			bool neighbourWasUnassigned = IsUnassignedBlob(BlobIDsPrevious[neighbourIndex]);
 			bool unassignedPreviousBlob = myWasUnassigned || neighbourWasUnassigned;
 			if (!samePreviousBlob && !unassignedPreviousBlob && restrictBlobMergingToCoil)
 			{
@@ -909,8 +307,8 @@ void PropagateBlobIDs(uint3 id : SV_DispatchThreadID)
 
 			uint neighbourBlob = BlobIDs[neighbourIndex];
 			minBlob = min(minBlob, neighbourBlob);
-		}
 	}
+	END_FOR_EACH_HASH_NEIGHBOR
 
 	BlobIDsScratch[id.x] = minBlob;
 }
@@ -918,14 +316,14 @@ void PropagateBlobIDs(uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads, 1, 1)]
 void CopyBlobIDs(uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
+	if (IsInvalidParticle(id.x)) return;
 	BlobIDs[id.x] = BlobIDsScratch[id.x];
 }
 
 [numthreads(NumThreads, 1, 1)]
 void CopyBlobIDsToPrevious(uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
+	if (IsInvalidParticle(id.x)) return;
 	BlobIDsPrevious[id.x] = BlobIDs[id.x];
 }
 
@@ -966,11 +364,11 @@ bool TryGetCarrierWedge(uint particleIndex, float2 pos, out float2 wedgeDir, out
 				uint neighbourIndex = currIndex++;
 				if (neighbourIndex == particleIndex) continue;
 				if (SpatialKeys[neighbourIndex] != key) break;
-				if (IsGhost[neighbourIndex] != 0) continue;
-				if ((int)Phases[neighbourIndex] == carrierWedgePhase) continue;
+				if (!IsFluidParticle(neighbourIndex)) continue;
+				if (IsCarrierWedgePhase(Phases[neighbourIndex])) continue;
 
 				uint neighbourBlob = BlobIDsRO[neighbourIndex];
-				if (neighbourBlob >= UnassignedBlobID) continue;
+				if (!IsAssignedBlob(neighbourBlob)) continue;
 
 				float2 neighbourPos = PredictedPositions[neighbourIndex];
 				float2 offset = neighbourPos - pos;
@@ -985,12 +383,12 @@ bool TryGetCarrierWedge(uint particleIndex, float2 pos, out float2 wedgeDir, out
 				float contactT = 1.0 - dst / max(searchDistance, 1e-6);
 				float weight = contactT * contactT * contactStrengthMultiplier;
 
-				if (neighbourBlob == blobA)
+				if (IsSameBlob(neighbourBlob, blobA))
 				{
 					weightedPosA += neighbourPos * weight;
 					weightA += weight;
 				}
-				else if (neighbourBlob == blobB)
+				else if (IsSameBlob(neighbourBlob, blobB))
 				{
 					weightedPosB += neighbourPos * weight;
 					weightB += weight;
@@ -1014,7 +412,7 @@ bool TryGetCarrierWedge(uint particleIndex, float2 pos, out float2 wedgeDir, out
 		}
 	}
 
-	if (weightA <= 1e-6 || weightB <= 1e-6 || blobA == blobB) return false;
+	if (weightA <= 1e-6 || weightB <= 1e-6 || IsSameBlob(blobA, blobB)) return false;
 
 	float2 centroidA = weightedPosA / weightA;
 	float2 centroidB = weightedPosB / weightB;
@@ -1043,15 +441,15 @@ bool TryGetCarrierWedge(uint particleIndex, float2 pos, out float2 wedgeDir, out
 [numthreads(NumThreads, 1, 1)]
 void ClearBlobSizes(uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
+	if (IsInvalidParticle(id.x)) return;
 	BlobSizes[id.x] = 0;
 }
 
 [numthreads(NumThreads, 1, 1)]
 void CountBlobSizes(uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
-	if (Phases[id.x] != 0) return;
+	if (IsInvalidParticle(id.x)) return;
+	if (!IsPhase(id.x, 0)) return;
 
 	uint blobId = BlobIDs[id.x];
 	if (blobId >= numParticles) return;
@@ -1063,8 +461,8 @@ void CountBlobSizes(uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads, 1, 1)]
 void MarkSingleParticleBlobs(uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
-	if (Phases[id.x] != 0) return;
+	if (IsInvalidParticle(id.x)) return;
+	if (!IsPhase(id.x, 0)) return;
 
 	uint blobId = BlobIDs[id.x];
 	if (blobId >= numParticles || BlobSizes[blobId] <= 1)
@@ -1077,7 +475,7 @@ void MarkSingleParticleBlobs(uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads,1,1)]
 void CalculateDensities (uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
+	if (IsInvalidParticle(id.x)) return;
 
 	float2 pos = PredictedPositions[id.x];
 	Densities[id.x] = CalculateDensity(pos);
@@ -1086,10 +484,7 @@ void CalculateDensities (uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads,1,1)]
 void CalculatePressureForce (uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
-
-	// Skip ghost particles - they don't get forces
-	if (IsGhost[id.x] != 0) return;
+	if (!IsFluidParticle(id.x)) return;
 
 	float density = Densities[id.x][0];
 	float densityNear = Densities[id.x][1];
@@ -1105,24 +500,10 @@ void CalculatePressureForce (uint3 id : SV_DispatchThreadID)
 	// Add a small epsilon to prevent division by near-zero density
 	float epsilon = 0.0001;
 
-	// Neighbour search
-	for (int i = 0; i < 9; i ++)
+	FOR_EACH_HASH_NEIGHBOR(originCell, numSpatialParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
 	{
-		uint hash = HashCell2D(originCell + offsets2D[i]);
-		uint key = KeyFromHash(hash, numSpatialParticles);
-		uint currIndex = SpatialOffsets[key];
-
-		while (currIndex < numSpatialParticles)
-		{
-			uint neighbourIndex = currIndex;
-			currIndex ++;
-
 			// Skip if looking at self
 			if (neighbourIndex == id.x) continue;
-			
-			uint neighbourKey = SpatialKeys[neighbourIndex];
-			// Exit if no longer looking at correct bin
-			if (neighbourKey != key) break;
 			
 			float2 neighbourPos = PredictedPositions[neighbourIndex];
 			float2 offsetToNeighbour = neighbourPos - pos;
@@ -1148,10 +529,10 @@ void CalculatePressureForce (uint3 id : SV_DispatchThreadID)
 			//float sharedPressure = (pressure / (density * density) + neighbourPressure / (neighbourDensity * neighbourDensity)) * interaction;
 			float sharedNearPressure = (nearPressure + neighbourNearPressure) * 0.5 * interaction;
 
-			pressureForce += dirToNeighbour * DensityDerivative(dst, smoothingRadius) * sharedPressure /  max(neighbourDensity, epsilon);
-			pressureForce += dirToNeighbour * NearDensityDerivative(dst, smoothingRadius) * sharedNearPressure /  max(neighbourDensity, epsilon);
-		}
+			pressureForce += dirToNeighbour * DerivativeSpikyPow2(dst, smoothingRadius) * sharedPressure /  max(neighbourDensity, epsilon);
+			pressureForce += dirToNeighbour * DerivativeSpikyPow3(dst, smoothingRadius) * sharedNearPressure /  max(neighbourDensity, epsilon);
 	}
+	END_FOR_EACH_HASH_NEIGHBOR
 
     pressureForce += CalculateWallPressureSupportForce(pos, density, pressure, nearPressure, id.x, epsilon);
 
@@ -1169,12 +550,11 @@ void CalculatePressureForce (uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads, 1, 1)]
 void UpdateTemperature(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= numParticles)
-        return;
+    if (IsInvalidParticle(id.x)) return;
 
     float2 pos = PredictedPositions[id.x];
 
-    if (IsGhost[id.x] != 0)
+    if (IsGhostParticle(id.x))
     {
         float heatSourceWeight = SampleHeatSourceWeight(pos);
         Temperatures[id.x] = lerp(ambientTemperature, heatSourceTemperature, heatSourceWeight);
@@ -1191,23 +571,10 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
     float diffusion = 0;
     float totalWeight = 0;
 
-    for (int i = 0; i < 9; i++)
+    FOR_EACH_HASH_NEIGHBOR(originCell, numSpatialParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
     {
-        uint hash = HashCell2D(originCell + offsets2D[i]);
-        uint key = KeyFromHash(hash, numSpatialParticles);
-        uint currIndex = SpatialOffsets[key];
-
-        while (currIndex < numSpatialParticles)
-        {
-            uint neighbourIndex = currIndex;
-            currIndex++;
-
             if (neighbourIndex == id.x)
                 continue;
-
-            uint neighbourKey = SpatialKeys[neighbourIndex];
-            if (neighbourKey != key)
-                break;
 
             float2 neighbourPos = PredictedPositions[neighbourIndex];
             float2 offset = neighbourPos - pos;
@@ -1217,20 +584,20 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
                 continue;
 
             float dst = sqrt(sqrDst);
-            float weight = DensityKernel(dst, smoothingRadius);
+            float weight = SpikyKernelPow2(dst, smoothingRadius);
             float neighbourTemp = Temperatures[neighbourIndex];
 
             // Only diffuse within same phase - cross-phase heat transfer is slower
             uint neighbourPhase = Phases[neighbourIndex];
-            float phaseWeight = (myPhase == neighbourPhase) ? 1.0 : crossPhaseThermalDiffusion;
+            float phaseWeight = IsPhaseValue(myPhase, neighbourPhase) ? 1.0 : crossPhaseThermalDiffusion;
             
             // Boost cooling to ghost particles at boundaries
-            float ghostMultiplier = (IsGhost[neighbourIndex] != 0) ? ghostCoolingMultiplier : 1.0;
+            float ghostMultiplier = IsGhostParticle(neighbourIndex) ? ghostCoolingMultiplier : 1.0;
 
             diffusion += (neighbourTemp - myTemp) * weight * phaseWeight * ghostMultiplier;
             totalWeight += weight * phaseWeight;
-        }
     }
+    END_FOR_EACH_HASH_NEIGHBOR
 
     float newTemp = myTemp;
 
@@ -1248,31 +615,7 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
     if (wallCoolingRate > 0)
     {
         float coolingRadius = (wallCoolingDistance > 0) ? wallCoolingDistance : smoothingRadius;
-        float wallDist = 1e9;
-
-        if (useEllipticalBounds)
-        {
-            float2 closestPoint;
-            float2 outwardNormal;
-            float signedDist;
-            GetEllipseSurfaceData(pos, ellipseBoundsCenter, ellipseBoundsSize, closestPoint, outwardNormal, signedDist);
-            if (signedDist < 0)
-            {
-                wallDist = -signedDist;
-            }
-
-            float floorDist = pos.y - obstacleY;
-            if (floorDist >= 0)
-            {
-                wallDist = min(wallDist, floorDist);
-            }
-        }
-        else
-        {
-            float2 halfSize = boundsSize * 0.5;
-            float2 edgeDst = halfSize - abs(pos);
-            wallDist = min(edgeDst.x, edgeDst.y);
-        }
+        float wallDist = GetNearestWallDistance(pos, true);
 
         if (wallDist >= 0 && wallDist < coolingRadius)
         {
@@ -1290,26 +633,10 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
     Temperatures[id.x] = newTemp;
 }
 
-uint PairIndex(uint a, uint b)
-{
-	// Always order so a <= b
-	uint lo = min(a, b);
-	uint hi = max(a, b);
-	return lo * NumPhases - (lo * (lo - 1)) / 2 + (hi - lo);
-}
-
-float GetPhaseCohesion(uint a, uint b)
-{
-	return PhaseCohesionMatrix[PairIndex(a, b)];
-}
-
 [numthreads(NumThreads, 1, 1)]
 void CalculateCohesion(uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
-
-	// Skip ghost particles
-	if (IsGhost[id.x] != 0) return;
+	if (!IsFluidParticle(id.x)) return;
 
 	uint myPhase = Phases[id.x];
 	float2 pos = PredictedPositions[id.x];
@@ -1318,25 +645,13 @@ void CalculateCohesion(uint3 id : SV_DispatchThreadID)
 
 	float2 cohesionForce = 0;
 
-	for (int i = 0; i < 9; i++)
+	FOR_EACH_HASH_NEIGHBOR(originCell, numSpatialParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
 	{
-		uint hash = HashCell2D(originCell + offsets2D[i]);
-		uint key = KeyFromHash(hash, numSpatialParticles);
-		uint currIndex = SpatialOffsets[key];
-
-		while (currIndex < numSpatialParticles)
-		{
-			uint neighbourIndex = currIndex;
-			currIndex++;
-
 			if (neighbourIndex == id.x) continue;
-            if (IsGhost[neighbourIndex] != 0) continue;
-
-			uint neighbourKey = SpatialKeys[neighbourIndex];
-			if (neighbourKey != key) break;
+            if (!IsFluidParticle(neighbourIndex)) continue;
 
 			uint neighbourPhase = Phases[neighbourIndex];
-			bool isOtherBlobSamePhase = neighbourPhase == myPhase && BlobIDs[neighbourIndex] != BlobIDs[id.x];
+			bool isOtherBlobSamePhase = IsPhaseValue(neighbourPhase, myPhase) && !IsSameBlob(BlobIDs[neighbourIndex], BlobIDs[id.x]);
 			float cohesionStrength = GetPhaseCohesion(myPhase, neighbourPhase);
 			if (isOtherBlobSamePhase)
 			{
@@ -1361,9 +676,8 @@ void CalculateCohesion(uint3 id : SV_DispatchThreadID)
 			{
 				cohesionForce += dirToNeighbour * cohesionKernel * cohesionStrength;
 			}
-
-		}
 	}
+	END_FOR_EACH_HASH_NEIGHBOR
 
 	Velocities[id.x] += cohesionForce * deltaTime;
 }
@@ -1371,17 +685,17 @@ void CalculateCohesion(uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads, 1, 1)]
 void ApplyCarrierWedgeForce(uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
+	if (IsInvalidParticle(id.x)) return;
 	bool debugNonCoalescence = debugVectorFieldMode == 2;
 	if (debugNonCoalescence)
 	{
-		DebugVectorData[id.x] = 0;
+		ClearDebugVectorData(id.x);
 	}
 
 	float carrierWedgeDistance = carrierWedgeDistanceMultiplier * smoothingRadius;
 	if (carrierWedgeStrength <= 0 || carrierWedgeDistance <= 0) return;
-	if (IsGhost[id.x] != 0) return;
-	if ((int)Phases[id.x] != carrierWedgePhase) return;
+	if (!IsFluidParticle(id.x)) return;
+	if (!IsCarrierWedgePhase(Phases[id.x])) return;
 
 	float2 pos = PredictedPositions[id.x];
 	float2 wedgeDir;
@@ -1405,13 +719,12 @@ void ApplyCarrierWedgeForce(uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads,1,1)]
 void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
+	if (IsInvalidParticle(id.x)) return;
 
-	// Skip ghost particles
-	if (IsGhost[id.x] != 0)
+	if (!IsFluidParticle(id.x))
 	{
 		if (debugVisualizationMode == 3)
-			DebugData[id.x] = 0;
+			ClearDebugData(id.x);
 		return;
 	}
 	
@@ -1426,7 +739,7 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 	float myTemp = Temperatures[id.x];
 	float myViscosity = GetTemperatureAdjustedViscosity(myPhase, myTemp);
 	float wedgeViscosityMultiplier = 1.0;
-	if ((int)myPhase == carrierWedgePhase && carrierWedgeViscosityMultiplier > 1.0)
+	if (IsCarrierWedgePhase(myPhase) && carrierWedgeViscosityMultiplier > 1.0)
 	{
 		float2 wedgeDir;
 		float wedgeAmount;
@@ -1441,25 +754,12 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 	}
 
 
-	for (int i = 0; i < 9; i ++)
+	FOR_EACH_HASH_NEIGHBOR(originCell, numSpatialParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
 	{
-		uint hash = HashCell2D(originCell + offsets2D[i]);
-		uint key = KeyFromHash(hash, numSpatialParticles);
-		uint currIndex = SpatialOffsets[key];
-
-		while (currIndex < numSpatialParticles)
-		{
-			uint neighbourIndex = currIndex;
-			currIndex ++;
-
 			// Skip if looking at self
 			if (neighbourIndex == id.x) continue;
-            if (IsGhost[neighbourIndex] != 0) continue;
+            if (!IsFluidParticle(neighbourIndex)) continue;
 			
-			uint neighbourKey = SpatialKeys[neighbourIndex];
-			// Exit if no longer looking at correct bin
-			if (neighbourKey != key) break;
-
 			float2 neighbourPos = PredictedPositions[neighbourIndex];
 			float2 offsetToNeighbour = neighbourPos - pos;
 			float sqrDstToNeighbour = dot(offsetToNeighbour, offsetToNeighbour);
@@ -1472,8 +772,8 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 			float neighbourViscosity = GetTemperatureAdjustedViscosity(neighbourPhase, neighbourTemp);
 			float blendedViscosity = (myViscosity + neighbourViscosity) * 0.5;
 			blendedViscosity *= wedgeViscosityMultiplier;
-			bool differentPhase = neighbourPhase != myPhase;
-			bool differentBlobSamePhase = !differentPhase && BlobIDsRO[neighbourIndex] != BlobIDsRO[id.x];
+			bool differentPhase = !IsPhaseValue(neighbourPhase, myPhase);
+			bool differentBlobSamePhase = !differentPhase && !IsSameBlob(BlobIDsRO[neighbourIndex], BlobIDsRO[id.x]);
 			if (differentPhase || differentBlobSamePhase)
 			{
 				blendedViscosity *= interfaceViscosityMultiplier;
@@ -1482,21 +782,17 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 			float dst = sqrt(sqrDstToNeighbour);
 			float2 neighbourVelocity = Velocities[neighbourIndex];
 			viscosityForce += (neighbourVelocity - velocity) * ViscosityKernel(dst, smoothingRadius) * blendedViscosity;
-		}
-
 	}
+	END_FOR_EACH_HASH_NEIGHBOR
 	Velocities[id.x] += viscosityForce * deltaTime;
 }
 
 [numthreads(NumThreads, 1, 1)]
 void UpdatePositions(uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numParticles) return;
+	if (!IsFluidParticle(id.x)) return;
 
-	// Skip ghost particles
-	if (IsGhost[id.x] != 0) return;
-
-	if ((coilVelocityDamping > 0 || coilAttractionStrength > 0) && (coilVelocityDampingPhase < 0 || (int)Phases[id.x] == coilVelocityDampingPhase))
+	if ((coilVelocityDamping > 0 || coilAttractionStrength > 0) && (coilVelocityDampingPhase < 0 || IsPhaseValue(Phases[id.x], (uint)coilVelocityDampingPhase)))
 	{
 		float coilWeight = SampleBlobMergeCoilWeight(Positions[id.x]);
 		if (coilWeight > 0)
@@ -1526,11 +822,7 @@ void UpdatePositions(uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads, 1, 1)]
 void UpdateThermalExpansion(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= numParticles)
-        return;
-
-    // Skip ghost particles
-    if (IsGhost[id.x] != 0) return;
+    if (!IsFluidParticle(id.x)) return;
 
     uint phase = Phases[id.x];
     float baseDensity = PhaseTargetDensities[phase];
@@ -1545,7 +837,7 @@ void UpdateThermalExpansion(uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads, 1, 1)]
 void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= numParticles) return;
+    if (IsInvalidParticle(id.x)) return;
 
     uint myPhase = Phases[id.x];
     uint myBlobId = BlobIDsRO[id.x];
@@ -1556,18 +848,9 @@ void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
 
     float2 gradC = 0;
 
-    for (int i = 0; i < 9; i++)
+    FOR_EACH_HASH_NEIGHBOR(originCell, numSpatialParticles, SpatialOffsets, SpatialKeys, j)
     {
-        uint hash = HashCell2D(originCell + offsets2D[i]);
-        uint key = KeyFromHash(hash, numSpatialParticles);
-        uint currIndex = SpatialOffsets[key];
-
-        while (currIndex < numSpatialParticles)
-        {
-            uint j = currIndex++;
             if (j == id.x) continue;
-
-            if (SpatialKeys[j] != key) break;
 
             float2 pos_j = PredictedPositions[j];
             float2 offset = pos_j - pos;
@@ -1581,11 +864,11 @@ void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
 
 			float dc = IsSameSurfaceTensionRegion(myPhase, myBlobId, Phases[j], BlobIDsRO[j]) ? 0.0 : -1.0;
 
-            float gradW = DensityDerivative(dst, smoothingRadius);
+            float gradW = DerivativeSpikyPow2(dst, smoothingRadius);
 
             gradC += (dc / density_j) * gradW * dir;
-        }
     }
+    END_FOR_EACH_HASH_NEIGHBOR
 
     ColorGradients[id.x] = gradC;
 	if (debugVisualizationMode == 1 || debugVisualizationMode == 0)
@@ -1597,48 +880,28 @@ void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads, 1, 1)]
 void CalculateCSF(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= numParticles) return;
-    if (IsGhost[id.x] != 0)
+    if (IsInvalidParticle(id.x)) return;
+    if (!IsFluidParticle(id.x))
     {
-	    if (debugVisualizationMode == 2)
-		    DebugData[id.x] = 0;
-	    DebugVectorSign[id.x] = 0;
-	    if (debugVectorFieldMode != 0 && debugVectorFieldMode != 2 && debugVectorFieldMode != 4)
-	    {
-		    DebugVectorData[id.x] = 0;
-	    }
+	    ClearInactiveCsfDebugOutputs(id.x);
 	    return;
     };
-	
-	
 
     uint myPhase = PhasesRO[id.x];
     uint myBlobId = BlobIDsRO[id.x];
     float2 pos = PredictedPositions[id.x];
-    float density_i = max(DensitiesRO[id.x][0], 0.0001);
 
     int2 originCell = GetCell2D(pos, smoothingRadius);
     float sqrRadius = smoothingRadius * smoothingRadius;
 
-    // ----------------------------------
     // 1. COLOR FIELD GRADIENT
-    // ----------------------------------
 
     float2 gradC = ColorGradientsRO[id.x];
 
     float gradMag = length(gradC);
 
 
-    if (debugVisualizationMode == 2)
-    {
-        DebugData[id.x] = 0;
-    }
-
-	if (debugVectorFieldMode != 0 && debugVectorFieldMode != 2 && debugVectorFieldMode != 4)
-	{
-		DebugVectorData[id.x] = 0;
-		DebugVectorSign[id.x] = 0;
-	}
+    ClearActiveCsfDebugOutputs(id.x);
 
     // Surface detection
     if (gradMag < surfaceTensionThreshold)
@@ -1653,18 +916,9 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 	float sigmaWeightedSum = 0;
 	float sigmaWeightSum = 0;
 
-	for (int i = 0; i < 9; i++)
+	FOR_EACH_HASH_NEIGHBOR(originCell, numSpatialParticles, SpatialOffsetsRO, SpatialKeysRO, j)
 	{
-		uint hash = HashCell2D(originCell + offsets2D[i]);
-		uint key = KeyFromHash(hash, numSpatialParticles);
-		uint currIndex = SpatialOffsetsRO[key];
-
-		while (currIndex < numSpatialParticles)
-		{
-			uint j = currIndex++;
 			if (j == id.x) continue;
-
-			if (SpatialKeysRO[j] != key) break;
 
 			float2 pos_j = PredictedPositions[j];
 			float2 offset = pos_j - pos;
@@ -1676,15 +930,15 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 
 			float density_j = max(DensitiesRO[j][0], 0.0001);
 
-			float gradW = DensityDerivative(dst, smoothingRadius);
+			float gradW = DerivativeSpikyPow2(dst, smoothingRadius);
 
 			float2 gradCj = ColorGradientsRO[j];
 			float gjmag = length(gradCj);
 			uint neighbourPhase = PhasesRO[j];
-			bool neighbourIsGhost = IsGhost[j] != 0;
-			bool isSameBlob = BlobIDsRO[j] == myBlobId;
+			bool neighbourIsGhost = IsGhostParticle(j);
+			bool isSameBlob = IsSameBlob(BlobIDsRO[j], myBlobId);
 			bool isSameSurfaceTensionRegion = IsSameSurfaceTensionRegion(myPhase, myBlobId, neighbourPhase, BlobIDsRO[j]);
-			bool isOtherBlobSamePhase = !neighbourIsGhost && neighbourPhase == myPhase && !isSameBlob;
+			bool isOtherBlobSamePhase = !neighbourIsGhost && IsPhaseValue(neighbourPhase, myPhase) && !isSameBlob;
 			float2 normal_j = (gjmag > 1e-6) ? gradCj / gjmag : normal;
 
 			if (surfaceTensionInterfaceMode == 0 && isOtherBlobSamePhase)
@@ -1692,8 +946,6 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 				continue;
 			}
 
-			// With per-phase color fields, opposite-side neighbors have flipped normals.
-			// Reorient to particle i's phase field before divergence/curvature accumulation.
 			float2 normal_j_for_curvature = isSameSurfaceTensionRegion ? normal_j : -normal_j;
 
 			if (neighbourIsGhost)
@@ -1705,15 +957,14 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 			}
 			else if (!isSameSurfaceTensionRegion)
 			{
-				float sigma_ij = GetSurfaceTension(myPhase, neighbourPhase);
 				float sigmaWeight = abs(gradW) / density_j;
-				sigmaWeightedSum += sigma_ij * sigmaWeight;
+				sigmaWeightedSum += surfaceTension * sigmaWeight;
 				sigmaWeightSum += sigmaWeight;
 			}
 			curvature += dot(normal_j_for_curvature - normal, dir) * gradW / density_j;
 			blobSelfCurvature += dot(normal_j_for_curvature - normal, dir) * gradW / density_j;
-		}
 	}
+	END_FOR_EACH_HASH_NEIGHBOR
 
 	float2 repulsionForce = 0;
 	float nonCoalescenceRadius = PhaseNonCoalescenceRadiusMultiplier[myPhase] * smoothingRadius;
@@ -1736,9 +987,9 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 					if (j == id.x) continue;
 
 					if (SpatialKeysRO[j] != key) break;
-					if (IsGhost[j] != 0) continue;
-					if (PhasesRO[j] != myPhase) continue;
-					if (BlobIDsRO[j] == myBlobId) continue;
+					if (!IsFluidParticle(j)) continue;
+					if (!IsPhaseRO(j, myPhase)) continue;
+					if (IsSameBlob(BlobIDsRO[j], myBlobId)) continue;
 
 					float2 pos_j = PredictedPositions[j];
 					float2 offset = pos_j - pos;
@@ -1773,12 +1024,11 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 	
 	// Step 3: apply surface tension force along normal, scaled by curvature.
 	// Use the effective interfacial coefficient from cross-phase neighbors.
-	float mySigma = GetSurfaceTension(myPhase, myPhase);
-	float sigma = (sigmaWeightSum > 1e-6) ? (sigmaWeightedSum / sigmaWeightSum) : mySigma;
+    float sigma = (sigmaWeightSum > 1e-6) ? (sigmaWeightedSum / sigmaWeightSum) : surfaceTension;
 
 	float normalizedGradMag = gradMag * smoothingRadius;
 	float2 surfaceTensionForce = -sigma * curvature * normal * normalizedGradMag;
-	if (blobSelfSurfaceTension > 0 && (blobSelfSurfaceTensionPhase < 0 || blobSelfSurfaceTensionPhase == (int)myPhase))
+	if (blobSelfSurfaceTension > 0 && (blobSelfSurfaceTensionPhase < 0 || IsPhaseValue(myPhase, (uint)blobSelfSurfaceTensionPhase)))
 	{
 		bool inMergeCoil = restrictBlobMergingToCoil && IsInsideBlobMergeCoil(pos);
 		if (!inMergeCoil)

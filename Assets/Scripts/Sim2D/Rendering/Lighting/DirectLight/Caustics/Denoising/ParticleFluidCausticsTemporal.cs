@@ -141,7 +141,7 @@ namespace Seb.Fluid2D.Rendering
 			_temporalMaterial.SetTexture("CausticMotionTex", _directLight.causticMotionTexture != null ? _directLight.causticMotionTexture : Texture2D.blackTexture);
 			_temporalMaterial.SetInt("debugMode", MetaballRenderer2D.GetDebugShaderMode(display, lighting));
 			_temporalMaterial.SetFloat("motionDebugDeltaTime", display.sim.CurrentSimulationDeltaTime);
-			_temporalMaterial.SetFloat("causticTemporalHistoryWeight", display.sim.IsPaused ? 0.99f : _temporalSettings.temporalHistoryWeight);
+			_temporalMaterial.SetFloat("causticTemporalHistoryWeight", display.sim.isPaused ? 0.99f : _temporalSettings.temporalHistoryWeight);
 			_temporalMaterial.SetFloat("causticTemporalHistoryClampStrength", _temporalSettings.temporalHistoryClampStrength);
 			_temporalMaterial.SetFloat("causticTemporalClampRejection", _temporalSettings.temporalClampRejection);
 			_temporalMaterial.SetFloat("causticTemporalRejectedSpatialFilter", _temporalSettings.temporalRejectedSpatialFilter);
@@ -279,7 +279,7 @@ namespace Seb.Fluid2D.Rendering
 				else
 				{
 					int nextFrameCount = Mathf.Max(_causticTemporalFrameCount + 1, 2);
-					float targetHistoryWeight = display.sim.IsPaused ? 0.99f : _temporalSettings.temporalHistoryWeight;
+					float targetHistoryWeight = display.sim.isPaused ? 0.99f : _temporalSettings.temporalHistoryWeight;
 					float warmupHistoryWeight = (nextFrameCount - 1f) / nextFrameCount;
 					_temporalMaterial.SetFloat("causticTemporalHistoryWeight", Mathf.Min(targetHistoryWeight, warmupHistoryWeight));
 					_temporalMaterial.SetInt("causticTemporalMotionSource", (int)_temporalSettings.temporalMotionSource);

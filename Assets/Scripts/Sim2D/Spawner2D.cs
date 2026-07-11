@@ -164,7 +164,7 @@ public class Spawner2D : MonoBehaviour
 
 	public void GenerateGhostParticles(ParticleFluidAnalyticBoundary2D analyticBoundary, Vector2 boundsSize, int boundsGhostPhase, int lowerGhostPhase, List<float2> outPositions, List<float2> outVelocities, List<int> outPhases, float lowerGhostPhaseWidth = 0f)
 	{
-		float spacing = Mathf.Sqrt(1f / (ghostDensity * sim.ResolvedResolutionFactor));
+		float spacing = Mathf.Sqrt(1f / (ghostDensity * sim.particleResolutionFactor));
 		int numLayers = Mathf.CeilToInt(sim.EffectiveSmoothingRadius / spacing);
 
 		outPositions.Clear();
@@ -221,7 +221,7 @@ public class Spawner2D : MonoBehaviour
 			return;
 		}
 
-		float rowDensity = ghostDensity * sim.ResolvedResolutionFactor * GetHydrostaticSpawnDensityMultiplier(y);
+		float rowDensity = ghostDensity * sim.particleResolutionFactor * GetHydrostaticSpawnDensityMultiplier(y);
 		int rowCount = Mathf.Max(1, Mathf.RoundToInt(width * rowDensity * spacing));
 		for (int i = 0; i < rowCount; i++)
 		{
@@ -323,7 +323,7 @@ public class Spawner2D : MonoBehaviour
             float startX = center.x - halfWidth;
             float endX = center.x + halfWidth;
             float width = endX - startX;
-            float rowDensity = ghostDensity * sim.ResolvedResolutionFactor * GetHydrostaticSpawnDensityMultiplier(y);
+            float rowDensity = ghostDensity * sim.particleResolutionFactor * GetHydrostaticSpawnDensityMultiplier(y);
             int rowCount = Mathf.Max(1, Mathf.RoundToInt(width * rowDensity * spacing));
             for (int i = 0; i < rowCount; i++)
             {

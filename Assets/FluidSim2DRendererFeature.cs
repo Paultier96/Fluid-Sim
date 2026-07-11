@@ -55,6 +55,8 @@ namespace Seb.Fluid2D.Simulation
         readonly ImportedTexture normalBlur = new();
         readonly ImportedTexture velocity = new();
         readonly ImportedTexture velocityBlur = new();
+        readonly ImportedTexture materialNormalFallback = new();
+        readonly ImportedTexture materialTransportFallback = new();
         readonly ImportedTexture materialAlbedo = new();
         readonly ImportedTexture materialNormal = new();
         readonly ImportedTexture materialTransport = new();
@@ -134,6 +136,12 @@ namespace Seb.Fluid2D.Simulation
             TextureHandle materialAlbedoHandle = materialAlbedo.Import(renderGraph, metaballRenderer.materialRenderer.MaterialMaps.albedoTexture, "FluidSim2D Material Albedo");
             TextureHandle materialNormalHandle = materialNormal.Import(renderGraph, metaballRenderer.materialRenderer.MaterialMaps.normalTexture, "FluidSim2D Material Normal");
             TextureHandle materialTransportHandle = materialTransport.Import(renderGraph, metaballRenderer.materialRenderer.MaterialMaps.transportTexture, "FluidSim2D Material Transport");
+            TextureHandle materialNormalLightingHandle = materialNormalHandle.IsValid()
+                ? materialNormalHandle
+                : materialNormalFallback.Import(renderGraph, Texture2D.blackTexture, "FluidSim2D Material Normal Fallback");
+            TextureHandle materialTransportLightingHandle = materialTransportHandle.IsValid()
+                ? materialTransportHandle
+                : materialTransportFallback.Import(renderGraph, Texture2D.blackTexture, "FluidSim2D Material Transport Fallback");
             TextureHandle gradientHandle = gradient.Import(renderGraph, display.gradientTexture != null ? display.gradientTexture : Texture2D.blackTexture, "FluidSim2D Gradient");
             TextureHandle gradient2Handle = gradient2.Import(renderGraph, display.gradientTexture2 != null ? display.gradientTexture2 : Texture2D.blackTexture, "FluidSim2D Gradient 2");
             bool useMaterialPipeline = metaballRenderer.ShouldUseMaterialPipeline(display) && metaballRenderer.materialRenderer.IsReady;
@@ -232,8 +240,8 @@ namespace Seb.Fluid2D.Simulation
             int causticsFrameIndex = renderCaustics ? lighting.directLight.causticFrameIndex++ : 0;
             LightingInputHandles lightingInputs = new()
             {
-                transport = materialTransportHandle,
-                materialNormal = materialNormalHandle,
+                transport = materialTransportLightingHandle,
+                materialNormal = materialNormalLightingHandle,
                 velocity = velocityTraceHandle,
                 gradient = gradientHandle,
                 gradient2 = gradient2Handle
@@ -343,6 +351,12 @@ namespace Seb.Fluid2D.Simulation
             TextureHandle materialAlbedoHandle = materialAlbedo.Import(renderGraph, jumpFloodRenderer.MaterialMaps.albedoTexture, "FluidSim2D JFA Material Albedo");
             TextureHandle materialNormalHandle = materialNormal.Import(renderGraph, jumpFloodRenderer.MaterialMaps.normalTexture, "FluidSim2D JFA Material Normal");
             TextureHandle materialTransportHandle = materialTransport.Import(renderGraph, jumpFloodRenderer.MaterialMaps.transportTexture, "FluidSim2D JFA Material Transport");
+            TextureHandle materialNormalLightingHandle = materialNormalHandle.IsValid()
+                ? materialNormalHandle
+                : materialNormalFallback.Import(renderGraph, Texture2D.blackTexture, "FluidSim2D JFA Material Normal Fallback");
+            TextureHandle materialTransportLightingHandle = materialTransportHandle.IsValid()
+                ? materialTransportHandle
+                : materialTransportFallback.Import(renderGraph, Texture2D.blackTexture, "FluidSim2D JFA Material Transport Fallback");
             bool renderCaustics = lighting != null && lighting.directLight.lightingMode == ParticleFluidDirectLight.LightingMode.Caustics;
             TextureHandle velocityTraceHandle = renderCaustics
                 ? velocity.Import(renderGraph, Texture2D.blackTexture, "FluidSim2D JFA Velocity Fallback")
@@ -357,8 +371,8 @@ namespace Seb.Fluid2D.Simulation
             int causticsFrameIndex = renderCaustics ? lighting.directLight.causticFrameIndex++ : 0;
             LightingInputHandles lightingInputs = new()
             {
-                transport = materialTransportHandle,
-                materialNormal = materialNormalHandle,
+                transport = materialTransportLightingHandle,
+                materialNormal = materialNormalLightingHandle,
                 velocity = velocityTraceHandle,
                 gradient = gradientHandle,
                 gradient2 = gradient2Handle

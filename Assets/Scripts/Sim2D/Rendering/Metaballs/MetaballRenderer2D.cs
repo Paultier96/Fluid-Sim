@@ -403,7 +403,14 @@ namespace Seb.Fluid2D.Rendering
 
 			targetCommandBuffer.BeginSample("Metaballs/Material Pipeline");
 			ParticleFluidLayoutBindings.ApplyBoundaryGlobals(targetCommandBuffer, display.sim.analyticBoundary);
-			if (_lighting != null && _lighting.lightingMaterial != null)
+			if (_lighting != null && _lighting.debugMode != ParticleFluidLighting2D.LightingDebugVisualization.None && _debugMaterial != null)
+			{
+				ApplyDebugSettings(display, cam);
+				ParticleFluidPassBindings.ApplyMetaballDebugGlobals(targetCommandBuffer, display, cam, _lighting, display.GetEffectiveNormalStrength(display.EffectiveConfiguredBlurRadius));
+				targetCommandBuffer.SetRenderTarget(finalTarget);
+				targetCommandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _currentRenderRegion.CreateRegionMatrix(), _debugMaterial, 0, 0);
+			}
+			else if (_lighting != null && _lighting.lightingMaterial != null)
 			{
 				ParticleFluidLightingInputSet lightingInputs = materialRenderer.MaterialMaps.CreateLightingInputs(_currentRenderRegion, _currentSourceSize, velocityTexture);
 				ParticleFluidLighting2D.FrameContext lightingContext = _lighting.PrepareLighting(cam, lightingInputs);
@@ -439,8 +446,7 @@ namespace Seb.Fluid2D.Rendering
 		{
 			return display != null
 			       && display.debugMode == ParticleDisplay2D.DebugVisualization.None
-			       && _lighting != null
-			       && _lighting.debugMode == ParticleFluidLighting2D.LightingDebugVisualization.None;
+			       && _lighting != null;
 		}
 
 		bool ShouldUseCroppedRenderRegion(ParticleDisplay2D display)

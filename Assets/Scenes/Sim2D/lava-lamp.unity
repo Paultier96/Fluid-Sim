@@ -307,6 +307,8 @@ MonoBehaviour:
   heatSource: {fileID: 2055861083}
   compute: {fileID: 7200000, guid: 1c77ce8de78fddb419ed2d15cae41af0, type: 3}
   spawner2D: {fileID: 271053320}
+  isPaused: 0
+  analyticBoundary: {fileID: 271053329}
 --- !u!114 &271053320
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -340,11 +342,11 @@ MonoBehaviour:
   hydrostaticSpawnGradientStrength: 1
   maxHydrostaticSpawnDensityMultiplier: 2
   sim: {fileID: 271053319}
-  spawnParticleCount: 94754
-  lowerPhaseParticleCount: 35736
-  upperPhaseParticleCount: 59018
-  filledBoundsArea: 333.4431
-  filledBoundsDensity: 284.1684
+  spawnParticleCount: 317456
+  lowerPhaseParticleCount: 117586
+  upperPhaseParticleCount: 199870
+  filledBoundsArea: 1201.7777
+  filledBoundsDensity: 264.15533
 --- !u!114 &271053322
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -625,7 +627,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Rendering.ParticleFluidGaussianSss
   phaseDiffuseLightInitShader: {fileID: 4800000, guid: 360b06a430e2db14781966c0c9ce23b7, type: 3}
   gaussianDiffuseBlurShader: {fileID: 4800000, guid: cd83ed8f2135e43ad8b3becb078bf75f, type: 3}
-  gaussianDiffuseEnabled: 1
   gaussianDiffuseScatterStrength: 0.5
   gaussianDiffuseRadius: 50
   gaussianDiffuseTextureScale: 0.5
@@ -701,11 +702,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Rendering.ParticleFluidRadianceCascadeGi
   radianceCascadeSdfCompute: {fileID: 7200000, guid: 69252249d2a3f704b85a0ec12b63e07e, type: 3}
   radianceCascadeSdfShader: {fileID: 4800000, guid: 8521f648322323d4fbdfe9824745de1a, type: 3}
-  radianceCascadeEnabled: 1
   TextureScale: 0.5
   radianceCascadeCount: 6
   rayRange: 35
-  RaySteps: 16
+  raySteps: 16
   intensity: 1.5
   blobEmissionStrength: 80
   distanceAttenuation: 0.25
@@ -729,7 +729,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 65d16323e3144a228df8e9ac9db0b069, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Simulation.ParticleFluidAnalyticBoundary2D
-  useEllipticalBounds: 1
+  useEllipticalBounds: 0
   ellipseBoundsSize: {x: 5, y: 30}
   ellipseBoundsCenter: {x: 0, y: 0}
   obstacleY: -9.969

@@ -137,6 +137,8 @@ namespace Seb.Fluid2D.Rendering
 			resultTexture = null;
 			payloadTexture = null;
 			ParticleDisplay2D display = context.display;
+			materialTransportTexture ??= Texture2D.blackTexture;
+			Texture colourMap = display != null && display.gradientTexture != null ? display.gradientTexture : Texture2D.blackTexture;
 
 			int width = radianceCascadeSdfSeedA.width;
 			int height = radianceCascadeSdfSeedA.height;
@@ -162,9 +164,9 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "MaterialTransportTex", materialTransportTexture);
 			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "Result", radianceCascadeSdfSeedA);
 			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "ResultPayload", radianceCascadeSdfPayloadA);
-			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "ColourMap", display.gradientTexture);
+			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "ColourMap", colourMap);
 			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "MaterialTransportTex", materialTransportTexture);
-			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "ColourMap", display.gradientTexture);
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "ColourMap", colourMap);
 			targetCommandBuffer.DispatchCompute(compute, seedKernel, gx, gy, 1);
 
 			RenderTexture src = radianceCascadeSdfSeedA;
@@ -260,4 +262,3 @@ namespace Seb.Fluid2D.Rendering
 
 	}
 }
-
