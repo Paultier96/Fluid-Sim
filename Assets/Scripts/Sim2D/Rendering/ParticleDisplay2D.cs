@@ -12,6 +12,7 @@ namespace Seb.Fluid2D.Rendering
 {
 	public class ParticleDisplay2D : MonoBehaviour
 	{
+		public ParticleFluidInteractionCursor2D interactionCursor;
 		public enum RenderMode
 		{
 			DirectParticles,
@@ -217,8 +218,11 @@ namespace Seb.Fluid2D.Rendering
 		bool needsUpdate;
 		DebugVisualization lastDebugMode;
 		VectorFieldSource lastVectorFieldSource;
+		private Camera _camera;
+
 		void Awake()
 		{
+			_camera = Camera.main;
 			Debug.Assert(sim != null, "ParticleDisplay2D requires a FluidSim2D reference.", this);
 			Debug.Assert(mesh != null, "ParticleDisplay2D requires a particle mesh.", this);
 			Debug.Assert(directParticleShader != null, "ParticleDisplay2D requires a direct particle shader.", this);
@@ -268,8 +272,8 @@ namespace Seb.Fluid2D.Rendering
 
 			if (renderMode != RenderMode.JumpFlood && (renderMode != RenderMode.Metaballs || metaballs.blurShader == null))
 			{
-				DrawDirectParticles(Camera.main);
-				DrawVectorField(Camera.main);
+				DrawDirectParticles();
+				DrawVectorField();
 			}
 		}
 
@@ -287,8 +291,8 @@ namespace Seb.Fluid2D.Rendering
 		{
 			EnsureGradientTextures();
 
-            ComputeHelper.CreateArgsBuffer(ref argsBuffer, mesh, sim.positionBuffer.count);
-            ComputeHelper.CreateArgsBuffer(ref vectorArgsBuffer, vectorArrowMesh, sim.positionBuffer.count);
+            ComputeHelper.CreateArgsBuffer(ref argsBuffer, mesh, sim.resources.positionBuffer.count);
+            ComputeHelper.CreateArgsBuffer(ref vectorArgsBuffer, vectorArrowMesh, sim.resources.positionBuffer.count);
 			bounds = new Bounds(Vector3.zero, Vector3.one * 10000);
 
 			if (needsUpdate)
@@ -343,14 +347,14 @@ namespace Seb.Fluid2D.Rendering
 
 		internal void BindSimulationBuffers(Material targetMaterial)
 		{
-			targetMaterial.SetBuffer("Positions2D", sim.positionBuffer);
-			targetMaterial.SetBuffer("Velocities", sim.velocityBuffer);
-			targetMaterial.SetBuffer("DensityData", sim.densityBuffer);
-			targetMaterial.SetBuffer("Phases", sim.phaseBuffer);
-			targetMaterial.SetBuffer("IsGhost", sim.ghostFlagBuffer);
-			targetMaterial.SetBuffer("BlobIDs", sim.blobIdBuffer);
-			targetMaterial.SetBuffer("Temperatures", sim.temperatureBuffer);
-			targetMaterial.SetBuffer("Curvatures", sim.debugVectorSignBuffer);
+			targetMaterial.SetBuffer("Positions2D", sim.resources.positionBuffer);
+			targetMaterial.SetBuffer("Velocities", sim.resources.velocityBuffer);
+			targetMaterial.SetBuffer("DensityData", sim.resources.densityBuffer);
+			targetMaterial.SetBuffer("Phases", sim.resources.phaseBuffer);
+			targetMaterial.SetBuffer("IsGhost", sim.resources.ghostFlagBuffer);
+			targetMaterial.SetBuffer("BlobIDs", sim.resources.blobIdBuffer);
+			targetMaterial.SetBuffer("Temperatures", sim.resources.temperatureBuffer);
+			targetMaterial.SetBuffer("Curvatures", sim.resources.debugVectorSignBuffer);
 		}
 
 		internal void ApplyCommonParticleSettings(Material targetMaterial)
@@ -358,13 +362,13 @@ namespace Seb.Fluid2D.Rendering
 			targetMaterial.SetFloat("scale", scale * ParticleResolutionLengthScale);
 			targetMaterial.SetFloat("tempMin", sim.ambientTemperature);
 			targetMaterial.SetFloat("tempMax", sim.HeatSourceTemperature);
-			targetMaterial.SetBuffer("DebugData", sim.debugDataBuffer);
+			targetMaterial.SetBuffer("DebugData", sim.resources.debugDataBuffer);
 			targetMaterial.SetFloat("debugGradientMax", debugGradientMax);
-			targetMaterial.SetFloat("debugCurvatureMax", sim.MaxDebugCurvature);
-			targetMaterial.SetFloat("debugViscosityMax", sim.MaxDebugViscosity);
+			targetMaterial.SetFloat("debugCurvatureMax", sim.maxSurfaceTensionCurvature);
+			targetMaterial.SetFloat("debugViscosityMax", sim.simulationDebug.GetMaxViscosity(sim.phases, sim.ambientTemperature, sim.HeatSourceTemperature));
 			targetMaterial.SetFloat("debugDensityMin", DebugDensityMin);
 			targetMaterial.SetFloat("debugDensityMax", DebugDensityMax);
-			targetMaterial.SetInt("debugMode", (int)ParticleShaderDebugMode);
+			targetMaterial.SetInt("debugMode", (int)(debugMode == DebugVisualization.ParticleMotion ? DebugVisualization.None : debugMode));
 			ApplyDebugClipSettings(targetMaterial);
 		}
 
@@ -382,7 +386,7 @@ namespace Seb.Fluid2D.Rendering
 			vectorFieldMaterial.SetFloat("vectorWidth", vectorWidth);
 			vectorFieldMaterial.SetInt("vectorUseSignedColor", vectorFieldSource == VectorFieldSource.CurvatureNormal ? 1 : 0);
 			vectorFieldMaterial.SetBuffer("DebugVectorData", GetVectorFieldBuffer());
-			vectorFieldMaterial.SetBuffer("DebugVectorSign", sim.debugVectorSignBuffer);
+			vectorFieldMaterial.SetBuffer("DebugVectorSign", sim.resources.debugVectorSignBuffer);
 		}
 		internal float DebugDensityMin => Mathf.Min(debugDensityMin, debugDensityMax - 0.0001f) * sim.particleResolutionFactor;
 		internal float DebugDensityMax => Mathf.Max(debugDensityMax, debugDensityMin + 0.0001f) * sim.particleResolutionFactor;
@@ -392,9 +396,9 @@ namespace Seb.Fluid2D.Rendering
 			{
 				return vectorFieldSource switch
 				{
-					VectorFieldSource.CurvatureNormal => sim.MaxDebugCurvature,
-					VectorFieldSource.SurfaceTensionForce => sim.MaxDebugSurfaceTensionForce,
-					VectorFieldSource.Convection => sim.MaxDebugConvection,
+					VectorFieldSource.CurvatureNormal => sim.maxSurfaceTensionCurvature,
+					VectorFieldSource.SurfaceTensionForce => Mathf.Max(Mathf.Max(Mathf.Abs(sim.surfaceTension), Mathf.Abs(sim.blobBlobSurfaceTension), Mathf.Abs(sim.blobSelfSurfaceTension)) * sim.maxSurfaceTensionCurvature, 0.0001f),
+					VectorFieldSource.Convection => Mathf.Max(Mathf.Abs(sim.gravity) * sim.buoyancyInversionStrength * Mathf.Max(0f, sim.buoyancyInversionClamp), 0.0001f),
 					VectorFieldSource.NonCoalescenceForces => sim.carrierWedgeMaxAcceleration > 0
 						? Mathf.Max(sim.carrierWedgeMaxAcceleration, vectorMaxMagnitude)
 						: Mathf.Max(0.0001f, Mathf.Abs(sim.carrierWedgeStrength), vectorMaxMagnitude),
@@ -402,12 +406,6 @@ namespace Seb.Fluid2D.Rendering
 				};
 			}
 		}
-		bool IsCompositeOnlyDebugMode(DebugVisualization mode)
-		{
-			return mode == DebugVisualization.ParticleMotion;
-		}
-
-		DebugVisualization ParticleShaderDebugMode => IsCompositeOnlyDebugMode(debugMode) ? DebugVisualization.None : debugMode;
 
 		internal void ApplyDebugClipSettings(Material targetMaterial)
 		{
@@ -431,7 +429,7 @@ namespace Seb.Fluid2D.Rendering
 
 		ComputeBuffer GetVectorFieldBuffer()
 		{
-			return vectorFieldSource == VectorFieldSource.Velocity ? sim.velocityBuffer : sim.debugVectorDataBuffer;
+			return vectorFieldSource == VectorFieldSource.Velocity ? sim.resources.velocityBuffer : sim.resources.debugVectorDataBuffer;
 		}
 
 		void ApplyGradientTextures()
@@ -499,7 +497,7 @@ namespace Seb.Fluid2D.Rendering
 			return width % 2 == 0 ? width + 1 : width;
 		}
 
-		void DrawDirectParticles(Camera cam)
+		void DrawDirectParticles()
 		{
 			if (argsBuffer == null)
 			{
@@ -517,7 +515,7 @@ namespace Seb.Fluid2D.Rendering
 				ShadowCastingMode.Off,
 				false,
 				gameObject.layer,
-				cam
+				_camera
 			);
 		}
 
@@ -529,7 +527,7 @@ namespace Seb.Fluid2D.Rendering
 			       && vectorArgsBuffer != null;
 		}
 
-		void DrawVectorField(Camera cam)
+		void DrawVectorField()
 		{
 			if (!ShouldDrawVectorField())
 			{
@@ -547,7 +545,7 @@ namespace Seb.Fluid2D.Rendering
 				ShadowCastingMode.Off,
 				false,
 				gameObject.layer,
-				cam
+				_camera
 			);
 		}
 
@@ -600,8 +598,8 @@ namespace Seb.Fluid2D.Rendering
 
 			EnsureMaterials();
 			UpdateSettings();
-			DrawDirectParticles(sceneViewCamera);
-			DrawVectorField(sceneViewCamera);
+			DrawDirectParticles();
+			DrawVectorField();
 		}
 #endif
 

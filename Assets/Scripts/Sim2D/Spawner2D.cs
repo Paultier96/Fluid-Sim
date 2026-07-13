@@ -29,6 +29,14 @@ public class Spawner2D : MonoBehaviour
 	[Tooltip("Upper clamp for hydrostatic spawn density. 1 disables the gradient even if enabled.")]
 	[Min(1f)] public float maxHydrostaticSpawnDensityMultiplier = 2f;
 
+	[Header("Ghost Particles")]
+	[Tooltip("Liquid phase assigned to outer boundary ghost particles. Clamped to valid phase range at runtime.")]
+	public FluidSim2D.LiquidPhase ghostPhase = FluidSim2D.LiquidPhase.Water;
+	[Tooltip("Liquid phase assigned to rectangular obstacle ghost particles. Use Wax to make wax wet/merge with the obstacle/coil area.")]
+	public FluidSim2D.LiquidPhase obstacleGhostPhase = FluidSim2D.LiquidPhase.Wax;
+	[Tooltip("Width of the centered lower-boundary section that receives the obstacle ghost phase. Set to 0 to use the merge coil or heat source width.")]
+	[Min(0f)] public float lowerGhostPhaseWidth = 0f;
+
 	[Header("Debug Info")]
 	public FluidSim2D sim;
 	public int spawnParticleCount;
@@ -139,7 +147,7 @@ public class Spawner2D : MonoBehaviour
 	{
 		if (useEllipticalBounds)
 		{
-			return EstimateEllipsePerimeterParticles(ellipseBoundsSize, spacing);
+			return EstimateEllipsePerimeterParticles(ellipseBoundsSize * 0.5f, spacing);
 		}
 		else
 		{
@@ -162,7 +170,25 @@ public class Spawner2D : MonoBehaviour
 		return Mathf.CeilToInt(perimeter / spacing);
 	}
 
-	public void GenerateGhostParticles(ParticleFluidAnalyticBoundary2D analyticBoundary, Vector2 boundsSize, int boundsGhostPhase, int lowerGhostPhase, List<float2> outPositions, List<float2> outVelocities, List<int> outPhases, float lowerGhostPhaseWidth = 0f)
+	public GhostParticleData GetGhostParticleData()
+	{
+		EnsureSimulationReference();
+		List<float2> positions = new();
+		List<float2> velocities = new();
+		List<int> phases = new();
+
+		if (sim == null || sim.analyticBoundary == null)
+		{
+			return new GhostParticleData(positions.ToArray(), velocities.ToArray(), phases.ToArray());
+		}
+
+		int boundsGhostPhase = ClampPhaseIndex((int)ghostPhase);
+		int lowerGhostPhase = ClampPhaseIndex((int)obstacleGhostPhase);
+		GenerateGhostParticles(sim.analyticBoundary, boundsGhostPhase, lowerGhostPhase, positions, velocities, phases, ResolveLowerGhostPhaseWidth());
+		return new GhostParticleData(positions.ToArray(), velocities.ToArray(), phases.ToArray());
+	}
+
+	void GenerateGhostParticles(ParticleFluidAnalyticBoundary2D analyticBoundary, int boundsGhostPhase, int lowerGhostPhase, List<float2> outPositions, List<float2> outVelocities, List<int> outPhases, float lowerGhostPhaseWidth = 0f)
 	{
 		float spacing = Mathf.Sqrt(1f / (ghostDensity * sim.particleResolutionFactor));
 		int numLayers = Mathf.CeilToInt(sim.EffectiveSmoothingRadius / spacing);
@@ -173,12 +199,28 @@ public class Spawner2D : MonoBehaviour
 
 		if (analyticBoundary.useEllipticalBounds)
 		{
-			GenerateEllipseGhostParticles(analyticBoundary.ellipseBoundsCenter, analyticBoundary.ellipseBoundsSize, spacing, numLayers, boundsGhostPhase, lowerGhostPhase, outPositions, outVelocities, outPhases, analyticBoundary.obstacleY, lowerGhostPhaseWidth);
+			GenerateEllipseGhostParticles(analyticBoundary.BoundsCenter, analyticBoundary.EllipseRadii, spacing, numLayers, boundsGhostPhase, lowerGhostPhase, outPositions, outVelocities, outPhases, analyticBoundary.obstacleY, lowerGhostPhaseWidth);
 		}
 		else
 		{
-			GenerateRectangleGhostParticles(boundsSize, spacing, numLayers, boundsGhostPhase, outPositions, outVelocities, outPhases);
+			GenerateRectangleGhostParticles(analyticBoundary.boundsSize, spacing, numLayers, boundsGhostPhase, outPositions, outVelocities, outPhases);
 		}
+	}
+
+	float ResolveLowerGhostPhaseWidth()
+	{
+		if (lowerGhostPhaseWidth > 0f)
+		{
+			return lowerGhostPhaseWidth;
+		}
+
+		HeatSource2D source = sim.blobMergeCoil != null ? sim.blobMergeCoil : sim.heatSource;
+		if (source != null && source.isActiveAndEnabled)
+		{
+			return Mathf.Max(0f, source.Size.x);
+		}
+
+		return 0f;
 	}
 
 	void GenerateRectangleGhostParticles(Vector2 boundsSize, float spacing, int numLayers, int ghostPhase, List<float2> outPositions, List<float2> outVelocities, List<int> outPhases)
@@ -456,21 +498,23 @@ public class Spawner2D : MonoBehaviour
 	{
 		if (sim.analyticBoundary.useEllipticalBounds)
 		{
-			minY = Mathf.Max(sim.analyticBoundary.ellipseBoundsCenter.y - sim.analyticBoundary.ellipseBoundsSize.y, sim.analyticBoundary.obstacleY);
-			maxY = sim.analyticBoundary.ellipseBoundsCenter.y + sim.analyticBoundary.ellipseBoundsSize.y;
+			Vector2 radii = sim.analyticBoundary.EllipseRadii;
+			minY = Mathf.Max(sim.analyticBoundary.BoundsCenter.y - radii.y, sim.analyticBoundary.obstacleY);
+			maxY = sim.analyticBoundary.BoundsCenter.y + radii.y;
 			return;
 		}
 
-		minY = -sim.boundsSize.y * 0.5f;
-		maxY = sim.boundsSize.y * 0.5f;
+		minY = -sim.analyticBoundary.boundsSize.y * 0.5f;
+		maxY = sim.analyticBoundary.boundsSize.y * 0.5f;
 	}
 
 	static bool TryGetSimulationXRangeAtY(FluidSim2D sim, float y, out float minX, out float maxX)
 	{
 		if (sim.analyticBoundary.useEllipticalBounds)
 		{
-			float ry = Mathf.Max(sim.analyticBoundary.ellipseBoundsSize.y, 0.0001f);
-			float normalizedY = (y - sim.analyticBoundary.ellipseBoundsCenter.y) / ry;
+			Vector2 radii = sim.analyticBoundary.EllipseRadii;
+			float ry = Mathf.Max(radii.y, 0.0001f);
+			float normalizedY = (y - sim.analyticBoundary.BoundsCenter.y) / ry;
 			if (Mathf.Abs(normalizedY) >= 1f || y < sim.analyticBoundary.obstacleY)
 			{
 				minX = 0f;
@@ -478,14 +522,14 @@ public class Spawner2D : MonoBehaviour
 				return false;
 			}
 
-			float halfWidth = sim.analyticBoundary.ellipseBoundsSize.x * Mathf.Sqrt(Mathf.Max(0f, 1f - normalizedY * normalizedY));
-			minX = sim.analyticBoundary.ellipseBoundsCenter.x - halfWidth;
-			maxX = sim.analyticBoundary.ellipseBoundsCenter.x + halfWidth;
+			float halfWidth = radii.x * Mathf.Sqrt(Mathf.Max(0f, 1f - normalizedY * normalizedY));
+			minX = sim.analyticBoundary.BoundsCenter.x - halfWidth;
+			maxX = sim.analyticBoundary.BoundsCenter.x + halfWidth;
 			return maxX > minX;
 		}
 
-		minX = -sim.boundsSize.x * 0.5f;
-		maxX = sim.boundsSize.x * 0.5f;
+		minX = -sim.analyticBoundary.boundsSize.x * 0.5f;
+		maxX = sim.analyticBoundary.boundsSize.x * 0.5f;
 		return maxX > minX;
 	}
 
@@ -517,6 +561,87 @@ public class Spawner2D : MonoBehaviour
 			spawnIndices = new int[num];
 			phases = new int[num];
 		}
+	}
+
+	public readonly struct GhostParticleData
+	{
+		public readonly float2[] positions;
+		public readonly float2[] velocities;
+		public readonly int[] phases;
+		public int Count => positions?.Length ?? 0;
+
+		public GhostParticleData(float2[] positions, float2[] velocities, int[] phases)
+		{
+			this.positions = positions;
+			this.velocities = velocities;
+			this.phases = phases;
+		}
+	}
+
+	public readonly struct InitialParticleData
+	{
+		public readonly float2[] positions;
+		public readonly float2[] velocities;
+		public readonly int[] phases;
+		public readonly uint[] ghostFlags;
+		public readonly float[] temperatures;
+		public readonly float[] targetDensities;
+
+		public InitialParticleData(float2[] positions, float2[] velocities, int[] phases, uint[] ghostFlags, float[] temperatures, float[] targetDensities)
+		{
+			this.positions = positions;
+			this.velocities = velocities;
+			this.phases = phases;
+			this.ghostFlags = ghostFlags;
+			this.temperatures = temperatures;
+			this.targetDensities = targetDensities;
+		}
+	}
+
+	public static InitialParticleData CreateInitialParticleData(ParticleSpawnData spawnData, GhostParticleData ghostData, float[] phaseTargetDensities, float ambientTemperature)
+	{
+		int numFluidParticles = spawnData.positions.Length;
+		int numGhostParticles = ghostData.Count;
+		int numParticles = numFluidParticles + numGhostParticles;
+		float2[] positions = new float2[numParticles];
+		float2[] velocities = new float2[numParticles];
+		int[] phases = new int[numParticles];
+		uint[] ghostFlags = new uint[numParticles];
+		float[] temperatures = new float[numParticles];
+		float[] targetDensities = new float[numParticles];
+
+		System.Array.Copy(spawnData.positions, 0, positions, 0, numFluidParticles);
+		System.Array.Copy(spawnData.velocities, 0, velocities, 0, numFluidParticles);
+		for (int i = 0; i < numFluidParticles; i++)
+		{
+			phases[i] = spawnData.phases[i];
+			ghostFlags[i] = 0;
+			temperatures[i] = ambientTemperature;
+			targetDensities[i] = ResolvePhaseTargetDensity(phaseTargetDensities, spawnData.phases[i]);
+		}
+
+		for (int i = 0; i < numGhostParticles; i++)
+		{
+			int particleIndex = numFluidParticles + i;
+			positions[particleIndex] = ghostData.positions[i];
+			velocities[particleIndex] = ghostData.velocities[i];
+			phases[particleIndex] = ghostData.phases[i];
+			ghostFlags[particleIndex] = 1;
+			temperatures[particleIndex] = ambientTemperature;
+			targetDensities[particleIndex] = ResolvePhaseTargetDensity(phaseTargetDensities, ghostData.phases[i]);
+		}
+
+		return new InitialParticleData(positions, velocities, phases, ghostFlags, temperatures, targetDensities);
+	}
+
+	static float ResolvePhaseTargetDensity(float[] phaseTargetDensities, int phaseIndex)
+	{
+		if (phaseTargetDensities == null || phaseTargetDensities.Length == 0)
+		{
+			return 1f;
+		}
+
+		return phaseTargetDensities[Mathf.Clamp(phaseIndex, 0, phaseTargetDensities.Length - 1)];
 	}
 
 	[System.Serializable]
@@ -580,18 +705,19 @@ public class Spawner2D : MonoBehaviour
 	{
 		if (sim.analyticBoundary.useEllipticalBounds)
 		{
-			return CalculateEllipseAreaAboveY(sim.analyticBoundary.ellipseBoundsCenter, sim.analyticBoundary.ellipseBoundsSize, sim.analyticBoundary.obstacleY);
+			return CalculateEllipseAreaAboveY(sim.analyticBoundary.BoundsCenter, sim.analyticBoundary.EllipseRadii, sim.analyticBoundary.obstacleY);
 		}
 
-		return Mathf.Max(0f, sim.boundsSize.x) * Mathf.Max(0f, sim.boundsSize.y);
+		return Mathf.Max(0f, sim.analyticBoundary.boundsSize.x) * Mathf.Max(0f, sim.analyticBoundary.boundsSize.y);
 	}
 
 	static float CalculateFluidBoundsAreaInYRange(FluidSim2D sim, float minY, float maxY)
 	{
 		if (sim.analyticBoundary.useEllipticalBounds)
 		{
-			float domainMinY = Mathf.Max(sim.analyticBoundary.ellipseBoundsCenter.y - sim.analyticBoundary.ellipseBoundsSize.y, sim.analyticBoundary.obstacleY);
-			float domainMaxY = sim.analyticBoundary.ellipseBoundsCenter.y + sim.analyticBoundary.ellipseBoundsSize.y;
+			Vector2 radii = sim.analyticBoundary.EllipseRadii;
+			float domainMinY = Mathf.Max(sim.analyticBoundary.BoundsCenter.y - radii.y, sim.analyticBoundary.obstacleY);
+			float domainMaxY = sim.analyticBoundary.BoundsCenter.y + radii.y;
 			float clampedMinY = Mathf.Clamp(minY, domainMinY, domainMaxY);
 			float clampedMaxY = Mathf.Clamp(maxY, domainMinY, domainMaxY);
 			if (clampedMaxY <= clampedMinY)
@@ -599,15 +725,15 @@ public class Spawner2D : MonoBehaviour
 				return 0f;
 			}
 
-			return CalculateEllipseAreaAboveY(sim.analyticBoundary.ellipseBoundsCenter, sim.analyticBoundary.ellipseBoundsSize, clampedMinY)
-			       - CalculateEllipseAreaAboveY(sim.analyticBoundary.ellipseBoundsCenter, sim.analyticBoundary.ellipseBoundsSize, clampedMaxY);
+			return CalculateEllipseAreaAboveY(sim.analyticBoundary.BoundsCenter, radii, clampedMinY)
+			       - CalculateEllipseAreaAboveY(sim.analyticBoundary.BoundsCenter, radii, clampedMaxY);
 		}
 
-		float rectMinY = -sim.boundsSize.y * 0.5f;
-		float rectMaxY = sim.boundsSize.y * 0.5f;
+		float rectMinY = -sim.analyticBoundary.boundsSize.y * 0.5f;
+		float rectMaxY = sim.analyticBoundary.boundsSize.y * 0.5f;
 		float y0 = Mathf.Clamp(minY, rectMinY, rectMaxY);
 		float y1 = Mathf.Clamp(maxY, rectMinY, rectMaxY);
-		return Mathf.Max(0f, y1 - y0) * Mathf.Max(0f, sim.boundsSize.x);
+		return Mathf.Max(0f, y1 - y0) * Mathf.Max(0f, sim.analyticBoundary.boundsSize.x);
 	}
 
 	static float CalculatePhaseSplitY(FluidSim2D sim, float lowerAreaRatio)
@@ -615,21 +741,22 @@ public class Spawner2D : MonoBehaviour
 		lowerAreaRatio = Mathf.Clamp01(lowerAreaRatio);
 		if (!sim.analyticBoundary.useEllipticalBounds)
 		{
-			float minY = -sim.boundsSize.y * 0.5f;
-			float maxY = sim.boundsSize.y * 0.5f;
+			float minY = -sim.analyticBoundary.boundsSize.y * 0.5f;
+			float maxY = sim.analyticBoundary.boundsSize.y * 0.5f;
 			return Mathf.Lerp(minY, maxY, lowerAreaRatio);
 		}
 
-		float bottomY = Mathf.Max(sim.analyticBoundary.ellipseBoundsCenter.y - sim.analyticBoundary.ellipseBoundsSize.y, sim.analyticBoundary.obstacleY);
-		float topY = sim.analyticBoundary.ellipseBoundsCenter.y + sim.analyticBoundary.ellipseBoundsSize.y;
-		float totalArea = CalculateEllipseAreaAboveY(sim.analyticBoundary.ellipseBoundsCenter, sim.analyticBoundary.ellipseBoundsSize, bottomY);
+		Vector2 ellipseRadii = sim.analyticBoundary.EllipseRadii;
+		float bottomY = Mathf.Max(sim.analyticBoundary.BoundsCenter.y - ellipseRadii.y, sim.analyticBoundary.obstacleY);
+		float topY = sim.analyticBoundary.BoundsCenter.y + ellipseRadii.y;
+		float totalArea = CalculateEllipseAreaAboveY(sim.analyticBoundary.BoundsCenter, ellipseRadii, bottomY);
 		float targetAreaAboveSplit = totalArea * (1f - lowerAreaRatio);
 		float lo = bottomY;
 		float hi = topY;
 		for (int i = 0; i < 32; i++)
 		{
 			float mid = (lo + hi) * 0.5f;
-			float areaAboveMid = CalculateEllipseAreaAboveY(sim.analyticBoundary.ellipseBoundsCenter, sim.analyticBoundary.ellipseBoundsSize, mid);
+			float areaAboveMid = CalculateEllipseAreaAboveY(sim.analyticBoundary.BoundsCenter, ellipseRadii, mid);
 			if (areaAboveMid > targetAreaAboveSplit)
 			{
 				lo = mid;
@@ -697,4 +824,3 @@ public class Spawner2D : MonoBehaviour
 		}
 	}
 }
-

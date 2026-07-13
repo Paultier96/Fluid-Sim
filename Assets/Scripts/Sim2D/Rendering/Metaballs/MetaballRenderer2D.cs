@@ -204,8 +204,8 @@ namespace Seb.Fluid2D.Rendering
 			_metaballMaterial.SetVector("metaballRenderWorldCenter", _currentRenderRegion.center);
 			_metaballMaterial.SetVector("metaballRenderWorldSize", _currentRenderRegion.size);
 			_metaballMaterial.SetInt("useEllipticalBounds", display.sim.analyticBoundary.useEllipticalBounds ? 1 : 0);
-			_metaballMaterial.SetVector("ellipseBoundsCenter", display.sim.analyticBoundary.ellipseBoundsCenter);
-			_metaballMaterial.SetVector("ellipseBoundsSize", display.sim.analyticBoundary.ellipseBoundsSize);
+			_metaballMaterial.SetVector("ellipseBoundsCenter", display.sim.analyticBoundary.BoundsCenter);
+			_metaballMaterial.SetVector("ellipseBoundsSize", display.sim.analyticBoundary.boundsSize);
 			_metaballMaterial.SetFloat("obstacleY", display.sim.analyticBoundary.obstacleY);
 			_metaballMaterial.SetFloat("metaballGhostBoundaryNormalStrength", settings.ghostBoundaryNormalStrength);
 		}
@@ -433,7 +433,7 @@ namespace Seb.Fluid2D.Rendering
 		Bounds GetRenderRegion(ParticleDisplay2D display, out Vector2Int resolution)
 		{
 			bool crop = display.sim.analyticBoundary.useEllipticalBounds && ShouldUseCroppedRenderRegion(display);
-			Bounds? cropBounds = crop ? display.sim.analyticBoundary.GetBounds() : null;
+			Bounds? cropBounds = crop ? display.sim.analyticBoundary.CropBounds : null;
 			return ParticleFluidRenderBounds2D.GetCameraRenderRegion(_currentCamera, cropBounds, crop, out resolution);
 		}
 
@@ -462,13 +462,7 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			ParticleFluidLighting2D.LightingDebugVisualization lightingDebug = _lighting.debugMode;
-			return lightingDebug == ParticleFluidLighting2D.LightingDebugVisualization.Caustics
-			       || lightingDebug == ParticleFluidLighting2D.LightingDebugVisualization.SoftLight
-			       || lightingDebug == ParticleFluidLighting2D.LightingDebugVisualization.RadianceCascadeRaw
-			       || lightingDebug == ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion
-			       || lightingDebug == ParticleFluidLighting2D.LightingDebugVisualization.TemporalRejection
-			       || lightingDebug == ParticleFluidLighting2D.LightingDebugVisualization.TemporalClamp
-			       || lightingDebug == ParticleFluidLighting2D.LightingDebugVisualization.ProjectedShadow;
+			return lightingDebug is ParticleFluidLighting2D.LightingDebugVisualization.Caustics or ParticleFluidLighting2D.LightingDebugVisualization.SoftLight or ParticleFluidLighting2D.LightingDebugVisualization.RadianceCascadeRaw or ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion or ParticleFluidLighting2D.LightingDebugVisualization.TemporalRejection or ParticleFluidLighting2D.LightingDebugVisualization.TemporalClamp or ParticleFluidLighting2D.LightingDebugVisualization.ProjectedShadow;
 		}
 
 		public static int GetDebugShaderMode(ParticleDisplay2D display, ParticleFluidLighting2D settings)

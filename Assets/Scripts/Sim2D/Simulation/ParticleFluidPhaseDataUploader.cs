@@ -1,12 +1,10 @@
-using System;
-using System.Linq;
 using UnityEngine;
 
 namespace Seb.Fluid2D.Simulation
 {
     internal sealed class ParticleFluidPhaseDataUploader
     {
-        bool _dirty = true;
+        private bool _dirty = true;
 
         public void MarkDirty()
         {
@@ -18,9 +16,9 @@ namespace Seb.Fluid2D.Simulation
             ParticleFluidSimulationResources resources,
             ParticleFluidSimulationKernels kernels,
             FluidSim2D.PhaseConfig[] phases,
+            float targetDensityScale,
             float phaseSeparation,
-            float[] phaseCohesionValues,
-            Func<FluidSim2D.PhaseConfig, float> resolveTargetDensity)
+            float[] phaseCohesionValues)
         {
             if (!_dirty)
             {
@@ -28,7 +26,7 @@ namespace Seb.Fluid2D.Simulation
             }
 
             _dirty = false;
-            Upload(compute, resources, kernels, phases, phaseSeparation, phaseCohesionValues, resolveTargetDensity);
+            Upload(compute, resources, kernels, phases, targetDensityScale, phaseSeparation, phaseCohesionValues);
         }
 
         static void Upload(
@@ -36,9 +34,9 @@ namespace Seb.Fluid2D.Simulation
             ParticleFluidSimulationResources resources,
             ParticleFluidSimulationKernels kernels,
             FluidSim2D.PhaseConfig[] phases,
+            float targetDensityScale,
             float phaseSeparation,
-            float[] phaseCohesionValues,
-            Func<FluidSim2D.PhaseConfig, float> resolveTargetDensity)
+            float[] phaseCohesionValues)
         {
             int phaseCount = phases.Length;
             resources.EnsurePhaseBuffers(phaseCount);
@@ -52,17 +50,38 @@ namespace Seb.Fluid2D.Simulation
                 }
             }
 
-            resources.phaseTargetDensityBuffer.SetData(phases.Select(resolveTargetDensity).ToArray());
-            resources.phaseViscosityBuffer.SetData(phases.Select(p => p.viscosity).ToArray());
-            resources.phaseViscosityTemperatureSensitivityBuffer.SetData(phases.Select(p => p.viscosityTemperatureSensitivity).ToArray());
+            float[] viscosities = new float[phaseCount];
+            float[] viscosityTemperatureSensitivities = new float[phaseCount];
+            float[] thermalExpansions = new float[phaseCount];
+            float[] thermalConductivities = new float[phaseCount];
+            float[] specificHeatCapacities = new float[phaseCount];
+            float[] nonCoalescenceRadiusMultipliers = new float[phaseCount];
+            float[] nonCoalescenceStrengths = new float[phaseCount];
+            float[] targetDensities = new float[phaseCount];
+            for (int i = 0; i < phaseCount; i++)
+            {
+                FluidSim2D.PhaseConfig phase = phases[i];
+                targetDensities[i] = phase.targetDensity * targetDensityScale;
+                viscosities[i] = phase.viscosity;
+                viscosityTemperatureSensitivities[i] = phase.viscosityTemperatureSensitivity;
+                thermalExpansions[i] = phase.thermalExpansion;
+                thermalConductivities[i] = phase.thermalConductivity;
+                specificHeatCapacities[i] = phase.specificHeatCapacity;
+                nonCoalescenceRadiusMultipliers[i] = phase.nonCoalescenceRadiusMultiplier;
+                nonCoalescenceStrengths[i] = phase.nonCoalescenceStrength;
+            }
+
+            resources.phaseTargetDensityBuffer.SetData(targetDensities);
+            resources.phaseViscosityBuffer.SetData(viscosities);
+            resources.phaseViscosityTemperatureSensitivityBuffer.SetData(viscosityTemperatureSensitivities);
             resources.phaseInteractionBuffer.SetData(interactionFlat);
-            resources.phaseThermalExpansionBuffer.SetData(phases.Select(p => p.thermalExpansion).ToArray());
-            resources.phaseThermalConductivityBuffer.SetData(phases.Select(p => p.thermalConductivity).ToArray());
-            resources.phaseSpecificHeatCapacityBuffer.SetData(phases.Select(p => p.specificHeatCapacity).ToArray());
+            resources.phaseThermalExpansionBuffer.SetData(thermalExpansions);
+            resources.phaseThermalConductivityBuffer.SetData(thermalConductivities);
+            resources.phaseSpecificHeatCapacityBuffer.SetData(specificHeatCapacities);
 
             resources.EnsureNonCoalescenceBuffers(phaseCount);
-            resources.phaseNonCoalescenceRadiusMultiplierBuffer.SetData(phases.Select(p => p.nonCoalescenceRadiusMultiplier).ToArray());
-            resources.phaseNonCoalescenceStrengthBuffer.SetData(phases.Select(p => p.nonCoalescenceStrength).ToArray());
+            resources.phaseNonCoalescenceRadiusMultiplierBuffer.SetData(nonCoalescenceRadiusMultipliers);
+            resources.phaseNonCoalescenceStrengthBuffer.SetData(nonCoalescenceStrengths);
 
             int triangularSize = phaseCount * (phaseCount + 1) / 2;
             resources.EnsurePhaseCohesionBuffer(triangularSize);

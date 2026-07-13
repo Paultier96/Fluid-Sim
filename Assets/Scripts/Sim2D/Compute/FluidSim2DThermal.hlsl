@@ -51,4 +51,21 @@ float SampleHeatSourceWeight(float2 pos)
 	return 0.0;
 }
 
+float SampleCursorTemperatureBrushWeight(float2 pos)
+{
+	if (!cursorTemperatureBrushActive || cursorTemperatureBrushTransferRate <= 0)
+	{
+		return 0.0;
+	}
+
+	float radius = max(cursorTemperatureBrushRadius, 1e-6);
+	float normalizedRadius = length(pos - interactionInputPoint) / radius;
+	if (normalizedRadius >= 1.0)
+	{
+		return 0.0;
+	}
+
+	return 1.0 - smoothstep(0.0, 1.0, normalizedRadius);
+}
+
 #endif

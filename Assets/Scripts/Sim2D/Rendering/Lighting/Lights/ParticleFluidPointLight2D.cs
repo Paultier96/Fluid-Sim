@@ -7,7 +7,6 @@ namespace Seb.Fluid2D.Rendering
 	[DisallowMultipleComponent]
 	public sealed class ParticleFluidPointLight2D : ParticleFluidLight2D
 	{
-		public bool followsMouse = false;
 		[Min(0.0001f)] public float range = 20f;
 		[Min(0.1f)] public float falloff = 2f;
 		[Min(0f)] public float sourceRadius = 0f;

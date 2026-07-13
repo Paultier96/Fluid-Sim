@@ -167,7 +167,6 @@ MonoBehaviour:
   color: {r: 1, g: 1, b: 1, a: 1}
   intensity: 0.5
   sampleBias: 5
-  followsMouse: 0
   range: 50
   falloff: 1
   sourceRadius: 0.1
@@ -192,14 +191,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!4 &271053318
-Transform:
+--- !u!224 &271053318
+RectTransform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 271053315}
-  serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
@@ -207,6 +205,11 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchoredPosition: {x: 0, y: 0}
+  m_SizeDelta: {x: 10, y: 60}
+  m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &271053319
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -231,7 +234,6 @@ MonoBehaviour:
   pressureMultiplier: 1500
   nearPressureMultiplier: 30
   interfaceViscosityMultiplier: 0.25
-  boundsSize: {x: 46.22222, y: 26}
   edgeForce: 0
   edgeForceDst: 0
   wallFilmPhase: 0
@@ -242,8 +244,13 @@ MonoBehaviour:
   wallFilmMaxAcceleration: 0
   wallPressureStrength: 0
   wallPressureRadius: 0
-  interactionRadius: 2.5
+  interactionRadius: 0.5
   interactionStrength: 75
+  cursorVelocityTransferStrength: 10
+  cursorTemperatureBrushRadius: 0.5
+  cursorTemperatureBrushTransferRate: 100
+  cursorHeatBrushTemperature: 100
+  cursorCoolBrushTemperature: -10
   buoyancyInversionStrength: 8
   buoyancyInversionClamp: 1
   particleResolutionFactor: 1
@@ -266,9 +273,6 @@ MonoBehaviour:
     specificHeatCapacity: 200
     nonCoalescenceRadiusMultiplier: 0
     nonCoalescenceStrength: 0
-  ghostPhase: 1
-  obstacleGhostPhase: 0
-  lowerGhostPhaseWidth: 9.1
   phaseSeparation: 1
   phaseCohesionValues:
   - 1
@@ -341,12 +345,15 @@ MonoBehaviour:
   useHydrostaticSpawnDensity: 1
   hydrostaticSpawnGradientStrength: 1
   maxHydrostaticSpawnDensityMultiplier: 2
+  ghostPhase: 1
+  obstacleGhostPhase: 0
+  lowerGhostPhaseWidth: 0
   sim: {fileID: 271053319}
-  spawnParticleCount: 317456
-  lowerPhaseParticleCount: 117586
-  upperPhaseParticleCount: 199870
-  filledBoundsArea: 1201.7777
-  filledBoundsDensity: 264.15533
+  spawnParticleCount: 94754
+  lowerPhaseParticleCount: 35736
+  upperPhaseParticleCount: 59018
+  filledBoundsArea: 333.4431
+  filledBoundsDensity: 284.1684
 --- !u!114 &271053322
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -359,6 +366,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b090cee05a6cd0e4291a0e02381231c1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  interactionCursor: {fileID: 1476915556}
   metaballs:
     debugShader: {fileID: 4800000, guid: 1f8d4107ca3f4d4b9b40c40b6c545110, type: 3}
     materialShader: {fileID: 4800000, guid: bfc03134f0574af593fb2f016f652401, type: 3}
@@ -546,7 +554,7 @@ MonoBehaviour:
   screenSpaceReflectionEdgePower: 2
   specularCausticSampleOffset: 6
   specularAntiAliasingStrength: 1
-  transmissionIntensity: 20
+  transmissionIntensity: 2
   transmissionPower: 4.5
   ambientOcclusion: 0.5
   ambientOcclusionPower: 0.5
@@ -729,9 +737,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 65d16323e3144a228df8e9ac9db0b069, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Simulation.ParticleFluidAnalyticBoundary2D
-  useEllipticalBounds: 0
-  ellipseBoundsSize: {x: 5, y: 30}
-  ellipseBoundsCenter: {x: 0, y: 0}
+  useEllipticalBounds: 1
   obstacleY: -9.969
   analyticBoundaryExpansion: 0.4
 --- !u!1 &271053330
@@ -801,8 +807,8 @@ Transform:
   m_Children:
   - {fileID: 755991884}
   - {fileID: 68059455}
-  - {fileID: 964666368}
   - {fileID: 1874339690}
+  - {fileID: 964666368}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &755991882
@@ -967,6 +973,12 @@ MonoBehaviour:
   minZoom: 0.1
   maxZoom: 100
   zoomTowardMouse: 1
+  display: {fileID: 0}
+  gamepadPanEnabled: 1
+  gamepadPanSpeed: 0.75
+  gamepadZoomEnabled: 1
+  gamepadZoomSpeed: 8
+  gamepadZoomDeadZone: 0.15
 --- !u!114 &963194230
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1027,7 +1039,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &964666368
 Transform:
   m_ObjectHideFlags: 0
@@ -1050,7 +1062,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 964666366}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9210bbe9e9c926a42ab572e910b53b33, type: 3}
   m_Name: 
@@ -1168,6 +1180,164 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1476915555
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1476915559}
+  - component: {fileID: 1476915558}
+  - component: {fileID: 1476915557}
+  - component: {fileID: 1476915556}
+  m_Layer: 0
+  m_Name: ParticleFluidInteractionCursor2D
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1476915556
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1476915555}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e5c0e53925c07dc4c83ce894b7dae54b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Rendering.ParticleFluidInteractionCursor2D
+  sim: {fileID: 271053319}
+  targetCamera: {fileID: 963194227}
+  cursorLight: {fileID: 1874339691}
+  forceHover:
+    color: {r: 1, g: 1, b: 1, a: 0.45}
+    innerRingRadiusFraction: 0.5
+    light:
+      intensity: 0.15
+      temperatureKelvin: 6500
+      color: {r: 1, g: 1, b: 1, a: 1}
+  temperatureHover:
+    color: {r: 1, g: 1, b: 1, a: 0.45}
+    innerRingRadiusFraction: 0.5
+    light:
+      intensity: 0.15
+      temperatureKelvin: 6500
+      color: {r: 1, g: 1, b: 1, a: 1}
+  pull:
+    color: {r: 0.35, g: 0.65, b: 1, a: 0.85}
+    innerRingRadiusFraction: 0.45
+    light:
+      intensity: 0.35
+      temperatureKelvin: 9000
+      color: {r: 1, g: 1, b: 1, a: 1}
+  push:
+    color: {r: 1, g: 0.55, b: 0.2, a: 0.85}
+    innerRingRadiusFraction: 0.616
+    light:
+      intensity: 0.35
+      temperatureKelvin: 3200
+      color: {r: 1, g: 1, b: 1, a: 1}
+  heat:
+    color: {r: 1, g: 0.2, b: 0.05, a: 0.9}
+    innerRingRadiusFraction: 0.35
+    light:
+      intensity: 0.65
+      temperatureKelvin: 1800
+      color: {r: 1, g: 1, b: 1, a: 1}
+  cool:
+    color: {r: 0.2, g: 0.85, b: 1, a: 0.9}
+    innerRingRadiusFraction: 0.7
+    light:
+      intensity: 0.65
+      temperatureKelvin: 14000
+      color: {r: 1, g: 1, b: 1, a: 1}
+  interactionMode: 0
+  minimumVisibleRadius: 0.001
+  modeTransitionDuration: 0.12
+  idleTemperatureWaveAmplitudeMultiplier: 1
+  heatTemperatureWaveAmplitudeMultiplier: 1.7
+  coolTemperatureWaveAmplitudeMultiplier: 0.35
+  gamepadCursorEnabled: 1
+  gamepadCursorSpeed: 12
+  clampGamepadCursorToCamera: 1
+  currentWorldVelocity: {x: 0, y: 0}
+--- !u!23 &1476915557
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1476915555}
+  m_Enabled: 1
+  m_CastShadows: 0
+  m_ReceiveShadows: 0
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 0
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 2100000, guid: 4d9c429d2fcb7b74e9e834cf0ccca726, type: 2}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 32767
+  m_MaskInteraction: 0
+  m_AdditionalVertexStreams: {fileID: 0}
+--- !u!33 &1476915558
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1476915555}
+  m_Mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!4 &1476915559
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1476915555}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1874339689
 GameObject:
   m_ObjectHideFlags: 0
@@ -1184,7 +1354,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &1874339690
 Transform:
   m_ObjectHideFlags: 0
@@ -1214,9 +1384,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Seb.Fluid2D.Rendering.ParticleFluidPointLight2D
   temperatureKelvin: 2700
   color: {r: 1, g: 1, b: 1, a: 1}
-  intensity: 50
+  intensity: 2.5
   sampleBias: 1
-  followsMouse: 1
   range: 25
   falloff: 5
   sourceRadius: 0.1
@@ -1279,3 +1448,4 @@ SceneRoots:
   - {fileID: 2055861084}
   - {fileID: 1214473944}
   - {fileID: 1034598787}
+  - {fileID: 1476915559}

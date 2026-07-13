@@ -1,0 +1,45 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Hidden_ParticleFluidInteractionCursor
+  m_Shader: {fileID: 4800000, guid: 6a32fd1fa90c34847bc567f05fb85dd6, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: 5000
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs: []
+    m_Ints: []
+    m_Floats:
+    - _ArrowLength: 0.19607843
+    - _ArrowRadiusFraction: 0.8
+    - _ArrowWidth: 0.29411766
+    - _CursorFamily: 0
+    - _ForceTickLength: 0.15
+    - _ForceTickThicknessMultiplier: 0.9
+    - _InnerRadiusFraction: 0.66
+    - _Mode: 0
+    - _OuterDashCount: 48
+    - _OuterDashFill: 0.55
+    - _Radius: 0.98039216
+    - _TemperatureWaveAmplitude: 1
+    - _TemperatureWaveCount: 20
+    - _Thickness: 0.019607844
+    m_Colors:
+    - _Color: {r: 1, g: 1, b: 1, a: 0.45}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 1

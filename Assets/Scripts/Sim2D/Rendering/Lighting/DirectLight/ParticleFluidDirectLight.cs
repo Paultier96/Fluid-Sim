@@ -284,8 +284,8 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.SetComputeFloatParam(causticsCompute, "causticsDeltaTime", fluidSim2D.CurrentSimulationDeltaTime);
 			targetCommandBuffer.SetComputeIntParam(causticsCompute, "causticsFrameIndex", frameIndex);
 			targetCommandBuffer.SetComputeIntParam(causticsCompute, "useEllipticalBounds", fluidSim2D.analyticBoundary.useEllipticalBounds ? 1 : 0);
-			targetCommandBuffer.SetComputeVectorParam(causticsCompute, "ellipseBoundsCenter", fluidSim2D.analyticBoundary.ellipseBoundsCenter);
-			targetCommandBuffer.SetComputeVectorParam(causticsCompute, "ellipseBoundsSize", fluidSim2D.analyticBoundary.ellipseBoundsSize);
+			targetCommandBuffer.SetComputeVectorParam(causticsCompute, "ellipseBoundsCenter", fluidSim2D.analyticBoundary.BoundsCenter);
+			targetCommandBuffer.SetComputeVectorParam(causticsCompute, "ellipseBoundsSize", fluidSim2D.analyticBoundary.boundsSize);
 			targetCommandBuffer.SetComputeFloatParam(causticsCompute, "obstacleY", fluidSim2D.analyticBoundary.obstacleY);
 			targetCommandBuffer.SetComputeFloatParam(causticsCompute, "analyticBoundaryExpansion", context.display.sim.analyticBoundary.analyticBoundaryExpansion);
 			targetCommandBuffer.SetComputeVectorParam(causticsCompute, "causticsWorldCenter", context.renderRegion.center);

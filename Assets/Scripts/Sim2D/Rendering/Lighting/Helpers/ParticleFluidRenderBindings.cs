@@ -23,8 +23,8 @@ namespace Seb.Fluid2D.Rendering
 		internal static void ApplyBoundaryGlobals(CommandBuffer commandBuffer, ParticleFluidAnalyticBoundary2D boundary)
 		{
 			commandBuffer.SetGlobalInt("useEllipticalBounds", boundary.useEllipticalBounds ? 1 : 0);
-			commandBuffer.SetGlobalVector("ellipseBoundsCenter", boundary.ellipseBoundsCenter);
-			commandBuffer.SetGlobalVector("ellipseBoundsSize", boundary.ellipseBoundsSize);
+			commandBuffer.SetGlobalVector("ellipseBoundsCenter", boundary.BoundsCenter);
+			commandBuffer.SetGlobalVector("ellipseBoundsSize", boundary.boundsSize);
 			commandBuffer.SetGlobalFloat("obstacleY", boundary.obstacleY);
 			commandBuffer.SetGlobalFloat("analyticBoundaryExpansion", boundary.analyticBoundaryExpansion);
 		}

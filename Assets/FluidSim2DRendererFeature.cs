@@ -14,7 +14,7 @@ namespace Seb.Fluid2D.Simulation
         {
             pass = new FluidSim2DRenderPass
             {
-                renderPassEvent = RenderPassEvent.AfterRenderingTransparents
+                renderPassEvent = RenderPassEvent.BeforeRenderingTransparents
             };
         }
 
@@ -28,7 +28,7 @@ namespace Seb.Fluid2D.Simulation
             ParticleDisplay2D display = FindAnyObjectByType<ParticleDisplay2D>();
             if (display == null || !display.isActiveAndEnabled)
                 return;
-            if (display.sim == null || display.sim.positionBuffer == null)
+            if (display.sim == null || display.sim.resources.positionBuffer == null)
                 return;
 
             bool canRenderMetaballs = display.renderMode == ParticleDisplay2D.RenderMode.Metaballs &&
@@ -95,7 +95,7 @@ namespace Seb.Fluid2D.Simulation
         {
             if (display == null)
                 return;
-            if (!Application.isPlaying || display.sim == null || display.sim.positionBuffer == null)
+            if (!Application.isPlaying || display.sim == null || display.sim.resources.positionBuffer == null)
                 return;
 
             UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
@@ -446,56 +446,57 @@ namespace Seb.Fluid2D.Simulation
                 }
             }
 
-            using var builder = renderGraph.AddUnsafePass<JumpFloodPassData>("Fluid Sim 2D", out var passData);
-
-            passData.display = display;
-            passData.jumpFloodRenderer = jumpFloodRenderer;
-            passData.camera = camera;
-            passData.color = resourceData.activeColorTexture;
-            passData.depth = resourceData.activeDepthTexture;
-            passData.result = jumpFloodResult.result;
-            passData.payload = jumpFloodResult.payload;
-            passData.normalPayload = jumpFloodResult.normalPayload;
-            passData.materialAlbedo = materialAlbedoHandle;
-            passData.materialNormal = materialNormalHandle;
-            passData.materialTransport = materialTransportHandle;
-            passData.causticResolved = lightingResources.causticResolved;
-            passData.causticTemporal = lightingResources.causticTemporal;
-            passData.causticMotion = lightingResources.causticMotion;
-            passData.gaussianSoftLight0 = lightingResources.gaussianSoftLight0;
-            passData.gaussianSoftLight1 = lightingResources.gaussianSoftLight1;
-            passData.radianceCascade0 = lightingResources.radianceCascade0;
-            passData.radianceCascade1 = lightingResources.radianceCascade1;
-            UseIfValid(builder, passData.color, AccessFlags.Write);
-            UseIfValid(builder, passData.depth, AccessFlags.ReadWrite);
-            UseIfValid(builder, passData.result, AccessFlags.Read);
-            UseIfValid(builder, passData.payload, AccessFlags.Read);
-            UseIfValid(builder, passData.normalPayload, AccessFlags.Read);
-            UseIfValid(builder, passData.materialAlbedo, AccessFlags.Read);
-            UseIfValid(builder, passData.materialNormal, AccessFlags.Read);
-            UseIfValid(builder, passData.materialTransport, AccessFlags.Read);
-            UseIfValid(builder, passData.causticResolved, AccessFlags.Read);
-            UseIfValid(builder, passData.causticTemporal, AccessFlags.Read);
-            UseIfValid(builder, passData.causticMotion, AccessFlags.Read);
-            UseIfValid(builder, passData.gaussianSoftLight0, AccessFlags.Read);
-            UseIfValid(builder, passData.gaussianSoftLight1, AccessFlags.Read);
-            UseIfValid(builder, passData.radianceCascade0, AccessFlags.Read);
-            UseIfValid(builder, passData.radianceCascade1, AccessFlags.Read);
-            builder.AllowPassCulling(false);
-            builder.SetRenderFunc(static (JumpFloodPassData data, UnsafeGraphContext context) =>
+            using (var builder = renderGraph.AddUnsafePass<JumpFloodPassData>("Fluid Sim 2D", out var passData))
             {
-                if (data.depth.IsValid())
+                passData.display = display;
+                passData.jumpFloodRenderer = jumpFloodRenderer;
+                passData.camera = camera;
+                passData.color = resourceData.activeColorTexture;
+                passData.depth = resourceData.activeDepthTexture;
+                passData.result = jumpFloodResult.result;
+                passData.payload = jumpFloodResult.payload;
+                passData.normalPayload = jumpFloodResult.normalPayload;
+                passData.materialAlbedo = materialAlbedoHandle;
+                passData.materialNormal = materialNormalHandle;
+                passData.materialTransport = materialTransportHandle;
+                passData.causticResolved = lightingResources.causticResolved;
+                passData.causticTemporal = lightingResources.causticTemporal;
+                passData.causticMotion = lightingResources.causticMotion;
+                passData.gaussianSoftLight0 = lightingResources.gaussianSoftLight0;
+                passData.gaussianSoftLight1 = lightingResources.gaussianSoftLight1;
+                passData.radianceCascade0 = lightingResources.radianceCascade0;
+                passData.radianceCascade1 = lightingResources.radianceCascade1;
+                UseIfValid(builder, passData.color, AccessFlags.Write);
+                UseIfValid(builder, passData.depth, AccessFlags.ReadWrite);
+                UseIfValid(builder, passData.result, AccessFlags.Read);
+                UseIfValid(builder, passData.payload, AccessFlags.Read);
+                UseIfValid(builder, passData.normalPayload, AccessFlags.Read);
+                UseIfValid(builder, passData.materialAlbedo, AccessFlags.Read);
+                UseIfValid(builder, passData.materialNormal, AccessFlags.Read);
+                UseIfValid(builder, passData.materialTransport, AccessFlags.Read);
+                UseIfValid(builder, passData.causticResolved, AccessFlags.Read);
+                UseIfValid(builder, passData.causticTemporal, AccessFlags.Read);
+                UseIfValid(builder, passData.causticMotion, AccessFlags.Read);
+                UseIfValid(builder, passData.gaussianSoftLight0, AccessFlags.Read);
+                UseIfValid(builder, passData.gaussianSoftLight1, AccessFlags.Read);
+                UseIfValid(builder, passData.radianceCascade0, AccessFlags.Read);
+                UseIfValid(builder, passData.radianceCascade1, AccessFlags.Read);
+                builder.AllowPassCulling(false);
+                builder.SetRenderFunc(static (JumpFloodPassData data, UnsafeGraphContext context) =>
                 {
-                    context.cmd.SetRenderTarget(data.color, data.depth);
-                }
-                else
-                {
-                    context.cmd.SetRenderTarget(data.color);
-                }
+                    if (data.depth.IsValid())
+                    {
+                        context.cmd.SetRenderTarget(data.color, data.depth);
+                    }
+                    else
+                    {
+                        context.cmd.SetRenderTarget(data.color);
+                    }
 
-                CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-                data.jumpFloodRenderer.RecordCompositeWithPreparedLightingAndMaterialMaps(data.display, data.camera, nativeCommandBuffer, data.color);
-            });
+                    CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+                    data.jumpFloodRenderer.RecordCompositeWithPreparedLightingAndMaterialMaps(data.display, data.camera, nativeCommandBuffer, data.color);
+                });
+            }
         }
 
         static void RecordMetaballAccumulationPass(RenderGraph renderGraph, string passName, ParticleDisplay2D display, MetaballRenderer2D metaballRenderer, TextureHandle target, int shaderPass)

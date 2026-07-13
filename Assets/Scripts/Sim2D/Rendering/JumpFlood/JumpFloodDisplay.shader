@@ -52,7 +52,7 @@ Shader "Custom/JumpFloodDisplay"
 
             float EllipseCutSignedDistance(float2 worldPos)
             {
-                float2 radii = max(abs(ellipseBoundsSize), 0.0001);
+                float2 radii = max(abs(ellipseBoundsSize) * 0.5, 0.0001);
                 float2 rel = worldPos - ellipseBoundsCenter;
                 float2 q = rel / radii;
                 float qLen = max(length(q), 0.0001);

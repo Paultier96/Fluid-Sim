@@ -85,8 +85,8 @@ namespace Seb.Fluid2D.Simulation
                 phaseThermalExpansionBuffer,
                 phaseThermalConductivityBuffer,
                 phaseSpecificHeatCapacityBuffer,
-                phaseCohesionBuffer);
-
+                phaseCohesionBuffer
+                );
             phaseCohesionBuffer = null;
             phaseTargetDensityBuffer = new ComputeBuffer(phaseCount, sizeof(float));
             phaseViscosityBuffer = new ComputeBuffer(phaseCount, sizeof(float));

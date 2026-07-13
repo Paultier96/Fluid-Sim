@@ -3,35 +3,59 @@ using UnityEngine;
 namespace Seb.Fluid2D.Simulation
 {
 	[DisallowMultipleComponent]
-	public sealed class ParticleFluidAnalyticBoundary2D : MonoBehaviour
+	[RequireComponent(typeof(RectTransform))]
+	public class ParticleFluidAnalyticBoundary2D : MonoBehaviour
 	{
 		[Header("Bounds Type")]
-		public bool useEllipticalBounds = false;
-		public Vector2 ellipseBoundsSize = new(10f, 8f);
-		public Vector2 ellipseBoundsCenter = Vector2.zero;
+		public bool useEllipticalBounds = true;
+
+		public Vector2 boundsSize => ((RectTransform)transform).rect.size;
+		public Vector2 BoundsCenter => transform.position;
 
 		[Header("Boundary Shape")]
 		[Tooltip("Horizontal lower boundary used with elliptical bounds. The final fluid domain is the ellipse above this Y value.")]
 		public float obstacleY = -10f;
 		[Tooltip("World-space expansion applied to the analytic boundary. 0 uses the original, non-expanded analytic boundary.")]
 		[Min(0f)] public float analyticBoundaryExpansion = 0.175f;
+		
+		public Bounds CropBounds { get; private set; }
+		public Vector2 EllipseRadii => new Vector2(Mathf.Abs(boundsSize.x), Mathf.Abs(boundsSize.y)) * 0.5f;
+		private Vector2 Radii => EllipseRadii + Vector2.one * analyticBoundaryExpansion;
+		private float CutY => obstacleY - analyticBoundaryExpansion;
 
+		private void Awake()
+		{
+			CropBounds = CalculateCropBounds();
+		}
 
-		public Vector2 BoundsMin => new(ellipseBoundsCenter.x - Radii.x, Mathf.Max(ellipseBoundsCenter.y - Radii.y, CutY));
-		public Vector2 BoundsMax => ellipseBoundsCenter + Radii;
-		public Bounds GetBounds()
+		private void OnValidate()
+		{
+			CropBounds = CalculateCropBounds();
+		}
+
+		Bounds CalculateCropBounds()
 		{
 			Bounds cropBounds = new Bounds();
-			cropBounds.SetMinMax(BoundsMin, BoundsMax);
+			if (useEllipticalBounds)
+			{
+				Vector2 radii = EllipseRadii + Vector2.one * analyticBoundaryExpansion;
+				cropBounds.SetMinMax(
+					new Vector2(BoundsCenter.x - radii.x, Mathf.Max(BoundsCenter.y - radii.y, CutY)),
+					BoundsCenter + radii
+				);
+			}
+			else
+			{
+				Vector2 halfSize = (boundsSize + Vector2.one * analyticBoundaryExpansion * 2f) * 0.5f;
+				cropBounds.SetMinMax(-halfSize, halfSize);
+			}
+
 			return cropBounds;
 		}
-		
-		private Vector2 Radii => new Vector2(Mathf.Abs(ellipseBoundsSize.x), Mathf.Abs(ellipseBoundsSize.y)) + Vector2.one * analyticBoundaryExpansion;
-		private float CutY => obstacleY - analyticBoundaryExpansion;
 
 		public bool TryGetEllipsePoint(float angle, out Vector2 boundaryPoint)
 		{
-			boundaryPoint = ellipseBoundsCenter + new Vector2(Mathf.Cos(angle) * Radii.x, Mathf.Sin(angle) * Radii.y);
+			boundaryPoint = BoundsCenter + new Vector2(Mathf.Cos(angle) * Radii.x, Mathf.Sin(angle) * Radii.y);
 			return IsAboveCut(boundaryPoint);
 		}
 
@@ -42,7 +66,7 @@ namespace Seb.Fluid2D.Simulation
 
 		private bool IsInsideEllipse(Vector2 point)
 		{
-			Vector2 rel = point - ellipseBoundsCenter;
+			Vector2 rel = point - BoundsCenter;
 			Vector2 radii = Radii;
 
 			float ellipseValue = rel.x * rel.x / (radii.x * radii.x) + rel.y * rel.y / (radii.y * radii.y);
@@ -56,14 +80,14 @@ namespace Seb.Fluid2D.Simulation
 
 		private Vector2 GetEllipseNormal(Vector2 point)
 		{
-			Vector2 rel = point - ellipseBoundsCenter;
+			Vector2 rel = point - BoundsCenter;
 			Vector2 radii = Radii;
 			return new Vector2(rel.x / (radii.x * radii.x), rel.y / (radii.y * radii.y)).normalized;
 		}
 		
 		public bool TryGetCutSegment(out Vector2 left, out Vector2 right)
 		{
-			float cutRelY = (CutY - ellipseBoundsCenter.y) / Radii.y;
+			float cutRelY = (CutY - BoundsCenter.y) / Radii.y;
 			if (Mathf.Abs(cutRelY) > 1f)
 			{
 				left = right = default;
@@ -72,14 +96,14 @@ namespace Seb.Fluid2D.Simulation
 
 			float halfWidth = Radii.x * Mathf.Sqrt(1f - cutRelY * cutRelY);
 
-			left = new Vector2(ellipseBoundsCenter.x - halfWidth, CutY);
-			right = new Vector2(ellipseBoundsCenter.x + halfWidth, CutY);
+			left = new Vector2(BoundsCenter.x - halfWidth, CutY);
+			right = new Vector2(BoundsCenter.x + halfWidth, CutY);
 			return true;
 		}
 
 		public bool TryRaycast(Vector2 direction, out Vector2 outwardNormal)
 		{
-			Vector2 start = new (ellipseBoundsCenter.x, (BoundsMax.y + CutY) * 0.5f);
+			Vector2 start = new (BoundsCenter.x, (CropBounds.max.y + CutY) * 0.5f);
 		    outwardNormal = Vector2.up;
 
 		    if (Radii is not { x: > 0.0001f, y: > 0.0001f } || direction.sqrMagnitude <= Mathf.Epsilon)
@@ -91,7 +115,7 @@ namespace Seb.Fluid2D.Simulation
 		    bool hasHit = false;
 
 		    Vector2 radii = Radii;
-		    Vector2 startRel = start - ellipseBoundsCenter;
+		    Vector2 startRel = start - BoundsCenter;
 		    
 		    Vector2 invRadiiSq = new Vector2(1f / (radii.x * radii.x), 1f / (radii.y * radii.y));
 		    
@@ -155,13 +179,14 @@ namespace Seb.Fluid2D.Simulation
 
 		void OnDrawGizmos()
 		{
+			Gizmos.color = new Color(0f, 1f, 0f, 0.4f);
 			if (!useEllipticalBounds)
 			{
+				Gizmos.DrawWireCube(CropBounds.center, CropBounds.size);
 				return;
 			}
 
-			Gizmos.color = new Color(0f, 1f, 0f, 0.4f);
-			DrawEllipseGizmo(ellipseBoundsCenter, ellipseBoundsSize, 128);
+			DrawEllipseGizmo(BoundsCenter, EllipseRadii, 128);
 
 			Gizmos.color = new Color(1f, 0.65f, 0f, 0.8f);
 			DrawHorizontalBoundaryLineGizmo();
@@ -182,19 +207,18 @@ namespace Seb.Fluid2D.Simulation
 
 		void DrawHorizontalBoundaryLineGizmo()
 		{
-			float relY = obstacleY - ellipseBoundsCenter.y;
-			float radiusY = Mathf.Max(ellipseBoundsSize.y, 0.0001f);
+			float relY = obstacleY - BoundsCenter.y;
+			float radiusY = Mathf.Max(EllipseRadii.y, 0.0001f);
 			float normalizedY = relY / radiusY;
 			if (Mathf.Abs(normalizedY) >= 1f)
 			{
 				return;
 			}
 
-			float halfWidth = ellipseBoundsSize.x * Mathf.Sqrt(1f - normalizedY * normalizedY);
-			Vector3 left = new(ellipseBoundsCenter.x - halfWidth, obstacleY, 0f);
-			Vector3 right = new(ellipseBoundsCenter.x + halfWidth, obstacleY, 0f);
+			float halfWidth = EllipseRadii.x * Mathf.Sqrt(1f - normalizedY * normalizedY);
+			Vector3 left = new(BoundsCenter.x - halfWidth, obstacleY, 0f);
+			Vector3 right = new(BoundsCenter.x + halfWidth, obstacleY, 0f);
 			Gizmos.DrawLine(left, right);
 		}
 	}
 }
-

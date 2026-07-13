@@ -35,7 +35,7 @@ namespace Seb.Fluid2D.Rendering
 				return 0f;
 			}
 
-			return Mathf.Max(0f, GetCausticExposure() * sampleBias);
+			return Mathf.Max(sampleBias, 0f);
 		}
 
 		public Vector4 GetCausticMultiplier()
@@ -54,4 +54,3 @@ namespace Seb.Fluid2D.Rendering
 		protected abstract void DrawLightGizmos();
 	}
 }
-

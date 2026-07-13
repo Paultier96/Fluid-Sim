@@ -65,7 +65,6 @@ StructuredBuffer<uint> SortedIndices;
 // Settings
 const uint numParticles;
 const int numFluidParticles;  // Only first numFluidParticles are actual fluid
-const int numSpatialParticles; // Number of particles represented in spatial hash buffers
 const float gravity;
 const float deltaTime;
 const float collisionDamping;
@@ -88,8 +87,14 @@ StructuredBuffer<float> PhaseViscosityTemperatureSensitivity;
 const float interfaceViscosityMultiplier;
 const float2 boundsSize;
 const float2 interactionInputPoint;
+const float2 interactionInputVelocity;
 const float interactionInputStrength;
 const float interactionInputRadius;
+const float cursorVelocityTransferStrength;
+const bool cursorTemperatureBrushActive;
+const float cursorTemperatureBrushRadius;
+const float cursorTemperatureBrushTarget;
+const float cursorTemperatureBrushTransferRate;
 
 // Add new per-phase thermal expansion settings
 StructuredBuffer<float> PhaseThermalExpansion; // how much density changes per degree
@@ -125,8 +130,6 @@ const int coilVelocityDampingPhase;
 
 const float obstacleY;
 
-// Elliptical bounds parameters (when using elliptical bounds instead of rectangular)
-const float2 ellipseBoundsSize;  // Semi-axes (radii) of the ellipse
 const float2 ellipseBoundsCenter;
 const bool useEllipticalBounds;
 

@@ -4,7 +4,13 @@ namespace Seb.Fluid2D.Simulation
 {
     internal sealed class ParticleFluidSimulationTiming
     {
-        int _unlockedAdaptiveIterations;
+        const float SlowFrameThreshold = 1.05f;
+        const float FastFrameThreshold = 0.80f;
+        const int RecoveryFrameCount = 15;
+
+        int _adaptiveIterations;
+        float _smoothedFrameTime;
+        int _headroomFrameCount;
 
         public readonly struct Frame
         {
@@ -72,43 +78,63 @@ namespace Seb.Fluid2D.Simulation
         {
             if (!autoIterationsPerFrame)
             {
+                _adaptiveIterations = 0;
+                _smoothedFrameTime = 0f;
+                _headroomFrameCount = 0;
                 return Mathf.Max(1, iterationsPerFrame);
-            }
-
-            if (unlockedTimeScale)
-            {
-                return ResolveUnlockedIterationsPerFrame(displayRefreshRate, iterationsPerFrame, maxAutoIterationsPerFrame, unscaledDeltaTime);
             }
 
             float displayFrameTime = 1f / Mathf.Max(displayRefreshRate, 1f);
             float requestedSimulationFrameTime = displayFrameTime * Mathf.Max(0f, timeScale);
             int idealIterations = Mathf.CeilToInt(requestedSimulationFrameTime / maxTimestepSeconds);
-            return Mathf.Clamp(Mathf.Max(1, idealIterations), 1, Mathf.Max(1, maxAutoIterationsPerFrame));
+            int maxIterations = Mathf.Max(1, maxAutoIterationsPerFrame);
+            int qualityCeiling = unlockedTimeScale
+                ? maxIterations
+                : Mathf.Clamp(Mathf.Max(1, idealIterations), 1, maxIterations);
+            int initialIterations = unlockedTimeScale
+                ? Mathf.Clamp(Mathf.Max(1, iterationsPerFrame), 1, qualityCeiling)
+                : qualityCeiling;
+
+            return ResolveAdaptiveIterationsPerFrame(qualityCeiling, initialIterations, displayFrameTime, unscaledDeltaTime);
         }
 
-        int ResolveUnlockedIterationsPerFrame(float displayRefreshRate, int iterationsPerFrame, int maxAutoIterationsPerFrame, float unscaledDeltaTime)
+        int ResolveAdaptiveIterationsPerFrame(int qualityCeiling, int initialIterations, float targetFrameTime, float unscaledDeltaTime)
         {
-            int maxIterations = Mathf.Max(1, maxAutoIterationsPerFrame);
-            if (_unlockedAdaptiveIterations <= 0 || _unlockedAdaptiveIterations > maxIterations)
+            if (_adaptiveIterations <= 0 || _adaptiveIterations > qualityCeiling)
             {
-                _unlockedAdaptiveIterations = Mathf.Clamp(Mathf.Max(1, iterationsPerFrame), 1, maxIterations);
+                _adaptiveIterations = Mathf.Clamp(initialIterations, 1, qualityCeiling);
             }
 
-            float targetFrameTime = 1f / Mathf.Max(displayRefreshRate, 1f);
-            if (unscaledDeltaTime > 0f)
+            if (unscaledDeltaTime <= 0f)
             {
-                if (unscaledDeltaTime > targetFrameTime)
-                {
-                    float scale = Mathf.Clamp(targetFrameTime / unscaledDeltaTime * 0.9f, 0.25f, 0.95f);
-                    _unlockedAdaptiveIterations = Mathf.Max(1, Mathf.FloorToInt(_unlockedAdaptiveIterations * scale));
-                }
-                else if (unscaledDeltaTime < targetFrameTime * 0.85f && _unlockedAdaptiveIterations < maxIterations)
-                {
-                    _unlockedAdaptiveIterations++;
-                }
+                return _adaptiveIterations;
             }
 
-            return _unlockedAdaptiveIterations;
+            _smoothedFrameTime = _smoothedFrameTime <= 0f
+                ? unscaledDeltaTime
+                : Mathf.Lerp(_smoothedFrameTime, unscaledDeltaTime, 0.15f);
+
+            if (_smoothedFrameTime > targetFrameTime * SlowFrameThreshold)
+            {
+                float scale = Mathf.Clamp(targetFrameTime / _smoothedFrameTime * 0.95f, 0.25f, 0.95f);
+                _adaptiveIterations = Mathf.Max(1, Mathf.FloorToInt(_adaptiveIterations * scale));
+                _headroomFrameCount = 0;
+            }
+            else if (_smoothedFrameTime < targetFrameTime * FastFrameThreshold && _adaptiveIterations < qualityCeiling)
+            {
+                _headroomFrameCount++;
+                if (_headroomFrameCount >= RecoveryFrameCount)
+                {
+                    _adaptiveIterations++;
+                    _headroomFrameCount = 0;
+                }
+            }
+            else
+            {
+                _headroomFrameCount = 0;
+            }
+
+            return _adaptiveIterations;
         }
 
         static float GetDisplayRefreshRate()

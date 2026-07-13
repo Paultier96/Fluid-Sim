@@ -1,4 +1,7 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
+using Seb.Fluid2D.Rendering;
+using Seb.Fluid2D.Simulation;
 
 [RequireComponent(typeof(Camera))]
 public class Camera2D : MonoBehaviour
@@ -13,6 +16,15 @@ public class Camera2D : MonoBehaviour
     [Min(0.001f)] public float maxZoom = 100f;
     [Tooltip("When enabled, orthographic zoom keeps the world point under the cursor fixed.")]
     public bool zoomTowardMouse = true;
+    public ParticleDisplay2D display;
+    [Header("Gamepad")]
+    public bool gamepadPanEnabled = true;
+    [Tooltip("Camera movement in visible screen heights per second at full stick deflection.")]
+    [Min(0f)] public float gamepadPanSpeed = 0.75f;
+    public bool gamepadZoomEnabled = true;
+    [Tooltip("Zoom scroll units per second at full input.")]
+    [Min(0f)] public float gamepadZoomSpeed = 8f;
+    [Range(0f, 1f)] public float gamepadZoomDeadZone = 0.15f;
 
     Camera cam;
     Vector3 previousPanMousePosition;
@@ -22,30 +34,31 @@ public class Camera2D : MonoBehaviour
     void Awake()
     {
         cam = GetComponent<Camera>();
+        if (display == null)
+        {
+            display = FindAnyObjectByType<ParticleDisplay2D>();
+        }
     }
 
     void Update()
     {
-        if (!controlsEnabled)
+        if (!controlsEnabled || !HasInputFocus())
         {
             ResetInteractionState();
             return;
         }
 
-        if (cam == null)
-        {
-            cam = GetComponent<Camera>();
-        }
+        ApplyGamepadPan();
+        ApplyGamepadZoom();
 
-        if (!HasInputFocus())
+        if (Mouse.current == null)
         {
             ResetInteractionState();
             return;
         }
 
-        Vector3 mousePosition = Input.mousePosition;
-        bool mouseOverCamera = cam.pixelRect.Contains(mousePosition);
-        if (!mouseOverCamera)
+        Vector3 mousePosition = Mouse.current.position.ReadValue();
+        if (!cam.pixelRect.Contains(mousePosition))
         {
             ResetInteractionState();
             return;
@@ -58,25 +71,25 @@ public class Camera2D : MonoBehaviour
             return;
         }
 
-        if (Input.GetMouseButtonDown(2))
+        if (Mouse.current != null && Mouse.current.middleButton.wasPressedThisFrame)
         {
             previousPanMousePosition = mousePosition;
             isPanning = true;
         }
 
-        if (Input.GetMouseButton(2) && isPanning)
+        if (Mouse.current != null && Mouse.current.middleButton.isPressed && isPanning)
         {
             Vector3 mouseDelta = mousePosition - previousPanMousePosition;
             Pan(mouseDelta);
             previousPanMousePosition = mousePosition;
         }
 
-        if (Input.GetMouseButtonUp(2))
+        if (Mouse.current != null && Mouse.current.middleButton.wasReleasedThisFrame)
         {
             isPanning = false;
         }
 
-        float scroll = Input.mouseScrollDelta.y;
+        float scroll = (Mouse.current != null ? Mouse.current.scroll.ReadValue() : Vector2.zero).y;
         if (Mathf.Abs(scroll) > 0.0001f)
         {
             Zoom(scroll, mousePosition);
@@ -134,6 +147,62 @@ public class Camera2D : MonoBehaviour
         transform.position += moveRight + moveUp;
     }
 
+    void ApplyGamepadPan()
+    {
+        if (!gamepadPanEnabled)
+        {
+            return;
+        }
+
+        Vector2 input = ParticleFluidSimulationInput.Actions.Player.Look.ReadValue<Vector2>();
+
+        float worldHeight;
+        if (cam.orthographic)
+        {
+            worldHeight = cam.orthographicSize * 2f;
+        }
+        else
+        {
+            float distance = GetCameraPlaneDistance();
+            worldHeight = 2f * distance * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+        }
+
+        Vector2 movement = input * (worldHeight * gamepadPanSpeed * Time.deltaTime);
+        transform.position += (Vector3)movement;
+    }
+
+    void ApplyGamepadZoom()
+    {
+        if (!gamepadZoomEnabled)
+        {
+            return;
+        }
+
+        float input = ParticleFluidSimulationInput.Actions.Player.Zoom.ReadValue<float>();
+        if (Mathf.Abs(input) <= gamepadZoomDeadZone)
+        {
+            return;
+        }
+
+        float normalizedInput = Mathf.Sign(input) * Mathf.InverseLerp(gamepadZoomDeadZone, 1f, Mathf.Abs(input));
+        Zoom(normalizedInput * gamepadZoomSpeed * Time.deltaTime, GetGamepadZoomScreenPoint());
+    }
+
+    Vector3 GetGamepadZoomScreenPoint()
+    {
+        if (display == null)
+        {
+            display = FindAnyObjectByType<ParticleDisplay2D>();
+        }
+
+        if (display != null && display.interactionCursor != null)
+        {
+            return cam.WorldToScreenPoint(display.interactionCursor.transform.position);
+        }
+
+        return new Vector3(cam.pixelWidth * 0.5f, cam.pixelHeight * 0.5f, 0f);
+    }
+
     void Zoom(float scroll, Vector3 mousePosition)
     {
         if (cam.orthographic)
@@ -169,4 +238,3 @@ public class Camera2D : MonoBehaviour
         return Mathf.Max(distance, 0.001f);
     }
 }
-

@@ -38,7 +38,7 @@ float2 CalculateDensity(float2 pos)
 	float density = 0;
 	float nearDensity = 0;
 
-	FOR_EACH_HASH_NEIGHBOR(originCell, numSpatialParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
+	FOR_EACH_HASH_NEIGHBOR(originCell, numParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
 	{
 			float2 neighbourPos = PredictedPositions[neighbourIndex];
 			float2 offsetToNeighbour = neighbourPos - pos;
@@ -70,11 +70,23 @@ float2 ExternalForces(float2 pos, float2 velocity, uint phase)
             float dst = sqrt(sqrDst);
             float edgeT = (dst / interactionInputRadius);
             float centreT = 1 - edgeT;
-            float2 dirToCentre = inputPointOffset / dst;
+            float2 dirToCentre = dst > 1e-6 ? inputPointOffset / dst : float2(0, 0);
 
             float gravityWeight = 1 - (centreT * saturate(interactionInputStrength / 10));
             acceleration = acceleration * gravityWeight + dirToCentre * centreT * interactionInputStrength;
             acceleration -= velocity * centreT;
+        }
+    }
+
+    if (cursorVelocityTransferStrength > 0)
+    {
+        float2 inputPointOffset = interactionInputPoint - pos;
+        float sqrDst = dot(inputPointOffset, inputPointOffset);
+        if (sqrDst < interactionInputRadius * interactionInputRadius)
+        {
+            float dst = sqrt(sqrDst);
+            float centreT = 1 - dst / interactionInputRadius;
+            acceleration += interactionInputVelocity * centreT * cursorVelocityTransferStrength;
         }
     }
 
@@ -100,7 +112,7 @@ void ApplyThermalBuoyancy(uint3 id : SV_DispatchThreadID)
 	float weightedEnvDensitySum = 0;
 	float weightSum = 0;
 
-	FOR_EACH_HASH_NEIGHBOR(originCell, numSpatialParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
+	FOR_EACH_HASH_NEIGHBOR(originCell, numParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
 	{
             if (neighbourIndex == id.x) continue;
             if (!IsFluidParticle(neighbourIndex)) continue;
@@ -193,12 +205,12 @@ void ExternalForces(uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads,1,1)]
 void UpdateSpatialHash (uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numSpatialParticles) return;
+	if (id.x >= numParticles) return;
 	
 	uint index = id.x;
 	int2 cell = GetCell2D(PredictedPositions[index], smoothingRadius);
 	uint hash = HashCell2D(cell);
-	uint key = KeyFromHash(hash, numSpatialParticles);
+	uint key = KeyFromHash(hash, numParticles);
 	SpatialKeys[id.x] = key;
 }
 
@@ -222,7 +234,7 @@ StructuredBuffer<float> SortTarget_ParticleTargetDensitiesRO;
 [numthreads(NumThreads,1,1)]
 void Reorder (uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numSpatialParticles) return;
+	if (id.x >= numParticles) return;
 
 	uint sortedIndex = SortedIndices[id.x];
 	SortTarget_Positions[id.x] = PositionsRO[sortedIndex];
@@ -238,7 +250,7 @@ void Reorder (uint3 id : SV_DispatchThreadID)
 [numthreads(NumThreads,1,1)]
 void ReorderCopyback (uint3 id : SV_DispatchThreadID)
 {
-	if (id.x >= numSpatialParticles) return;
+	if (id.x >= numParticles) return;
 
 	Positions[id.x] = SortTarget_PositionsRO[id.x];
 	PredictedPositions[id.x] = SortTarget_PredictedPositionsRO[id.x];
@@ -356,10 +368,10 @@ bool TryGetCarrierWedge(uint particleIndex, float2 pos, out float2 wedgeDir, out
 		for (int x = -cellRange; x <= cellRange; x++)
 		{
 			uint hash = HashCell2D(originCell + int2(x, y));
-			uint key = KeyFromHash(hash, numSpatialParticles);
+			uint key = KeyFromHash(hash, numParticles);
 			uint currIndex = SpatialOffsets[key];
 
-			while (currIndex < numSpatialParticles)
+			while (currIndex < numParticles)
 			{
 				uint neighbourIndex = currIndex++;
 				if (neighbourIndex == particleIndex) continue;
@@ -500,7 +512,7 @@ void CalculatePressureForce (uint3 id : SV_DispatchThreadID)
 	// Add a small epsilon to prevent division by near-zero density
 	float epsilon = 0.0001;
 
-	FOR_EACH_HASH_NEIGHBOR(originCell, numSpatialParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
+	FOR_EACH_HASH_NEIGHBOR(originCell, numParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
 	{
 			// Skip if looking at self
 			if (neighbourIndex == id.x) continue;
@@ -526,7 +538,6 @@ void CalculatePressureForce (uint3 id : SV_DispatchThreadID)
 			float interaction = GetPhaseInteraction(myPhase, neighbourPhase);
 
 			float sharedPressure = (pressure + neighbourPressure) * 0.5 * interaction;
-			//float sharedPressure = (pressure / (density * density) + neighbourPressure / (neighbourDensity * neighbourDensity)) * interaction;
 			float sharedNearPressure = (nearPressure + neighbourNearPressure) * 0.5 * interaction;
 
 			pressureForce += dirToNeighbour * DerivativeSpikyPow2(dst, smoothingRadius) * sharedPressure /  max(neighbourDensity, epsilon);
@@ -537,12 +548,6 @@ void CalculatePressureForce (uint3 id : SV_DispatchThreadID)
     pressureForce += CalculateWallPressureSupportForce(pos, density, pressure, nearPressure, id.x, epsilon);
 
 	float2 acceleration = pressureForce / max(density, epsilon);
-
-	// Clamp acceleration magnitude to prevent explosive forces in a single step
-	// float maxAcceleration = smoothingRadius / (deltaTime * deltaTime);
-	// float accMag = length(acceleration);
-	// if (accMag > maxAcceleration)
-	//	acceleration = (acceleration / accMag) * maxAcceleration;
 
 	Velocities[id.x] += acceleration * deltaTime;
 }
@@ -571,7 +576,7 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
     float diffusion = 0;
     float totalWeight = 0;
 
-    FOR_EACH_HASH_NEIGHBOR(originCell, numSpatialParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
+    FOR_EACH_HASH_NEIGHBOR(originCell, numParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
     {
             if (neighbourIndex == id.x)
                 continue;
@@ -630,6 +635,10 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
     if (heatSourceWeight > 0)
         newTemp += (heatSourceTemperature - newTemp) * heatSourceTransferRate * heatSourceWeight * deltaTime / heatCapacity;
 
+    float cursorBrushWeight = SampleCursorTemperatureBrushWeight(pos);
+    if (cursorBrushWeight > 0)
+        newTemp += (cursorTemperatureBrushTarget - newTemp) * cursorTemperatureBrushTransferRate * cursorBrushWeight * deltaTime / heatCapacity;
+
     Temperatures[id.x] = newTemp;
 }
 
@@ -645,7 +654,7 @@ void CalculateCohesion(uint3 id : SV_DispatchThreadID)
 
 	float2 cohesionForce = 0;
 
-	FOR_EACH_HASH_NEIGHBOR(originCell, numSpatialParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
+	FOR_EACH_HASH_NEIGHBOR(originCell, numParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
 	{
 			if (neighbourIndex == id.x) continue;
             if (!IsFluidParticle(neighbourIndex)) continue;
@@ -668,8 +677,6 @@ void CalculateCohesion(uint3 id : SV_DispatchThreadID)
 			float2 dirToNeighbour = offsetToNeighbour / dst;
 
 			// Attractive in the mid-range, zero at very close range (near-pressure handles that)
-			float normalizedDst = dst / smoothingRadius;
-			//float cohesionKernel = normalizedDst * (1 - normalizedDst) * (1 - normalizedDst);
 			float cohesionKernel = SpikyKernelPow2(dst, smoothingRadius);
 			
 			if (cohesionStrength != 0)
@@ -754,7 +761,7 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 	}
 
 
-	FOR_EACH_HASH_NEIGHBOR(originCell, numSpatialParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
+	FOR_EACH_HASH_NEIGHBOR(originCell, numParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
 	{
 			// Skip if looking at self
 			if (neighbourIndex == id.x) continue;
@@ -848,7 +855,7 @@ void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
 
     float2 gradC = 0;
 
-    FOR_EACH_HASH_NEIGHBOR(originCell, numSpatialParticles, SpatialOffsets, SpatialKeys, j)
+    FOR_EACH_HASH_NEIGHBOR(originCell, numParticles, SpatialOffsets, SpatialKeys, j)
     {
             if (j == id.x) continue;
 
@@ -916,7 +923,7 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 	float sigmaWeightedSum = 0;
 	float sigmaWeightSum = 0;
 
-	FOR_EACH_HASH_NEIGHBOR(originCell, numSpatialParticles, SpatialOffsetsRO, SpatialKeysRO, j)
+	FOR_EACH_HASH_NEIGHBOR(originCell, numParticles, SpatialOffsetsRO, SpatialKeysRO, j)
 	{
 			if (j == id.x) continue;
 
@@ -978,10 +985,10 @@ void CalculateCSF(uint3 id : SV_DispatchThreadID)
 			for (int x = -cellRange; x <= cellRange; x++)
 			{
 				uint hash = HashCell2D(originCell + int2(x, y));
-				uint key = KeyFromHash(hash, numSpatialParticles);
+				uint key = KeyFromHash(hash, numParticles);
 				uint currIndex = SpatialOffsetsRO[key];
 
-				while (currIndex < numSpatialParticles)
+				while (currIndex < numParticles)
 				{
 					uint j = currIndex++;
 					if (j == id.x) continue;

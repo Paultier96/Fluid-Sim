@@ -8,4 +8,5 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/Sim2D/lava-lamp.unity
     guid: 9922dfdb7147ccd4b8eac6096ffefaf5
-  m_configObjects: {}
+  m_configObjects:
+    com.unity.input.settings.actions: {fileID: -944628639613478452, guid: a8ea0249f80b70a498dd0319c42f8996, type: 3}

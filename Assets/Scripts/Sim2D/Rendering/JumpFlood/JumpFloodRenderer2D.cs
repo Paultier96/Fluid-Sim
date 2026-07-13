@@ -116,13 +116,13 @@ namespace Seb.Fluid2D.Rendering
 			computeCommandBuffer.SetComputeVectorParam(compute, "_RenderWorldSize", _currentRenderRegion.size);
 			computeCommandBuffer.SetComputeFloatParam(compute, "_TempMin", display.sim.ambientTemperature);
 			computeCommandBuffer.SetComputeFloatParam(compute, "_TempMax", display.sim.HeatSourceTemperature);
-			computeCommandBuffer.SetComputeIntParam(compute, "_ParticleCount", display.sim.positionBuffer.count);
+			computeCommandBuffer.SetComputeIntParam(compute, "_ParticleCount", display.sim.resources.positionBuffer.count);
 			computeCommandBuffer.SetComputeIntParam(compute, "debugMode", (int)display.debugMode);
 			computeCommandBuffer.SetComputeIntParam(compute, "debugShowClipping", display.debugShowClipping ? 1 : 0);
 			computeCommandBuffer.SetComputeIntParam(compute, "useLinearColorSpace", QualitySettings.activeColorSpace == ColorSpace.Linear ? 1 : 0);
 			computeCommandBuffer.SetComputeFloatParam(compute, "debugGradientMax", display.debugGradientMax);
-			computeCommandBuffer.SetComputeFloatParam(compute, "debugCurvatureMax", display.sim.MaxDebugCurvature);
-			computeCommandBuffer.SetComputeFloatParam(compute, "debugViscosityMax", display.sim.MaxDebugViscosity);
+			computeCommandBuffer.SetComputeFloatParam(compute, "debugCurvatureMax", display.sim.maxSurfaceTensionCurvature);
+			computeCommandBuffer.SetComputeFloatParam(compute, "debugViscosityMax", display.sim.simulationDebug.GetMaxViscosity(display.sim.phases, display.sim.ambientTemperature, display.sim.HeatSourceTemperature));
 			computeCommandBuffer.SetComputeFloatParam(compute, "debugDensityMin", display.DebugDensityMin);
 			computeCommandBuffer.SetComputeFloatParam(compute, "debugDensityMax", display.DebugDensityMax);
 		}
@@ -143,12 +143,12 @@ namespace Seb.Fluid2D.Rendering
 			ComputeShader compute = display.jumpFlood.computeShader;
 			int seedKernel = compute.FindKernel("Seed");
 			ApplyJumpFloodComputeParams(display, cam, computeCommandBuffer, compute);
-			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "Positions2D", display.sim.positionBuffer);
-			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "DensityData", display.sim.densityBuffer);
-			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "Temperatures", display.sim.temperatureBuffer);
-			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "DebugData", display.sim.debugDataBuffer);
-			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "Phases", display.sim.phaseBuffer);
-			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "BlobIDs", display.sim.blobIdBuffer);
+			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "Positions2D", display.sim.resources.positionBuffer);
+			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "DensityData", display.sim.resources.densityBuffer);
+			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "Temperatures", display.sim.resources.temperatureBuffer);
+			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "DebugData", display.sim.resources.debugDataBuffer);
+			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "Phases", display.sim.resources.phaseBuffer);
+			computeCommandBuffer.SetComputeBufferParam(compute, seedKernel, "BlobIDs", display.sim.resources.blobIdBuffer);
 			computeCommandBuffer.SetComputeTextureParam(compute, seedKernel, "Result", resultHandle);
 			computeCommandBuffer.SetComputeTextureParam(compute, seedKernel, "ResultPayload", payloadHandle);
 			computeCommandBuffer.SetComputeTextureParam(compute, seedKernel, "ResultNormalPayload", normalPayloadHandle);
@@ -156,7 +156,7 @@ namespace Seb.Fluid2D.Rendering
 			computeCommandBuffer.SetComputeTextureParam(compute, seedKernel, "ColourMap2", gradient2Handle);
 			computeCommandBuffer.SetComputeTextureParam(compute, seedKernel, "DebugHeatMap", debugHeatMapHandle);
 			computeCommandBuffer.SetComputeTextureParam(compute, seedKernel, "DebugSignedHeatMap", debugSignedHeatMapHandle);
-			computeCommandBuffer.DispatchCompute(compute, seedKernel, Mathf.Max(1, Mathf.CeilToInt(display.sim.positionBuffer.count / 64.0f)), 1, 1);
+			computeCommandBuffer.DispatchCompute(compute, seedKernel, Mathf.Max(1, Mathf.CeilToInt(display.sim.resources.positionBuffer.count / 64.0f)), 1, 1);
 		}
 
 		internal void RecordStep(ParticleDisplay2D display, Camera cam, IComputeCommandBuffer computeCommandBuffer, int step, TextureHandle srcHandle, TextureHandle payloadSrcHandle, TextureHandle normalPayloadSrcHandle, TextureHandle dstHandle, TextureHandle payloadDstHandle, TextureHandle normalPayloadDstHandle)
@@ -225,7 +225,7 @@ namespace Seb.Fluid2D.Rendering
 
 			displayMaterial.SetTexture("_PayloadTex", payloadResult != null ? payloadResult : payloadA);
 			displayMaterial.SetMatrix("_InverseViewProjection", (cam.projectionMatrix * cam.worldToCameraMatrix).inverse);
-			displayMaterial.SetVector("boundsSize",display.sim.boundsSize);
+			displayMaterial.SetVector("boundsSize", display.sim.analyticBoundary.boundsSize);
 
 			targetCommandBuffer.BeginSample("Jump Flood/Display Fallback");
 			ParticleFluidLayoutBindings.ApplyLayoutGlobals(targetCommandBuffer, display.sim.analyticBoundary, _currentRenderRegion);
@@ -326,13 +326,13 @@ namespace Seb.Fluid2D.Rendering
 				resultTexture.height
 			));
 			materialMapMaterial.SetMatrix("_InverseViewProjection", (cam.projectionMatrix * cam.worldToCameraMatrix).inverse);
-			materialMapMaterial.SetVector("boundsSize", display.sim.boundsSize);
+			materialMapMaterial.SetVector("boundsSize", display.sim.analyticBoundary.boundsSize);
 		}
 
 		Bounds GetRenderRegion(ParticleDisplay2D display, Camera cam, out Vector2Int resolution)
 		{
 			bool crop = display != null && cam != null && display.sim.analyticBoundary.useEllipticalBounds && display.debugMode == ParticleDisplay2D.DebugVisualization.None;
-			Bounds? cropBounds = crop ? display.sim.analyticBoundary.GetBounds() : null;
+			Bounds? cropBounds = crop ? display.sim.analyticBoundary.CropBounds : null;
 			return ParticleFluidRenderBounds2D.GetCameraRenderRegion(cam, cropBounds, crop, out resolution);
 		}
 

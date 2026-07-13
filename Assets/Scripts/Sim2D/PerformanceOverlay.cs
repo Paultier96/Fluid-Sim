@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.Rendering;
 
 namespace Seb.Fluid2D.Simulation
@@ -24,7 +25,7 @@ namespace Seb.Fluid2D.Simulation
         [Min(1f)] public float graphRefreshRate = 60f;
         [Tooltip("Refresh rate for the lightweight FPS label.")]
         [Min(0.05f)] public float fpsOnlyRefreshInterval = 0.25f;
-        public KeyCode resetKey = KeyCode.F8;
+        public Key resetKey = Key.F8;
         public Vector2 screenOffset = new Vector2(12, 12);
 
         float[] frameTimes;
@@ -50,14 +51,6 @@ namespace Seb.Fluid2D.Simulation
             if (sim == null)
             {
                 sim = GetComponent<FluidSim2D>();
-            }
-        }
-
-        void Update()
-        {
-            if (Input.GetKeyDown(resetKey))
-            {
-                ResetSamples();
             }
         }
 

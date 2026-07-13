@@ -126,7 +126,7 @@ bool TryGetAnalyticWallDistanceAndNormal(float2 pos, out float wallDist, out flo
 		float2 closestPoint;
 		float2 outwardNormal;
 		float signedDist;
-		GetEllipseSurfaceData(pos, ellipseBoundsCenter, ellipseBoundsSize, closestPoint, outwardNormal, signedDist);
+		GetEllipseSurfaceData(pos, ellipseBoundsCenter, boundsSize * 0.5, closestPoint, outwardNormal, signedDist);
 		if (signedDist < 0)
 		{
 			wallDist = -signedDist;
@@ -135,8 +135,7 @@ bool TryGetAnalyticWallDistanceAndNormal(float2 pos, out float wallDist, out flo
 	}
 	else
 	{
-		float2 halfSize = boundsSize * 0.5;
-		float2 edgeDst = halfSize - abs(pos);
+		float2 edgeDst = boundsSize * 0.5 - abs(pos);
 		if (edgeDst.x <= edgeDst.y)
 		{
 			wallDist = edgeDst.x;
@@ -204,7 +203,7 @@ float2 CalculateBoundaryRepulsion(float2 pos)
 		float2 closestPoint;
 		float2 outwardNormal;
 		float signedDist;
-		GetEllipseSurfaceData(pos, ellipseBoundsCenter, ellipseBoundsSize, closestPoint, outwardNormal, signedDist);
+		GetEllipseSurfaceData(pos, ellipseBoundsCenter, boundsSize * 0.5, closestPoint, outwardNormal, signedDist);
 		if (signedDist < 0)
 		{
 			float distToBoundary = -signedDist;
@@ -313,7 +312,7 @@ void CollideWithObstacleFloor(inout float2 pos, inout float2 vel)
 void CollideWithEllipseBounds(inout float2 pos, inout float2 vel)
 {
 	float2 posRelative = pos - ellipseBoundsCenter;
-	float2 radii = ellipseBoundsSize;
+	float2 radii = boundsSize * 0.5;
 	float2 normalizedPos = posRelative / radii;
 	float normalizedDist = length(normalizedPos);
 	

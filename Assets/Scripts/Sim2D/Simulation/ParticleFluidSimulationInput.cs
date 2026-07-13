@@ -1,11 +1,11 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
+using Seb.Fluid2D.Rendering;
 
 namespace Seb.Fluid2D.Simulation
 {
     internal sealed class ParticleFluidSimulationInput
     {
-        public Camera cam;
-
         public readonly struct Commands
         {
             public readonly bool togglePause;
@@ -22,66 +22,86 @@ namespace Seb.Fluid2D.Simulation
 
         public readonly struct Interaction
         {
-            public readonly bool isActive;
-            public readonly bool isPull;
-            public readonly bool isPush;
             public readonly Vector2 position;
+            public readonly Vector2 velocity;
             public readonly float strength;
+            public readonly bool heatBrushActive;
+            public readonly float heatBrushTargetTemperature;
+            public readonly float heatBrushStrength;
 
-            public Interaction(bool isActive, bool isPull, bool isPush, Vector2 position, float strength)
+            public Interaction(Vector2 position, Vector2 velocity, float strength, bool heatBrushActive, float heatBrushTargetTemperature, float heatBrushStrength)
             {
-                this.isActive = isActive;
-                this.isPull = isPull;
-                this.isPush = isPush;
                 this.position = position;
+                this.velocity = velocity;
                 this.strength = strength;
+                this.heatBrushActive = heatBrushActive;
+                this.heatBrushTargetTemperature = heatBrushTargetTemperature;
+                this.heatBrushStrength = heatBrushStrength;
             }
+        }
+        
+        private static InputSystem_Actions _actions;
+
+        public static InputSystem_Actions Actions
+        {
+            get
+            {
+                _actions ??= new InputSystem_Actions();
+
+                if (!_actions.Player.enabled)
+                {
+                    _actions.Player.Enable();
+                }
+                return _actions;
+            }
+        }
+
+        private bool _hasPreviousMouseWorldPosition;
+        private Vector2 _previousMouseWorldPosition;
+
+        public static float ReadInteractionAxis()
+        {
+            return Mathf.Clamp(Actions.Player.Interact.ReadValue<float>(), -1f, 1f);
+        }
+
+        public static bool IsInteractionActive(float value)
+        {
+            return Mathf.Abs(value) > 0.01f;
         }
 
         public Commands PollCommands()
         {
             return new Commands(
-                Input.GetKeyDown(KeyCode.Space),
-                Input.GetKeyDown(KeyCode.RightArrow),
-                Input.GetKeyDown(KeyCode.R));
+                Actions.Player.Pause.WasPressedThisFrame(),
+                Keyboard.current != null && Keyboard.current[Key.RightArrow].wasPressedThisFrame,
+                Keyboard.current != null && Keyboard.current[Key.R].wasPressedThisFrame);
         }
 
-        public Interaction PollInteraction(float interactionStrength)
+        public Interaction PollInteraction(
+            ParticleDisplay2D display,
+            float interactionStrength,
+            float heatBrushTemperature,
+            float coolBrushTemperature)
         {
-            bool isPull = Input.GetMouseButton(0);
-            bool isPush = Input.GetMouseButton(1);
-            if ((isPush || isPull) && TryGetMouseWorldPosition(out Vector2 mousePosition))
+            ParticleFluidInteractionCursor2D cursor = display.interactionCursor;
+            float cursorStrength = 0f;
+            float cursorTargetTemperature = 0;
+            float cursorTemperatureStrength = 0f;
+            bool isTemperatureActive = false;
+            float interaction = ReadInteractionAxis();
+
+            if (cursor.interactionMode == ParticleFluidInteractionCursor2D.InteractionMode.Force)
             {
-                float strength = isPush ? -interactionStrength : interactionStrength;
-                return new Interaction(true, isPull, isPush, mousePosition, strength);
+                cursorStrength = interaction * interactionStrength;
             }
-
-            return default;
-        }
-
-        bool TryGetMouseWorldPosition(out Vector2 mouseWorldPosition)
-        {
-            mouseWorldPosition = Vector2.zero;
-
-            Vector3 mousePosition = Input.mousePosition;
-            if (!float.IsFinite(mousePosition.x) || !float.IsFinite(mousePosition.y) || !float.IsFinite(mousePosition.z))
+            else if (cursor.interactionMode == ParticleFluidInteractionCursor2D.InteractionMode.Temperature)
             {
-                return false;
+                isTemperatureActive = IsInteractionActive(interaction);
+                cursorTemperatureStrength = Mathf.Abs(interaction);
+                cursorTargetTemperature = interaction >= 0f ? heatBrushTemperature : coolBrushTemperature;
             }
-
-            if (mousePosition.x < 0 || mousePosition.y < 0 || mousePosition.x > cam.pixelWidth || mousePosition.y > cam.pixelHeight)
-            {
-                return false;
-            }
-
-            Vector3 worldPosition = cam.ScreenToWorldPoint(mousePosition);
-            if (!float.IsFinite(worldPosition.x) || !float.IsFinite(worldPosition.y))
-            {
-                return false;
-            }
-
-            mouseWorldPosition = worldPosition;
-            return true;
+            
+            return new Interaction(cursor.transform.position, cursor.currentWorldVelocity, cursorStrength, isTemperatureActive, cursorTargetTemperature, cursorTemperatureStrength);
         }
     }
 }
