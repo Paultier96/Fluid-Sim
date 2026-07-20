@@ -23,7 +23,9 @@ MonoBehaviour:
     metallic: 0
     screenSpaceReflectionStrength: 1
     diffuseLightTint: {r: 1, g: 1, b: 0, a: 1}
-    diffuseAlbedoTintBlend: 0.25
+    causticAdditiveBlend: 0
+    diffuseAdditiveBlend: 0
+    diffuseNormalInfluence: 0
   phase1Material:
     indexOfRefraction: 1.333
     absorption: 0
@@ -32,8 +34,10 @@ MonoBehaviour:
     roughness: 0.3
     metallic: 0
     screenSpaceReflectionStrength: 0.2
-    diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
-    diffuseAlbedoTintBlend: 0
+    diffuseLightTint: {r: 0, g: 0, b: 0, a: 1}
+    causticAdditiveBlend: 0
+    diffuseAdditiveBlend: 0
+    diffuseNormalInfluence: 0
   boundaryMaterial:
     indexOfRefraction: 1.516
     absorption: 0
@@ -43,7 +47,9 @@ MonoBehaviour:
     metallic: 0
     screenSpaceReflectionStrength: 1
     diffuseLightTint: {r: 1, g: 1, b: 1, a: 1}
-    diffuseAlbedoTintBlend: 0
+    causticAdditiveBlend: 0
+    diffuseAdditiveBlend: 0
+    diffuseNormalInfluence: 0
   phase0ColourMap:
     serializedVersion: 2
     key0: {r: 0.62273055, g: 0.627451, b: 0.06274508, a: 1}
@@ -76,8 +82,8 @@ MonoBehaviour:
     m_NumAlphaKeys: 2
   phase1ColourMap:
     serializedVersion: 2
-    key0: {r: 0.3433412, g: 0.42000732, b: 0.5019608, a: 1}
-    key1: {r: 0.3433412, g: 0.42000732, b: 0.5019608, a: 1}
+    key0: {r: 0.035105374, g: 0.09311577, b: 0.15723258, a: 1}
+    key1: {r: 0, g: 0.23843127, b: 0.5019608, a: 1}
     key2: {r: 0, g: 0, b: 0, a: 0}
     key3: {r: 0, g: 0, b: 0, a: 0}
     key4: {r: 0, g: 0, b: 0, a: 0}

@@ -1,6 +1,12 @@
 #ifndef PARTICLE_FLUID_ANALYTIC_BOUNDARY_INCLUDED
 #define PARTICLE_FLUID_ANALYTIC_BOUNDARY_INCLUDED
 
+int useEllipticalBounds;
+float2 ellipseBoundsCenter;
+float2 ellipseBoundsSize;
+float obstacleY;
+float analyticBoundaryExpansion;
+
 float2 BoundaryDistances(float2 worldPos)
 {
 	float2 radii = max(abs(ellipseBoundsSize) * 0.5, 0.0001);
@@ -38,6 +44,18 @@ float InnerAnalyticBoundaryDistance(float2 worldPos)
 float OuterAnalyticBoundaryDistance(float2 worldPos)
 {
 	return OffsetBoundaryDistance(BoundaryDistances(worldPos), max(analyticBoundaryExpansion, 0.0));
+}
+
+float OuterAnalyticBoundaryAlphaFromUv(float2 uv, float2 worldCenter, float2 worldSize)
+{
+	float distance = OuterAnalyticBoundaryDistance(ParticleFluidWorldFromUv(uv, worldCenter, worldSize));
+	float aa = max(fwidth(distance), 0.0001);
+	return smoothstep(aa, -aa, distance);
+}
+
+float OuterAnalyticBoundaryAlphaFromDomainUv(float2 uv)
+{
+	return OuterAnalyticBoundaryAlphaFromUv(uv, domainWorldCenter, domainWorldSize);
 }
 
 float2 EllipseBoundaryNormal(float2 worldPos)

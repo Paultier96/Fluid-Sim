@@ -1,6 +1,9 @@
 #ifndef PARTICLE_FLUID_COMMON_INCLUDED
 #define PARTICLE_FLUID_COMMON_INCLUDED
 
+float2 domainWorldCenter;
+float2 domainWorldSize;
+
 float2 ParticleFluidWorldFromUv(float2 uv, float2 worldCenter, float2 worldSize)
 {
 	return worldCenter + (uv - 0.5) * max(worldSize, float2(0.0001, 0.0001));
@@ -9,6 +12,16 @@ float2 ParticleFluidWorldFromUv(float2 uv, float2 worldCenter, float2 worldSize)
 float2 ParticleFluidUvFromWorld(float2 worldPos, float2 worldCenter, float2 worldSize)
 {
 	return (worldPos - worldCenter) / max(worldSize, float2(0.0001, 0.0001)) + 0.5;
+}
+
+float2 ParticleFluidDomainWorldFromUv(float2 uv)
+{
+	return ParticleFluidWorldFromUv(uv, domainWorldCenter, domainWorldSize);
+}
+
+float2 ParticleFluidDomainUvFromWorld(float2 worldPos)
+{
+	return ParticleFluidUvFromWorld(worldPos, domainWorldCenter, domainWorldSize);
 }
 
 float ParticleFluidPhaseRatio(float density0, float density1)

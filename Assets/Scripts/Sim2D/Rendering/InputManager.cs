@@ -79,14 +79,6 @@ namespace Seb.Fluid2D.Rendering
 			{
 				SetDebugMode(ParticleDisplay2D.DebugVisualization.None, ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion);
 			}
-			else if (KeyPressed(Key.E))
-			{
-				SetDebugMode(ParticleDisplay2D.DebugVisualization.None, ParticleFluidLighting2D.LightingDebugVisualization.TemporalRejection);
-			}
-			else if (KeyPressed(Key.R))
-			{
-				SetDebugMode(ParticleDisplay2D.DebugVisualization.None, ParticleFluidLighting2D.LightingDebugVisualization.TemporalClamp);
-			}
 			else if (KeyPressed(Key.T))
 			{
 				SetDebugMode(ParticleDisplay2D.DebugVisualization.None, ParticleFluidLighting2D.LightingDebugVisualization.ProjectedShadow);

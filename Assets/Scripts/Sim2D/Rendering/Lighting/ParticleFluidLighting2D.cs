@@ -40,8 +40,6 @@ using UnityEngine.Serialization;
 			SoftLight,
 			RadianceCascadeRaw,
 			CausticMotion,
-			TemporalRejection,
-			TemporalClamp,
 			ProjectedShadow
 		}
 

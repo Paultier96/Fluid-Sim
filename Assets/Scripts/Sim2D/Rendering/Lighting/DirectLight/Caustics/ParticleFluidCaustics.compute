@@ -39,11 +39,6 @@ float causticsRayBrightness;
 float causticsTemporalJitterPixels;
 float causticsSurfaceNormalJitterPixels;
 float causticsDeltaTime;
-int useEllipticalBounds;
-float2 ellipseBoundsCenter;
-float2 ellipseBoundsSize;
-float obstacleY;
-float analyticBoundaryExpansion;
 float2 causticsWorldCenter;
 float2 causticsWorldSize;
 
@@ -113,8 +108,8 @@ uint AccumIndex(int2 pixel)
 
 float SelectedDensity(float4 transport)
 {
-	float support = transport.b;
-	float phaseT = transport.a;
+	float support = transport.g;
+	float phaseT = transport.b;
 	float selectedPhaseWeight = causticsPhase == 0 ? (1.0 - phaseT) : phaseT;
 	return support * selectedPhaseWeight;
 }
@@ -131,12 +126,12 @@ float DensityAt(float2 uv)
 
 int PhaseFromTransport(float4 transport)
 {
-	if (transport.b <= 0.5)
+	if (transport.g <= 0.5)
 	{
 		return -1;
 	}
 
-	return transport.a < 0.5 ? 0 : 1;
+	return transport.b < 0.5 ? 0 : 1;
 }
 
 float4 LoadVelocityPacked(int2 pixel)
@@ -185,14 +180,9 @@ int PhaseAt(float2 uv)
 	return ParticleFluidInsideUv01(uv) ? PhaseFromTransport(SampleTransport(uv)) : -1;
 }
 
-float PhaseScalarData(float4 transport, int phase)
-{
-	return phase == 0 ? transport.r : transport.g;
-}
-
 float3 RayColourFromTransport(float4 transport, int phase)
 {
-	float scalarData = PhaseScalarData(transport, phase);
+	float scalarData = transport.r;
 	return phase == 0
 		? ParticleFluidSampleColourMap(ColourMap, scalarData)
 		: ParticleFluidSampleColourMap(ColourMap2, scalarData);

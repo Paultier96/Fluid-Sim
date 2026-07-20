@@ -8,17 +8,13 @@ float3 ParticleFluidSamplePhaseGradientColour(float data, bool usePhase1)
 		: tex2D(ColourMap, float2(saturate(data), 0.5)).rgb;
 }
 
-float3 ParticleFluidSampleGradientColour(float4 combined, float density0, float density1, float fallbackData0, float fallbackData1, float fallbackPhaseT, int canCrossPhases, float densityThresholdValue, float phase0RenderBiasValue)
+float3 ParticleFluidSampleGradientColour(float4 combined, float density0, float density1, float fallbackData0, float fallbackData1, float phaseT)
 {
-	float sampleDensity = max(density0, density1);
-	float phaseRatio = ParticleFluidPhaseRatio(density0, density1);
-	float phaseBoundary = ParticleFluidPhaseBoundary(phase0RenderBiasValue);
-	float samplePhaseT = canCrossPhases != 0 && sampleDensity >= densityThresholdValue ? step(phaseBoundary, phaseRatio) : fallbackPhaseT;
 	float sampleData0 = density0 > 0.0001 ? combined.r / density0 : fallbackData0;
 	float sampleData1 = density1 > 0.0001 ? combined.b / density1 : fallbackData1;
 	float3 colour0 = ParticleFluidSamplePhaseGradientColour(sampleData0, false);
 	float3 colour1 = ParticleFluidSamplePhaseGradientColour(sampleData1, true);
-	return lerp(colour0, colour1, samplePhaseT);
+	return lerp(colour0, colour1, phaseT);
 }
 
 #endif

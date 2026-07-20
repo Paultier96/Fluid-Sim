@@ -251,10 +251,14 @@ namespace Seb.Fluid2D.Rendering
 				return;
 			}
 
-			_debugMaterial.SetTexture("CombinedTex", combinedAccumulationTexture);
-			_debugMaterial.SetTexture("NormalTex", normalAccumulationTexture);
-			_debugMaterial.SetTexture("VelocityTex", velocityTexture != null ? velocityTexture : Texture2D.blackTexture);
 			int debugShaderMode = GetDebugShaderMode(display, _lighting);
+			_debugMaterial.SetTexture("CombinedTex", combinedAccumulationTexture);
+			Texture normalDebugTexture = debugShaderMode == (int)ParticleDisplay2D.DebugVisualization.Gradient && materialRenderer.MaterialMaps.normalTexture != null
+				? materialRenderer.MaterialMaps.normalTexture
+				: Texture2D.blackTexture;
+			_debugMaterial.SetTexture("MaterialNormalTex", normalDebugTexture);
+			_debugMaterial.SetTexture("MaterialTransportTex", materialRenderer.MaterialMaps.transportTexture != null ? materialRenderer.MaterialMaps.transportTexture : Texture2D.blackTexture);
+			_debugMaterial.SetTexture("VelocityTex", velocityTexture != null ? velocityTexture : Texture2D.blackTexture);
 			Texture causticMotionDebugTexture = Texture2D.blackTexture;
 			if (_lighting != null)
 			{
@@ -268,28 +272,22 @@ namespace Seb.Fluid2D.Rendering
 			Texture causticDebugTexture =
 				_lighting == null ? Texture2D.blackTexture :
 				_lighting.directLight.temporalSettings.denoisingEnabled ? _lighting.directLight.temporalCaustics.causticTemporalTexture : _lighting.directLight.causticResolvedTexture;
-			bool renderSoftLight = _lighting != null && (_lighting.gaussianSss.ShouldRender() || _lighting.radianceCascadeGi.isActiveAndEnabled);
-			_debugMaterial.SetInt("metaballPhaseDiffuseLightEnabled", renderSoftLight ? 1 : 0);
 			Texture softLightPhase1Tex = _lighting != null && _lighting.currentSoftLightPhase1Texture != null
 				? _lighting.currentSoftLightPhase1Texture
 				: Texture2D.blackTexture;
 			Texture debugTex0 = Texture2D.blackTexture;
-			Texture debugTex1 = Texture2D.blackTexture;
 			switch (debugShaderMode)
 			{
 				case 7:
-				case 12:
-				case 13:
-				case 14:
+				case 11:
 					debugTex0 = causticDebugTexture != null ? causticDebugTexture : Texture2D.blackTexture;
 					break;
 				case 8:
 					debugTex0 = _lighting != null && _lighting.currentGaussianBlurTexture != null
 						? _lighting.currentGaussianBlurTexture
 						: Texture2D.blackTexture;
-					debugTex1 = softLightPhase1Tex;
 					break;
-				case 17:
+				case 9:
 					debugTex0 = softLightPhase1Tex;
 					break;
 				case 10:
@@ -297,17 +295,11 @@ namespace Seb.Fluid2D.Rendering
 					break;
 			}
 			_debugMaterial.SetTexture("DebugTex0", debugTex0);
-			_debugMaterial.SetTexture("DebugTex1", debugTex1);
-			_debugMaterial.SetColor("metaballPhase0DiffuseLightTint", _lighting != null ? _lighting.phase0Material.diffuseLightTint : Color.white);
-			_debugMaterial.SetColor("metaballPhase1DiffuseLightTint", _lighting != null ? _lighting.phase1Material.diffuseLightTint : Color.white);
-			_debugMaterial.SetFloat("metaballPhase0DiffuseAdditiveBlend", _lighting != null ? _lighting.phase0Material.diffuseAdditiveBlend : 0f);
-			_debugMaterial.SetFloat("metaballPhase1DiffuseAdditiveBlend", _lighting != null ? _lighting.phase1Material.diffuseAdditiveBlend : 0f);
 			_debugMaterial.SetInt("debugMode", debugShaderMode);
 			_debugMaterial.SetFloat("debugGradientMax", display.debugGradientMax);
 			_debugMaterial.SetFloat("motionDebugDeltaTime", display.sim.CurrentSimulationDeltaTime);
 			display.ApplyDebugClipSettings(_debugMaterial);
 			_debugMaterial.SetFloat("particleCausticDebugExposure", _lighting != null ? _lighting.lightManager.GetCausticDebugExposure() : 1f);
-			_debugMaterial.SetInt("particleCausticTemporalDebugEnabled", _lighting != null && _lighting.directLight.temporalSettings.denoisingEnabled ? 1 : 0);
 			_debugMaterial.SetVector("domainWorldCenter", _lighting != null ? _lighting.currentCausticWorldCenter : _currentRenderRegion.center);
 			_debugMaterial.SetVector("domainWorldSize", _lighting != null ? _lighting.currentCausticWorldSize : _currentRenderRegion.size);
 			blurMaterial.SetFloat("blurRadius", effectiveBlurRadius);
@@ -403,7 +395,7 @@ namespace Seb.Fluid2D.Rendering
 
 			targetCommandBuffer.BeginSample("Metaballs/Material Pipeline");
 			ParticleFluidLayoutBindings.ApplyBoundaryGlobals(targetCommandBuffer, display.sim.analyticBoundary);
-			if (_lighting != null && _lighting.debugMode != ParticleFluidLighting2D.LightingDebugVisualization.None && _debugMaterial != null)
+			if ((display.debugMode != ParticleDisplay2D.DebugVisualization.None || _lighting != null && _lighting.debugMode != ParticleFluidLighting2D.LightingDebugVisualization.None) && _debugMaterial != null)
 			{
 				ApplyDebugSettings(display, cam);
 				ParticleFluidPassBindings.ApplyMetaballDebugGlobals(targetCommandBuffer, display, cam, _lighting, display.GetEffectiveNormalStrength(display.EffectiveConfiguredBlurRadius));
@@ -445,8 +437,17 @@ namespace Seb.Fluid2D.Rendering
 		public bool ShouldUseMaterialPipeline(ParticleDisplay2D display)
 		{
 			return display != null
-			       && display.debugMode == ParticleDisplay2D.DebugVisualization.None
+			       && (display.debugMode == ParticleDisplay2D.DebugVisualization.None || UsesMaterialMapDebugMode(display.debugMode))
 			       && _lighting != null;
+		}
+
+		static bool UsesMaterialMapDebugMode(ParticleDisplay2D.DebugVisualization debugMode)
+		{
+			return debugMode is ParticleDisplay2D.DebugVisualization.Gradient
+			       or ParticleDisplay2D.DebugVisualization.Curvature
+			       or ParticleDisplay2D.DebugVisualization.Viscosity
+			       or ParticleDisplay2D.DebugVisualization.Density
+			       or ParticleDisplay2D.DebugVisualization.Temperature;
 		}
 
 		bool ShouldUseCroppedRenderRegion(ParticleDisplay2D display)
@@ -462,7 +463,7 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			ParticleFluidLighting2D.LightingDebugVisualization lightingDebug = _lighting.debugMode;
-			return lightingDebug is ParticleFluidLighting2D.LightingDebugVisualization.Caustics or ParticleFluidLighting2D.LightingDebugVisualization.SoftLight or ParticleFluidLighting2D.LightingDebugVisualization.RadianceCascadeRaw or ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion or ParticleFluidLighting2D.LightingDebugVisualization.TemporalRejection or ParticleFluidLighting2D.LightingDebugVisualization.TemporalClamp or ParticleFluidLighting2D.LightingDebugVisualization.ProjectedShadow;
+			return lightingDebug is ParticleFluidLighting2D.LightingDebugVisualization.Caustics or ParticleFluidLighting2D.LightingDebugVisualization.SoftLight or ParticleFluidLighting2D.LightingDebugVisualization.RadianceCascadeRaw or ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion or ParticleFluidLighting2D.LightingDebugVisualization.ProjectedShadow;
 		}
 
 		public static int GetDebugShaderMode(ParticleDisplay2D display, ParticleFluidLighting2D settings)
@@ -481,11 +482,9 @@ namespace Seb.Fluid2D.Rendering
 			{
 				ParticleFluidLighting2D.LightingDebugVisualization.Caustics => 7,
 				ParticleFluidLighting2D.LightingDebugVisualization.SoftLight => 8,
-				ParticleFluidLighting2D.LightingDebugVisualization.RadianceCascadeRaw => 17,
+				ParticleFluidLighting2D.LightingDebugVisualization.RadianceCascadeRaw => 9,
 				ParticleFluidLighting2D.LightingDebugVisualization.CausticMotion => 10,
-				ParticleFluidLighting2D.LightingDebugVisualization.TemporalRejection => 12,
-				ParticleFluidLighting2D.LightingDebugVisualization.TemporalClamp => 13,
-				ParticleFluidLighting2D.LightingDebugVisualization.ProjectedShadow => 14,
+				ParticleFluidLighting2D.LightingDebugVisualization.ProjectedShadow => 11,
 				_ => 0,
 			};
 		}

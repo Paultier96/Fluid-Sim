@@ -29,7 +29,7 @@ namespace Seb.Fluid2D.Rendering
 			Density = 4,
 			Temperature = 5,
 			BlobIds = 6,
-			ParticleMotion = 11,
+			ParticleMotion = 12,
 		}
 
 		public enum VectorFieldSource
@@ -45,8 +45,8 @@ namespace Seb.Fluid2D.Rendering
 		
 		public MetaballSettings metaballs = new ();
 
-		MetaballRenderer2D metaballRenderer;
-		internal MetaballRenderer2D MetaballRenderer => metaballRenderer ??= new MetaballRenderer2D();
+		private MetaballRenderer2D _metaballRenderer;
+		internal MetaballRenderer2D MetaballRenderer => _metaballRenderer ??= new MetaballRenderer2D();
 
 		const float BlurReferenceOrthoSize = 15f;
 
@@ -666,7 +666,7 @@ namespace Seb.Fluid2D.Rendering
 		{
 			ComputeHelper.Release(argsBuffer);
 			ComputeHelper.Release(vectorArgsBuffer);
-			metaballRenderer?.Release();
+			_metaballRenderer?.Release();
 			jumpFloodRenderer?.Release();
 			lighting?.Release();
 			if (vectorArrowMesh != null)

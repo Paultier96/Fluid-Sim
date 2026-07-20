@@ -40,8 +40,6 @@ float causticTemporalClampRejection;
 float causticTemporalRejectedSpatialFilter;
 int causticTemporalMotionSource;
 int causticProjectedShadowMapEnabled;
-float2 domainWorldCenter;
-float2 domainWorldSize;
 float2 causticHistoryWorldCenter;
 float2 causticHistoryWorldSize;		
 float2 causticProjectedShadowDirection;
@@ -176,7 +174,7 @@ float ProjectedShadowOccupancy(float2 worldPos, float2 regionCenter, float2 regi
 float4 fragCausticTemporal(v2f i) : SV_Target
 {
 	float3 current = tex2D(_MainTex, i.uv).rgb;
-	float2 worldPos = domainWorldCenter + (i.uv - 0.5) * max(domainWorldSize, float2(0.0001, 0.0001));
+	float2 worldPos = ParticleFluidDomainWorldFromUv(i.uv);
 	float2 stationaryHistoryUv = (worldPos - causticHistoryWorldCenter) / max(causticHistoryWorldSize, float2(0.0001, 0.0001)) + 0.5;
 	float2 historyUv = stationaryHistoryUv;
 	if (causticTemporalMotionSource == 1)
@@ -250,7 +248,7 @@ float4 fragCausticTemporal(v2f i) : SV_Target
 		reactiveMask = max(reactiveMask, saturate(previousShadow - currentShadow));
 	}
 	float effectiveHistoryWeight = historyWeight * (1.0 - reactiveMask);
-	float temporalDebug = debugMode == 13 ? clampAmount : debugMode == 14 ? currentShadow : reactiveMask;
+	float temporalDebug = debugMode == 11 ? currentShadow : reactiveMask;
 	return float4(lerp(current, validatedHistory, effectiveHistoryWeight), temporalDebug);
 }
 
@@ -332,7 +330,7 @@ float4 fragCausticMotionDilate(v2f i) : SV_Target
 
 float4 fragReprojectHistory(v2f i) : SV_Target
 {
-	float2 worldPos = domainWorldCenter + (i.uv - 0.5) * max(domainWorldSize, float2(0.0001, 0.0001));
+	float2 worldPos = ParticleFluidDomainWorldFromUv(i.uv);
 	float2 historyUv = (worldPos - causticHistoryWorldCenter) / max(causticHistoryWorldSize, float2(0.0001, 0.0001)) + 0.5;
 	float inBounds = step(0.0, historyUv.x) * step(historyUv.x, 1.0) * step(0.0, historyUv.y) * step(historyUv.y, 1.0);
 	return inBounds > 0.0 ? tex2D(_MainTex, historyUv) : 0.0;

@@ -83,7 +83,6 @@ namespace Seb.Fluid2D.Simulation
         public void Upload(
             ComputeShader compute,
             FluidSim2D sim,
-            ParticleFluidSimulationInput simulationInput,
             ParticleFluidSimulationDebug simulationDebug,
             ParticleDisplay2D particleDisplay,
             float deltaTime)
@@ -105,7 +104,7 @@ namespace Seb.Fluid2D.Simulation
             UploadMergeCoilSettings(compute, sim);
             UploadSurfaceTensionSettings(compute, sim);
             simulationDebug.UploadSettings(compute, particleDisplay);
-            UploadInteractionSettings(compute, sim, simulationInput, particleDisplay);
+            UploadInteractionSettings(compute, particleDisplay.interactionCursor);
             UploadCarrierWedgeSettings(compute, sim);
         }
 
@@ -200,31 +199,24 @@ namespace Seb.Fluid2D.Simulation
             compute.SetFloat(MaxSurfaceTensionCurvature, sim.maxSurfaceTensionCurvature);
         }
 
-        static void UploadInteractionSettings(
-            ComputeShader compute,
-            FluidSim2D sim,
-            ParticleFluidSimulationInput simulationInput,
-            ParticleDisplay2D particleDisplay)
+        static void UploadInteractionSettings(ComputeShader compute, ParticleFluidInteractionCursor2D cursor)
         {
-            ParticleFluidSimulationInput.Interaction interaction = simulationInput.PollInteraction(particleDisplay,
-                sim.interactionStrength,
-                sim.cursorHeatBrushTemperature,
-                sim.cursorCoolBrushTemperature);
-            compute.SetVector(InteractionInputPoint, interaction.position);
-            compute.SetVector(InteractionInputVelocity, interaction.velocity);
+            ParticleFluidInteractionCursor2D.Interaction interaction = cursor.PollInteraction();
+            compute.SetVector(InteractionInputPoint, cursor.transform.position);
+            compute.SetVector(InteractionInputVelocity, cursor.currentWorldVelocity);
             compute.SetFloat(InteractionInputStrength, interaction.strength);
-            compute.SetFloat(InteractionInputRadius, sim.interactionRadius);
-            compute.SetFloat(CursorVelocityTransferStrength, sim.cursorVelocityTransferStrength);
+            compute.SetFloat(InteractionInputRadius, cursor.interactionRadius);
+            compute.SetFloat(CursorVelocityTransferStrength, cursor.cursorVelocityTransferStrength);
             compute.SetBool(CursorTemperatureBrushActive, interaction.heatBrushActive);
-            compute.SetFloat(CursorTemperatureBrushRadius, sim.cursorTemperatureBrushRadius > 0f ? sim.cursorTemperatureBrushRadius : sim.interactionRadius);
+            compute.SetFloat(CursorTemperatureBrushRadius, cursor.cursorTemperatureBrushRadius > 0f ? cursor.cursorTemperatureBrushRadius : cursor.interactionRadius);
             compute.SetFloat(CursorTemperatureBrushTarget, interaction.heatBrushTargetTemperature);
-            compute.SetFloat(CursorTemperatureBrushTransferRate, sim.cursorTemperatureBrushTransferRate * interaction.heatBrushStrength);
+            compute.SetFloat(CursorTemperatureBrushTransferRate, cursor.cursorTemperatureBrushTransferRate * interaction.heatBrushStrength);
         }
 
         static void UploadCarrierWedgeSettings(ComputeShader compute, FluidSim2D sim)
         {
             compute.SetFloat(BlobBlobCohesion, sim.blobBlobCohesion);
-            compute.SetInt(CarrierWedgePhase, ClampPhaseIndex(sim, sim.carrierWedgePhase));
+            compute.SetInt(CarrierWedgePhase, Mathf.Clamp((int)sim.carrierWedgePhase, 0, sim.phases.Length - 1));
             compute.SetFloat(CarrierWedgeDistanceMultiplier, sim.carrierWedgeDistanceMultiplier);
             compute.SetFloat(CarrierWedgeStrength, sim.carrierWedgeStrength);
             compute.SetFloat(CarrierWedgeViscosityMultiplier, sim.carrierWedgeViscosityMultiplier);
@@ -235,16 +227,9 @@ namespace Seb.Fluid2D.Simulation
             compute.SetFloat(CarrierWedgeMaxDirectionDot, sim.carrierWedgeMaxDirectionDot);
         }
 
-        static int ClampPhaseIndex(FluidSim2D sim, FluidSim2D.LiquidPhase phase)
-        {
-            return Mathf.Clamp((int)phase, 0, sim.phases.Length - 1);
-        }
-
         static int PhaseFilterToIndex(FluidSim2D sim, FluidSim2D.LiquidPhaseFilter phase)
         {
-            return phase == FluidSim2D.LiquidPhaseFilter.All
-                ? -1
-                : Mathf.Clamp((int)phase, 0, sim.phases.Length - 1);
+            return phase == FluidSim2D.LiquidPhaseFilter.All ? -1 : Mathf.Clamp((int)phase, 0, sim.phases.Length - 1);
         }
     }
 }

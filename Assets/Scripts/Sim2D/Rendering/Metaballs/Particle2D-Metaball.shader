@@ -98,7 +98,7 @@ Shader "Instanced/Particle2DMetaball" {
 				float kernel = exp(-r2 * max(metaballSharpness, 0.01)) * metaballIntensity;
 				float maxAbsValue = max(debugGradientMax, 0.0001);
 
-				// Debug mode 6: non-water blob IDs contribute colour; water/ignored ID contributes black weight.
+				// non-water blob IDs contribute colour; water/ignored ID contributes black weight.
 				if (debugMode == 6)
 				{
 					return max(max(i.blobCol.r, i.blobCol.g), i.blobCol.b) > 0
@@ -106,7 +106,7 @@ Shader "Instanced/Particle2DMetaball" {
 						: float4(0, 0, 0, kernel);
 				}
 				
-				// Debug mode 4: density visualization
+				// density visualization
 				if (debugMode == 4)
 				{
 					float densityT = (i.density - debugDensityMin) / max(debugDensityMax - debugDensityMin, 0.0001);
@@ -114,7 +114,7 @@ Shader "Instanced/Particle2DMetaball" {
 					return i.phase < 0.5 ? float4(packed, 0, 0) : float4(0, 0, packed);
 				}
 				
-				// Debug mode 5: temperature visualization
+				// temperature visualization
 				if (debugMode == 5)
 				{
 					float2 packed = float2(i.tempT * kernel, kernel);

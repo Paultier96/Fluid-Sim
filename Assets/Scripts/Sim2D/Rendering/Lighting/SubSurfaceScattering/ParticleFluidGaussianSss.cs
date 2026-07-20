@@ -17,6 +17,8 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0f)] public float gaussianDiffuseScatterStrength = 0.33f;
 		[Min(0f)] public float gaussianDiffuseRadius = 50f;
 		[Range(0.01f, 1f)] public float gaussianDiffuseTextureScale = 0.25f;
+		[Tooltip("When enabled, only phase 0 seeds the Gaussian blur. Disable to blur the full sharp caustic texture before the final phase mask.")]
+		public bool gaussianDiffuseMaskInputToPhase0 = true;
 
 		private Material _phaseDiffuseLightInitMaterial;
 		private Material _gaussianDiffuseBlurMaterial;
@@ -76,6 +78,7 @@ namespace Seb.Fluid2D.Rendering
 			_phaseDiffuseLightInitMaterial.SetVector("softLightSize", new Vector4(gaussianSoftLightTexture0.width, gaussianSoftLightTexture0.height));
 			_phaseDiffuseLightInitMaterial.SetFloat("scatterStrengthA", gaussianDiffuseScatterStrength);
 			_phaseDiffuseLightInitMaterial.SetFloat("lightIntensity", 1f);
+			_phaseDiffuseLightInitMaterial.SetInt("maskInputToPhase0", gaussianDiffuseMaskInputToPhase0 ? 1 : 0);
 			ParticleFluidRenderUtils.DrawRegionQuad(targetCommandBuffer, gaussianSoftLightTexture0, _phaseDiffuseLightInitMaterial, 0, context.renderRegion, context.cam, true, Color.clear);
 
 			float gaussianRadiusScale = metaballSettings.renderTextureScale * directLightTextureScale * gaussianDiffuseTextureScale;

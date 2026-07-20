@@ -50,14 +50,6 @@ Shader "Hidden/RadianceCascadesSdf"
 			float3 _DirectionalLightDirection;
 			float3 _DirectionalLightColor;
 			float _DirectionalLightIntensity;
-			float2 domainWorldCenter;
-			float2 domainWorldSize;
-			int useEllipticalBounds;
-			float2 ellipseBoundsCenter;
-			float2 ellipseBoundsSize;
-			float obstacleY;
-			float analyticBoundaryExpansion;
-
 			#include "../Shared/ParticleFluidCommon.hlsl"
 			#include "../Shared/ParticleFluidAnalyticBoundary.hlsl"
 
@@ -377,7 +369,7 @@ Shader "Hidden/RadianceCascadesSdf"
 				if (useEllipticalBounds != 0)
 				{
 					float cullPaddingWorld = RadianceCascadeWorldTexel() * max(_RadianceBoundaryCullPaddingPixels, 0.0) * max((float)blockSqrtCount, 1.0);
-					float2 rayOriginWorld = ParticleFluidWorldFromUv(rayOrigin, domainWorldCenter, domainWorldSize);
+					float2 rayOriginWorld = ParticleFluidDomainWorldFromUv(rayOrigin);
 					if (OuterAnalyticBoundaryDistance(rayOriginWorld) > cullPaddingWorld)
 					{
 						return 0.0;

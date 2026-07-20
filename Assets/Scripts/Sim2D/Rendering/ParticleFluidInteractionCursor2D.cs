@@ -1,3 +1,4 @@
+using System;
 using Seb.Fluid2D.Simulation;
 using Seb.Helpers;
 using UnityEngine;
@@ -12,40 +13,30 @@ namespace Seb.Fluid2D.Rendering
 		public enum InteractionMode
 		{
 			Force,
-			Temperature
+			Temperature,
+			Lighting
 		}
 
-		[System.Serializable]
-		public struct CursorLightSettings
-		{
-			[Min(0f)] public float intensity;
-			[Range(1000f, 20000f)] public float temperatureKelvin;
-			[ColorUsage(false, true)] public Color color;
-
-			public CursorLightSettings(float intensity, float temperatureKelvin, Color color)
-			{
-				this.intensity = intensity;
-				this.temperatureKelvin = temperatureKelvin;
-				this.color = color;
-			}
-		}
-
-		[System.Serializable]
+		[Serializable]
 		public struct CursorStateSettings
 		{
-			[ColorUsage(false, true)] public Color color;
+			[ColorUsage(true, true)] public Color color;
 			[Range(0.1f, 0.9f)] public float innerRingRadiusFraction;
-			public CursorLightSettings light;
+			[Min(0f)] public float lightIntensity;
+			[Range(1000f, 20000f)] public float lightTemperatureKelvin;
+			[ColorUsage(false, true)] public Color lightColor;
 
-			public CursorStateSettings(Color color, float innerRingRadiusFraction, CursorLightSettings light)
+			public CursorStateSettings(Color color, float innerRingRadiusFraction, float lightIntensity, float lightTemperatureKelvin, Color lightColor)
 			{
 				this.color = color;
 				this.innerRingRadiusFraction = innerRingRadiusFraction;
-				this.light = light;
+				this.lightIntensity = lightIntensity;
+				this.lightTemperatureKelvin = lightTemperatureKelvin;
+				this.lightColor = lightColor;
 			}
 		}
 
-		[System.Serializable]
+		[Serializable]
 		public struct CursorModeSettings
 		{
 			public CursorStateSettings hover;
@@ -64,64 +55,87 @@ namespace Seb.Fluid2D.Rendering
 		public FluidSim2D sim;
 		public Camera targetCamera;
 		public ParticleFluidPointLight2D cursorLight;
+		public ParticleFluidLighting2D presetTargetLighting;
 
 		[Header("State Visuals")]
 		public CursorModeSettings force = new(
-			new CursorStateSettings(new Color(1f, 1f, 1f, 0.45f), 0.5f, new CursorLightSettings(0.15f, 6500f, Color.white)),
-			new CursorStateSettings(new Color(0.35f, 0.65f, 1f, 0.85f), 0.45f, new CursorLightSettings(0.35f, 9000f, Color.white)),
-			new CursorStateSettings(new Color(1f, 0.55f, 0.2f, 0.85f), 0.6f, new CursorLightSettings(0.35f, 3200f, Color.white)));
+			new CursorStateSettings(),
+			new CursorStateSettings(),
+			new CursorStateSettings());
 		public CursorModeSettings temperature = new(
-			new CursorStateSettings(new Color(1f, 1f, 1f, 0.45f), 0.5f, new CursorLightSettings(0.15f, 6500f, Color.white)),
-			new CursorStateSettings(new Color(1f, 0.2f, 0.05f, 0.9f), 0.35f, new CursorLightSettings(0.65f, 1800f, Color.white)),
-			new CursorStateSettings(new Color(0.2f, 0.85f, 1f, 0.9f), 0.7f, new CursorLightSettings(0.65f, 14000f, Color.white)));
+			new CursorStateSettings(),
+			new CursorStateSettings(),
+			new CursorStateSettings());
+		public CursorModeSettings lighting = new(
+			new CursorStateSettings(),
+			new CursorStateSettings(),
+			new CursorStateSettings());
 
 		[Header("Behaviour")]
 		public InteractionMode interactionMode = InteractionMode.Force;
-		[Min(0f)] public float minimumVisibleRadius = 0.001f;
 		[Min(0f)] public float modeTransitionDuration = 0.12f;
+		[Min(0f)] public float interactionRadius;
+		public float interactionStrength;
+		[Tooltip("How strongly particles inherit cursor velocity inside the interaction radius. 0 disables cursor stirring.")]
+		[Min(0f)] public float cursorVelocityTransferStrength = 1f;
+		[Tooltip("Radius of the cursor temperature brush. 0 uses the interaction radius.")]
+		[Min(0f)] public float cursorTemperatureBrushRadius = 0f;
+		[Tooltip("How quickly particles move toward the cursor brush target temperature.")]
+		[Min(0f)] public float cursorTemperatureBrushTransferRate = 5f;
+		public float cursorHeatBrushTemperature = 10f;
+		public float cursorCoolBrushTemperature = -10f;
+
+		[Header("Presets")]
+		public ParticleFluidPhaseLookPreset[] phaseLookPresets;
+		[Min(0)] public int activePhaseLookPresetIndex;
+		public InputActionReference cyclePresetAction;
 
 		[Header("Temperature Wave")]
-		[Min(0f)] public float idleTemperatureWaveAmplitudeMultiplier = 1f;
-		[Min(0f)] public float heatTemperatureWaveAmplitudeMultiplier = 1.7f;
-		[Min(0f)] public float coolTemperatureWaveAmplitudeMultiplier = 0.35f;
+		public float idleTemperatureWaveAmplitudeMultiplier = 1f;
+		public float heatTemperatureWaveAmplitudeMultiplier = 1.7f;
+		public float coolTemperatureWaveAmplitudeMultiplier = 0.35f;
 
 		[Header("Gamepad")]
 		public bool gamepadCursorEnabled = true;
 		[Tooltip("World units per second at full stick deflection.")]
 		[Min(0f)] public float gamepadCursorSpeed = 12f;
-		public bool clampGamepadCursorToCamera = true;
 
-		Mesh _mesh;
-		MeshFilter _meshFilter;
-		MeshRenderer _meshRenderer;
-		MaterialPropertyBlock _propertyBlock;
-		bool _hasGamepadCursorPosition;
-		Vector2 _gamepadCursorPosition;
-		Vector2 _gamepadCursorVelocity;
+		private Mesh _mesh;
+		private MeshFilter _meshFilter;
+		private MeshRenderer _meshRenderer;
+		private MaterialPropertyBlock _propertyBlock;
+		private bool _hasGamepadCursorPosition;
+		private Vector2 _gamepadCursorPosition;
+		private Vector2 _gamepadCursorVelocity;
 		public Vector2 currentWorldVelocity;
-		Vector2 _lastMouseScreenPosition;
-		bool _hasLastMouseScreenPosition;
-		Vector2 _lastMouseWorldPosition;
-		bool _hasLastMouseWorldPosition;
-		bool _hasAnimatedVisualState;
-		Color _animatedColor;
-		float _animatedInnerRingRadiusFraction;
-		float _animatedTemperatureWaveAmplitudeMultiplier = 1f;
-		CursorLightSettings _animatedLightSettings;
+		private Vector2 _lastMouseWorldPosition;
+		private bool _hasLastMouseWorldPosition;
+		private bool _hasAnimatedVisualState;
+		private Color _animatedColor;
+		private float _animatedRadius;
+		private float _animatedInnerRingRadiusFraction;
+		private float _animatedInnerRotation;
+		private float _targetInnerRotation;
+		private float _animatedTemperatureWaveAmplitudeMultiplier = 1f;
+		private float _animatedLightIntensity;
+		private float _animatedLightTemperatureKelvin;
+		private Color _animatedLightColor;
 
-		static readonly int ColorId = Shader.PropertyToID("_Color");
-		static readonly int RadiusId = Shader.PropertyToID("_Radius");
-		static readonly int CursorWorldRadiusId = Shader.PropertyToID("_CursorWorldRadius");
-		static readonly int InnerRadiusFractionId = Shader.PropertyToID("_InnerRadiusFraction");
-		static readonly int ModeId = Shader.PropertyToID("_Mode");
-		static readonly int CursorFamilyId = Shader.PropertyToID("_CursorFamily");
-		static readonly int TemperatureWaveAmplitudeMultiplierId = Shader.PropertyToID("_TemperatureWaveAmplitudeMultiplier");
+		private static readonly int ColorId = Shader.PropertyToID("_Color");
+		private static readonly int RadiusId = Shader.PropertyToID("_Radius");
+		private static readonly int ThicknessId = Shader.PropertyToID("_Thickness");
+		private static readonly int CursorWorldRadiusId = Shader.PropertyToID("_CursorWorldRadius");
+		private static readonly int ShadowSoftnessId = Shader.PropertyToID("_ShadowSoftness");
+		private static readonly int UvScaleId = Shader.PropertyToID("_UvScale");
+		private static readonly int InnerRadiusFractionId = Shader.PropertyToID("_InnerRadiusFraction");
+		private static readonly int InnerRotationId = Shader.PropertyToID("_InnerRotation");
+		private static readonly int InteractionId = Shader.PropertyToID("_Interaction");
+		private static readonly int CursorFamilyId = Shader.PropertyToID("_CursorFamily");
+		private static readonly int TemperatureWaveAmplitudeMultiplierId = Shader.PropertyToID("_TemperatureWaveAmplitudeMultiplier");
 		
-		private InputSystem_Actions _actions;
 
-		void Awake()
+		private void Awake()
 		{
-			_actions = ParticleFluidSimulationInput.Actions;
 			_meshFilter = GetComponent<MeshFilter>();
 			_meshRenderer = GetComponent<MeshRenderer>();
 			_propertyBlock = new MaterialPropertyBlock();
@@ -139,86 +153,186 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
-		void OnEnable()
+		private void OnEnable()
 		{
-			_actions.Player.switchMode.performed += ToggleInteractionMode;
+			Actions.Player.switchMode.performed += RotateInteractionMode;
+			if (cyclePresetAction != null)
+			{
+				cyclePresetAction.action.performed += CyclePhaseLookPreset;
+				cyclePresetAction.action.Enable();
+			}
 		}
 
-		void OnDisable()
+		private void OnDisable()
 		{
-			_actions.Player.switchMode.performed -= ToggleInteractionMode;
-			if (_meshRenderer != null)
+			Actions.Player.switchMode.performed -= RotateInteractionMode;
+			if (cyclePresetAction != null)
 			{
-				_meshRenderer.enabled = false;
+				cyclePresetAction.action.performed -= CyclePhaseLookPreset;
+			}
+			_meshRenderer.enabled = false;
+			_hasAnimatedVisualState = false;
+			if (cursorLight != null)
+			{
+				cursorLight.intensity = 0f;
 			}
 
-			_hasAnimatedVisualState = false;
-			DisableCursorLight();
 			Cursor.visible = true;
 		}
 
-		void LateUpdate()
+		private void LateUpdate()
 		{
-			if (!TryResolveCursorWorldPosition(targetCamera, out Vector2 worldPosition, out Vector2 worldVelocity))
+			if (Actions.Player.PointerDelta.ReadValue<Vector2>().sqrMagnitude > 0.0001f)
 			{
-				SetVisible(false);
-				return;
+				_hasGamepadCursorPosition = false;
 			}
 
-			float interaction = ParticleFluidSimulationInput.ReadInteractionAxis();
-			float radius = ResolveRadius();
-			if (radius <= minimumVisibleRadius)
+			if (!TryUpdateGamepadCursor(targetCamera, out Vector2 worldPosition, out Vector2 worldVelocity))
 			{
-				SetVisible(false);
-				return;
+				worldPosition = targetCamera.ScreenToWorldPoint(Mouse.current.position.ReadValue());
+				worldVelocity = CalculateMouseWorldVelocity(worldPosition);
 			}
 
-			SetVisible(true);
-			currentWorldVelocity = worldVelocity;
-			transform.position = new Vector3(worldPosition.x, worldPosition.y, 0);
-			float quadSize = radius / GetMaterialCursorRadius() * 2f;
-			transform.localScale = new Vector3(quadSize, quadSize, 1f);
-
-			UpdateAnimatedVisualState(interaction);
-			ApplyMaterialProperties(interaction, radius);
-			ApplyCursorLight(worldPosition);
-		}
-
-		void ToggleInteractionMode(InputAction.CallbackContext context)
-		{
-			interactionMode = interactionMode == InteractionMode.Force
-				? InteractionMode.Temperature
-				: InteractionMode.Force;
-		}
-
-		float ResolveRadius()
-		{
+			float targetRadius;
 			if (interactionMode == InteractionMode.Temperature)
 			{
-				return sim.cursorTemperatureBrushRadius > 0f ? sim.cursorTemperatureBrushRadius : sim.interactionRadius;
+				targetRadius = cursorTemperatureBrushRadius > 0f ? cursorTemperatureBrushRadius : interactionRadius;
 			}
-			return sim.interactionRadius;
+			else
+			{
+				targetRadius = interactionRadius;
+			}
+			_meshRenderer.enabled = true;
+			Cursor.visible = false;
+
+			currentWorldVelocity = worldVelocity;
+			transform.position =  worldPosition;
+			float interaction = Actions.Player.Interact.ReadValue<float>();
+			UpdateAnimatedVisualState(interaction, targetRadius);
+
+			Material material = _meshRenderer.sharedMaterial;
+			float uvScale = Mathf.Max(1f, material.GetFloat(RadiusId) + material.GetFloat(ShadowSoftnessId) + material.GetFloat(ThicknessId));
+			float quadSize = _animatedRadius / Mathf.Max(_meshRenderer.sharedMaterial.GetFloat(RadiusId), 0.0001f) * uvScale * 2f;
+			transform.localScale = new Vector3(quadSize, quadSize, 1f);
+
+			ApplyMaterialProperties(interaction, _animatedRadius, uvScale);
+			cursorLight.transform.position = worldPosition;
+			cursorLight.intensity = _animatedLightIntensity;
+			cursorLight.temperatureKelvin = _animatedLightTemperatureKelvin;
+			cursorLight.color = _animatedLightColor;
 		}
 
-		CursorStateSettings ResolveStateSettings(float interaction)
+		private void RotateInteractionMode(InputAction.CallbackContext context)
 		{
-			CursorModeSettings modeSettings = interactionMode == InteractionMode.Temperature
-				? temperature
-				: force;
+			int interactionModeCount = Enum.GetNames(typeof(InteractionMode)).Length;
+			int input = (int)context.ReadValue<float>();
+			int next = ((int)interactionMode + input + interactionModeCount) % interactionModeCount;
+			interactionMode = (InteractionMode)next;
+			_targetInnerRotation += input * Mathf.PI * 0.5f;
+		}
 
-			float amount = Mathf.Abs(interaction);
-			if (amount <= 0f)
+		private void CyclePhaseLookPreset(InputAction.CallbackContext context)
+		{
+			int direction = Mathf.RoundToInt(context.ReadValue<float>());
+			if (direction == 0)
 			{
-				return modeSettings.hover;
+				direction = 1;
 			}
+			CyclePhaseLookPreset(direction);
+		}
+
+		public void CyclePhaseLookPreset(int direction)
+		{
+			if (phaseLookPresets == null || phaseLookPresets.Length == 0 || direction == 0)
+			{
+				return;
+			}
+
+			activePhaseLookPresetIndex = Mod(activePhaseLookPresetIndex + direction, phaseLookPresets.Length);
+			ApplyActivePhaseLookPreset();
+		}
+
+		public void NextPhaseLookPreset()
+		{
+			CyclePhaseLookPreset(1);
+		}
+
+		public void PreviousPhaseLookPreset()
+		{
+			CyclePhaseLookPreset(-1);
+		}
+
+		public void ApplyActivePhaseLookPreset()
+		{
+			ParticleFluidLighting2D targetLighting = ResolvePresetTargetLighting();
+			ParticleFluidPhaseLookPreset preset = GetActivePhaseLookPreset();
+			if (targetLighting == null || preset == null)
+			{
+				return;
+			}
+
+			targetLighting.phaseLookPreset = preset;
+			targetLighting.ApplyPhaseLookPreset();
+		}
+
+		private ParticleFluidPhaseLookPreset GetActivePhaseLookPreset()
+		{
+			if (phaseLookPresets == null || phaseLookPresets.Length == 0)
+			{
+				return null;
+			}
+
+			activePhaseLookPresetIndex = Mod(activePhaseLookPresetIndex, phaseLookPresets.Length);
+			return phaseLookPresets[activePhaseLookPresetIndex];
+		}
+
+		private ParticleFluidLighting2D ResolvePresetTargetLighting()
+		{
+			if (presetTargetLighting != null)
+			{
+				return presetTargetLighting;
+			}
+
+			ParticleDisplay2D display = sim != null ? sim.GetComponent<ParticleDisplay2D>() : null;
+			if (display != null && display.ActiveLighting != null)
+			{
+				presetTargetLighting = display.ActiveLighting;
+			}
+			else
+			{
+				presetTargetLighting = FindAnyObjectByType<ParticleFluidLighting2D>();
+			}
+
+			return presetTargetLighting;
+		}
+
+		private static int Mod(int value, int length)
+		{
+			return (value % length + length) % length;
+		}
+
+		private CursorStateSettings ResolveStateSettings(float interaction)
+		{
+			CursorModeSettings modeSettings = interactionMode switch
+			{
+				InteractionMode.Temperature => temperature,
+				InteractionMode.Lighting => lighting,
+				_ => force
+			};
 
 			CursorStateSettings activeSettings = interaction >= 0f
 				? modeSettings.primary
 				: modeSettings.secondary;
-			return LerpStateSettings(modeSettings.hover, activeSettings, amount);
+
+			return new CursorStateSettings(
+				Color.Lerp(modeSettings.hover.color, activeSettings.color, Mathf.Abs(interaction)),
+				Mathf.Lerp(modeSettings.hover.innerRingRadiusFraction, activeSettings.innerRingRadiusFraction, Mathf.Abs(interaction)),
+				Mathf.Lerp(modeSettings.hover.lightIntensity, activeSettings.lightIntensity, Mathf.Abs(interaction)),
+				Mathf.Lerp(modeSettings.hover.lightTemperatureKelvin, activeSettings.lightTemperatureKelvin, Mathf.Abs(interaction)),
+				Color.Lerp(modeSettings.hover.lightColor, activeSettings.lightColor, Mathf.Abs(interaction)));
 		}
 
-		float ResolveTemperatureWaveAmplitudeMultiplier(float interaction)
+		private float ResolveTemperatureWaveAmplitudeMultiplier(float interaction)
 		{
 			if (interactionMode != InteractionMode.Temperature)
 			{
@@ -231,147 +345,61 @@ namespace Seb.Fluid2D.Rendering
 				return idleTemperatureWaveAmplitudeMultiplier;
 			}
 
-			float activeMultiplier = interaction >= 0f
-				? heatTemperatureWaveAmplitudeMultiplier
-				: coolTemperatureWaveAmplitudeMultiplier;
+			float activeMultiplier = interaction >= 0f ? heatTemperatureWaveAmplitudeMultiplier : coolTemperatureWaveAmplitudeMultiplier;
 			return Mathf.Lerp(idleTemperatureWaveAmplitudeMultiplier, activeMultiplier, amount);
 		}
 
-		int ResolveShaderMode(float interaction)
-		{
-			bool primary = interaction > 0.01f;
-			bool secondary = interaction < -0.01f;
-			return interactionMode switch
-			{
-				InteractionMode.Force when primary => 1,
-				InteractionMode.Force when secondary => 2,
-				InteractionMode.Temperature when primary => 3,
-				InteractionMode.Temperature when secondary => 4,
-				_ => 0
-			};
-		}
-
-		void UpdateAnimatedVisualState(float interaction)
+		private void UpdateAnimatedVisualState(float interaction, float targetRadius)
 		{
 			CursorStateSettings targetSettings = ResolveStateSettings(interaction);
 			float targetTemperatureWaveAmplitudeMultiplier = ResolveTemperatureWaveAmplitudeMultiplier(interaction);
 			if (!_hasAnimatedVisualState || modeTransitionDuration <= 0f)
 			{
 				_animatedColor = targetSettings.color;
+				_animatedRadius = targetRadius;
 				_animatedInnerRingRadiusFraction = targetSettings.innerRingRadiusFraction;
+				_animatedInnerRotation = _targetInnerRotation;
 				_animatedTemperatureWaveAmplitudeMultiplier = targetTemperatureWaveAmplitudeMultiplier;
-				_animatedLightSettings = targetSettings.light;
+				_animatedLightIntensity = targetSettings.lightIntensity;
+				_animatedLightTemperatureKelvin = targetSettings.lightTemperatureKelvin;
+				_animatedLightColor = targetSettings.lightColor;
 				_hasAnimatedVisualState = true;
 				return;
 			}
 
 			float t = 1f - Mathf.Exp(-Time.deltaTime / modeTransitionDuration);
 			_animatedColor = Color.Lerp(_animatedColor, targetSettings.color, t);
+			_animatedRadius = Mathf.Lerp(_animatedRadius, targetRadius, t);
 			_animatedInnerRingRadiusFraction = Mathf.Lerp(_animatedInnerRingRadiusFraction, targetSettings.innerRingRadiusFraction, t);
+			_animatedInnerRotation = Mathf.Lerp(_animatedInnerRotation, _targetInnerRotation, t);
 			_animatedTemperatureWaveAmplitudeMultiplier = Mathf.Lerp(_animatedTemperatureWaveAmplitudeMultiplier, targetTemperatureWaveAmplitudeMultiplier, t);
-			_animatedLightSettings = LerpLightSettings(_animatedLightSettings, targetSettings.light, t);
+			_animatedLightIntensity = Mathf.Lerp(_animatedLightIntensity, targetSettings.lightIntensity, t);
+			_animatedLightTemperatureKelvin = Mathf.Lerp(_animatedLightTemperatureKelvin, targetSettings.lightTemperatureKelvin, t);
+			_animatedLightColor = Color.Lerp(_animatedLightColor, targetSettings.lightColor, t);
 		}
 
-		static CursorLightSettings LerpLightSettings(CursorLightSettings current, CursorLightSettings target, float t)
-		{
-			return new CursorLightSettings(
-				Mathf.Lerp(current.intensity, target.intensity, t),
-				Mathf.Lerp(current.temperatureKelvin, target.temperatureKelvin, t),
-				Color.Lerp(current.color, target.color, t));
-		}
-
-		static CursorStateSettings LerpStateSettings(CursorStateSettings current, CursorStateSettings target, float t)
-		{
-			return new CursorStateSettings(
-				Color.Lerp(current.color, target.color, t),
-				Mathf.Lerp(current.innerRingRadiusFraction, target.innerRingRadiusFraction, t),
-				LerpLightSettings(current.light, target.light, t));
-		}
-
-		void ApplyMaterialProperties(float interaction, float radius)
+		private void ApplyMaterialProperties(float interaction, float radius, float uvScale)
 		{
 			_propertyBlock ??= new MaterialPropertyBlock();
 			_meshRenderer.GetPropertyBlock(_propertyBlock);
 			_propertyBlock.SetColor(ColorId, _animatedColor);
 			_propertyBlock.SetFloat(CursorWorldRadiusId, radius);
+			_propertyBlock.SetFloat(UvScaleId, uvScale);
 			_propertyBlock.SetFloat(InnerRadiusFractionId, _animatedInnerRingRadiusFraction);
-			_propertyBlock.SetInt(ModeId, ResolveShaderMode(interaction));
+			_propertyBlock.SetFloat(InnerRotationId, _animatedInnerRotation);
+			_propertyBlock.SetFloat(InteractionId, interaction);
 			_propertyBlock.SetInt(CursorFamilyId, interactionMode switch
 			{
 				InteractionMode.Force => 1,
 				InteractionMode.Temperature => 2,
+				InteractionMode.Lighting => 3,
 				_ => 0
 			});
 			_propertyBlock.SetFloat(TemperatureWaveAmplitudeMultiplierId, _animatedTemperatureWaveAmplitudeMultiplier);
 			_meshRenderer.SetPropertyBlock(_propertyBlock);
 		}
 
-		float GetMaterialCursorRadius()
-		{
-			Material material = _meshRenderer != null ? _meshRenderer.sharedMaterial : null;
-			if (material != null && material.HasProperty(RadiusId))
-			{
-				return Mathf.Max(material.GetFloat(RadiusId), 0.0001f);
-			}
-
-			return 0.85f;
-		}
-
-		void ApplyCursorLight(Vector2 worldPosition)
-		{
-			if (cursorLight == null)
-			{
-				return;
-			}
-
-			Vector3 lightPosition = cursorLight.transform.position;
-			lightPosition.x = worldPosition.x;
-			lightPosition.y = worldPosition.y;
-			cursorLight.transform.position = lightPosition;
-			cursorLight.intensity = _animatedLightSettings.intensity;
-			cursorLight.temperatureKelvin = _animatedLightSettings.temperatureKelvin;
-			cursorLight.color = _animatedLightSettings.color;
-		}
-
-		bool TryResolveCursorWorldPosition(Camera cam, out Vector2 worldPosition, out Vector2 worldVelocity)
-		{
-			if (MouseMovedSinceLastFrame())
-			{
-				_hasGamepadCursorPosition = false;
-			}
-
-			if (TryUpdateGamepadCursor(cam, out worldPosition, out worldVelocity))
-			{
-				return true;
-			}
-
-			if (TryGetMouseWorldPosition(cam, out worldPosition))
-			{
-				worldVelocity = CalculateMouseWorldVelocity(worldPosition);
-				return true;
-			}
-
-			_hasLastMouseWorldPosition = false;
-			worldVelocity = default;
-			return false;
-		}
-
-		bool MouseMovedSinceLastFrame()
-		{
-			if (Mouse.current == null)
-			{
-				_hasLastMouseScreenPosition = false;
-				return false;
-			}
-
-			Vector2 mousePosition = Mouse.current.position.ReadValue();
-			bool moved = _hasLastMouseScreenPosition && (mousePosition - _lastMouseScreenPosition).sqrMagnitude > 0.01f;
-			_lastMouseScreenPosition = mousePosition;
-			_hasLastMouseScreenPosition = true;
-			return moved;
-		}
-
-		bool TryUpdateGamepadCursor(Camera cam, out Vector2 worldPosition, out Vector2 worldVelocity)
+		private bool TryUpdateGamepadCursor(Camera cam, out Vector2 worldPosition, out Vector2 worldVelocity)
 		{
 			worldPosition = default;
 			worldVelocity = default;
@@ -380,7 +408,8 @@ namespace Seb.Fluid2D.Rendering
 				return false;
 			}
 
-			Vector2 cursorMove = GetVirtualCursorMove();
+			Vector2 cursorMove = Actions.Player.GamepadCursor.ReadValue<Vector2>();
+			
 			if (cursorMove.sqrMagnitude <= 0f)
 			{
 				if (_hasGamepadCursorPosition)
@@ -396,18 +425,19 @@ namespace Seb.Fluid2D.Rendering
 
 			if (!_hasGamepadCursorPosition)
 			{
-				_gamepadCursorPosition = TryGetMouseWorldPosition(cam, out Vector2 mouseWorldPosition)
-					? mouseWorldPosition
-					: cam.transform.position;
+				_gamepadCursorPosition = cam.ScreenToWorldPoint(Mouse.current.position.ReadValue());
 				_hasGamepadCursorPosition = true;
 			}
 
 			_gamepadCursorVelocity = cursorMove * gamepadCursorSpeed;
 			_gamepadCursorPosition += _gamepadCursorVelocity * Time.deltaTime;
-			if (clampGamepadCursorToCamera)
-			{
-				_gamepadCursorPosition = ClampToCameraView(cam, _gamepadCursorPosition);
-			}
+
+			Vector3 viewport = cam.WorldToViewportPoint(_gamepadCursorPosition);
+
+			viewport.x = Mathf.Clamp01(viewport.x);
+			viewport.y = Mathf.Clamp01(viewport.y);
+		
+			_gamepadCursorPosition = cam.ViewportToWorldPoint(viewport);
 
 			worldPosition = _gamepadCursorPosition;
 			worldVelocity = _gamepadCursorVelocity;
@@ -415,15 +445,7 @@ namespace Seb.Fluid2D.Rendering
 			return true;
 		}
 
-		Vector2 GetVirtualCursorMove()
-		{
-			InputAction cursorAction = ParticleFluidSimulationInput.Actions.Player.Cursor;
-			return cursorAction.activeControl?.device is Gamepad or Keyboard
-				? cursorAction.ReadValue<Vector2>()
-				: Vector2.zero;
-		}
-
-		Vector2 CalculateMouseWorldVelocity(Vector2 worldPosition)
+		private Vector2 CalculateMouseWorldVelocity(Vector2 worldPosition)
 		{
 			Vector2 velocity = Vector2.zero;
 			if (_hasLastMouseWorldPosition && Time.deltaTime > 0f)
@@ -436,53 +458,58 @@ namespace Seb.Fluid2D.Rendering
 			return velocity;
 		}
 
-		Vector2 ClampToCameraView(Camera cam, Vector2 worldPosition)
+		private static InputSystem_Actions _actions;
+
+		public static InputSystem_Actions Actions
 		{
-			float halfHeight = cam.orthographicSize;
-			float halfWidth = halfHeight * cam.aspect;
-			Vector3 center = cam.transform.position;
-			return new Vector2(
-				Mathf.Clamp(worldPosition.x, center.x - halfWidth, center.x + halfWidth),
-				Mathf.Clamp(worldPosition.y, center.y - halfHeight, center.y + halfHeight));
-		}
-
-		bool TryGetMouseWorldPosition(Camera cam, out Vector2 worldPosition)
-		{
-			worldPosition = default;
-			Vector3 mousePosition = Mouse.current.position.ReadValue();
-			if (mousePosition.x < 0f || mousePosition.y < 0f || mousePosition.x > cam.pixelWidth || mousePosition.y > cam.pixelHeight)
+			get
 			{
-				return false;
-			}
+				_actions ??= new InputSystem_Actions();
 
-			Vector2 screenPoint = new(mousePosition.x, mousePosition.y);
-			Vector3 world = cam.ScreenToWorldPoint(screenPoint);
-			worldPosition = world;
-			return float.IsFinite(worldPosition.x) && float.IsFinite(worldPosition.y);
-		}
-
-		void SetVisible(bool visible)
-		{
-			if (_meshRenderer != null)
-			{
-				_meshRenderer.enabled = visible;
-			}
-
-			Cursor.visible = !visible;
-			if (!visible)
-			{
-				_hasAnimatedVisualState = false;
-				DisableCursorLight();
+				if (!_actions.Player.enabled)
+				{
+					_actions.Player.Enable();
+				}
+				return _actions;
 			}
 		}
-
-		void DisableCursorLight()
+		
+		
+		public readonly struct Interaction
 		{
-			if (cursorLight != null)
+			public readonly float strength;
+			public readonly bool heatBrushActive;
+			public readonly float heatBrushTargetTemperature;
+			public readonly float heatBrushStrength;
+
+			public Interaction(float strength, bool heatBrushActive, float heatBrushTargetTemperature, float heatBrushStrength)
 			{
-				cursorLight.intensity = 0f;
+				this.strength = strength;
+				this.heatBrushActive = heatBrushActive;
+				this.heatBrushTargetTemperature = heatBrushTargetTemperature;
+				this.heatBrushStrength = heatBrushStrength;
 			}
 		}
+		
+		public Interaction PollInteraction()
+		{
+			float cursorStrength = 0f;
+			float cursorTargetTemperature = 0;
+			float cursorTemperatureStrength = 0f;
+			bool isTemperatureActive = false;
+			float interaction = Mathf.Clamp(Actions.Player.Interact.ReadValue<float>(), -1f, 1f);
 
+			if (interactionMode == InteractionMode.Force)
+			{
+				cursorStrength = interaction * interactionStrength;
+			}
+			else if (interactionMode == InteractionMode.Temperature)
+			{
+				isTemperatureActive = Mathf.Abs(interaction) > 0.01f;
+				cursorTemperatureStrength = Mathf.Abs(interaction);
+				cursorTargetTemperature = interaction >= 0f ? cursorHeatBrushTemperature : cursorCoolBrushTemperature;
+			}
+			return new Interaction(cursorStrength, isTemperatureActive, cursorTargetTemperature, cursorTemperatureStrength);
+		}
 	}
 }

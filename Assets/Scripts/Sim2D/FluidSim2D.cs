@@ -1,7 +1,9 @@
 using Seb.Helpers;
 using System;
+using Seb.Fluid2D.Rendering;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace Seb.Fluid2D.Simulation
 {
@@ -71,18 +73,6 @@ namespace Seb.Fluid2D.Simulation
         [Tooltip("Distance from boundary over which wall-pressure support is applied. Set to 0 to use smoothing radius.")]
         [Min(0f)] public float wallPressureRadius = 0f;
 
-        [Header("Interaction Settings")]
-        [Min(0f)] public float interactionRadius;
-        public float interactionStrength;
-        [Tooltip("How strongly particles inherit cursor velocity inside the interaction radius. 0 disables cursor stirring.")]
-        [Min(0f)] public float cursorVelocityTransferStrength = 1f;
-        [Tooltip("Radius of the cursor temperature brush. 0 uses the interaction radius.")]
-        [Min(0f)] public float cursorTemperatureBrushRadius = 0f;
-        [Tooltip("How quickly particles move toward the cursor brush target temperature.")]
-        [Min(0f)] public float cursorTemperatureBrushTransferRate = 5f;
-        public float cursorHeatBrushTemperature = 10f;
-        public float cursorCoolBrushTemperature = -10f;
-        
         [Header("Buoyancy")]
         [Tooltip("Scales thermal buoyancy inversion based on local density contrast.")]
         public float buoyancyInversionStrength = 1.0f;
@@ -198,7 +188,6 @@ namespace Seb.Fluid2D.Simulation
         internal readonly ParticleFluidSimulationResources resources = new();
         private readonly ParticleFluidSimulationKernels _kernels = new();
         private readonly ParticleFluidSimulationTiming _timing = new();
-        private readonly ParticleFluidSimulationInput _simulationInput = new();
         private readonly ParticleFluidPhaseDataUploader _phaseDataUploader = new();
         internal readonly ParticleFluidSimulationDebug simulationDebug = new();
         private readonly ParticleFluidSimulationSettingsUploader _settingsUploader = new();
@@ -227,7 +216,7 @@ namespace Seb.Fluid2D.Simulation
         public float CurrentDisplayRefreshRate { get; private set; }
 
         // Runtime-change tracking
-        private Rendering.ParticleDisplay2D _particleDisplay;
+        private ParticleDisplay2D _particleDisplay;
         public ParticleFluidAnalyticBoundary2D analyticBoundary;
 
         void Awake()
@@ -236,11 +225,21 @@ namespace Seb.Fluid2D.Simulation
             spawner2D ??= GetComponent<Spawner2D>();
         }
 
+        void OnEnable()
+        {
+            ParticleFluidInteractionCursor2D.Actions.Player.Pause.performed += TogglePause;
+        }
+
+        void OnDisable()
+        {
+            ParticleFluidInteractionCursor2D.Actions.Player.Pause.performed -= TogglePause;
+        }
+
         void Start()
         {
             _kernels.Resolve(compute);
 
-            _particleDisplay = GetComponent<Rendering.ParticleDisplay2D>();
+            _particleDisplay = GetComponent<ParticleDisplay2D>();
             if (phases == null || phases.Length == 0)
                 throw new InvalidOperationException("At least one phase is required.");
 
@@ -299,7 +298,12 @@ namespace Seb.Fluid2D.Simulation
                 ApplyTimingFrame(ParticleFluidSimulationTiming.PausedFrame(CurrentDisplayRefreshRate));
             }
 
-            HandleInput();
+            HandlePolledInput();
+        }
+
+        void TogglePause(InputAction.CallbackContext context)
+        {
+            isPaused = !isPaused;
         }
 
         void ApplyTimingFrame(ParticleFluidSimulationTiming.Frame frame)
@@ -325,7 +329,7 @@ namespace Seb.Fluid2D.Simulation
         void RunSimulationFrame(float frameTime, int substepCount)
         {
             float timeStep = frameTime / Mathf.Max(1, substepCount);
-            _settingsUploader.Upload(compute, this, _simulationInput, simulationDebug, _particleDisplay, timeStep);
+            _settingsUploader.Upload(compute, this, simulationDebug, _particleDisplay, timeStep);
 
             for (int i = 0; i < substepCount; i++)
             {
@@ -364,7 +368,7 @@ namespace Seb.Fluid2D.Simulation
                 NumParticles,
                 resources.positionBuffer,
                 UploadPhaseDataIfDirty,
-                deltaTime => _settingsUploader.Upload(compute, this, _simulationInput, simulationDebug, _particleDisplay, deltaTime),
+                deltaTime => _settingsUploader.Upload(compute, this, simulationDebug, _particleDisplay, deltaTime),
                 RunSpatial);
         }
 
@@ -413,21 +417,16 @@ namespace Seb.Fluid2D.Simulation
             _blobDetector.Reset(resources, NumParticles);
         }
 
-        void HandleInput()
+        void HandlePolledInput()
         {
-            ParticleFluidSimulationInput.Commands commands = _simulationInput.PollCommands();
-            if (commands.togglePause)
-            {
-                isPaused = !isPaused;
-            }
-
-            if (commands.stepFrame)
+            InputSystem_Actions.PlayerActions player = ParticleFluidInteractionCursor2D.Actions.Player;
+            if (player.StepFrame.WasPressedThisFrame())
             {
                 isPaused = false;
                 _pauseNextFrame = true;
             }
 
-            if (commands.reset)
+            if (player.Reset.WasPressedThisFrame())
             {
                 isPaused = true;
                 SetInitialBufferData();

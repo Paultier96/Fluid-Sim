@@ -25,7 +25,7 @@ MonoBehaviour:
     diffuseLightTint: {r: 1, g: 0.62578607, b: 0.62578607, a: 1}
     causticAdditiveBlend: 0
     diffuseAdditiveBlend: 1
-    diffuseNormalInfluence: 1
+    diffuseNormalInfluence: 0
   phase1Material:
     indexOfRefraction: 1.333
     absorption: 0.05
@@ -36,7 +36,7 @@ MonoBehaviour:
     screenSpaceReflectionStrength: 0.2
     diffuseLightTint: {r: 0, g: 0.44119108, b: 1, a: 1}
     causticAdditiveBlend: 0
-    diffuseAdditiveBlend: 1
+    diffuseAdditiveBlend: 0.05
     diffuseNormalInfluence: 0
   boundaryMaterial:
     indexOfRefraction: 1.516

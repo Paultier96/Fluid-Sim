@@ -8,8 +8,9 @@ Shader "Hidden/Particle2DMetaballMaterial" {
 		ZWrite Off
 		ZTest Always
 
-		CGINCLUDE
-		#include "UnityCG.cginc"
+		HLSLINCLUDE
+		#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+		#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Color.hlsl"
 		#include "../Lighting/Shared/ParticleFluidCommon.hlsl"
 
 struct appdata {
@@ -40,13 +41,6 @@ float phaseBlendWidth;
 float transportPhaseBlendWidth;
 float phase0RenderBias;
 float phaseBiasNormalStrength;
-int useEllipticalBounds;
-float2 ellipseBoundsCenter;
-float2 ellipseBoundsSize;
-float obstacleY;
-float2 domainWorldCenter;
-float2 domainWorldSize;
-float analyticBoundaryExpansion;
 #include "../Lighting/Shared/ParticleFluidAnalyticBoundary.hlsl"
 float metaballGhostBoundaryNormalStrength;
 float metaballRefractionStrength;
@@ -61,7 +55,7 @@ float particleNormalProfileCurve;
 v2f vert(appdata v)
 {
 	v2f o;
-	o.vertex = UnityObjectToClipPos(v.vertex);
+	o.vertex = TransformObjectToHClip(v.vertex.xyz);
 	o.uv = v.uv;
 	return o;
 }
@@ -78,7 +72,7 @@ float3 HeatMapClipColour(float t)
 	#if defined(UNITY_COLORSPACE_GAMMA)
 		return clipColour;
 	#else
-		return GammaToLinearSpace(clipColour);
+		return SRGBToLinear(clipColour);
 	#endif
 }
 
@@ -143,19 +137,32 @@ float3 ReorientedNormal(float3 baseNormal, float3 detailNormal)
 	));
 }
 
-float3 ApplyAnalyticBoundaryNormal(float3 particleNormal, float2 worldPos)
+bool TryGetAnalyticBoundaryNormalParams(float2 worldPos, out float filletT, out float strength)
 {
-	if (useEllipticalBounds == 0 || abs(metaballGhostBoundaryNormalStrength) <= 0.0001)
+	strength = abs(metaballGhostBoundaryNormalStrength);
+	if (useEllipticalBounds == 0 || strength <= 0.0001)
 	{
-		return particleNormal;
+		filletT = 0.0;
+		return false;
 	}
 
 	float width = max(analyticBoundaryExpansion, 0.0001);
 	float shellDistance = analyticBoundaryExpansion > 0.0001
 		? OuterAnalyticBoundaryDistance(worldPos) + analyticBoundaryExpansion
 		: AnalyticBoundaryDistance(worldPos);
-	float filletT = smoothstep(0.0, 1.0, saturate(shellDistance / width));
-	float strength = abs(metaballGhostBoundaryNormalStrength);
+	filletT = smoothstep(0.0, 1.0, saturate(shellDistance / width));
+	return true;
+}
+
+float3 ApplyAnalyticBoundaryNormal(float3 particleNormal, float2 worldPos)
+{
+	float filletT;
+	float strength;
+	if (!TryGetAnalyticBoundaryNormalParams(worldPos, filletT, strength))
+	{
+		return particleNormal;
+	}
+
 	float analyticT = filletT * saturate(strength);
 	float analyticMagnitude = saturate(sin(filletT * 1.57079633) * max(strength, 0.0));
 	float2 analyticXY = OuterAnalyticBoundaryNormal(worldPos) * sign(metaballGhostBoundaryNormalStrength) * analyticMagnitude;
@@ -168,17 +175,14 @@ float3 ApplyAnalyticBoundaryNormal(float3 particleNormal, float2 worldPos)
 
 float AnalyticBoundaryNormalClipAmount(float2 worldPos)
 {
-	if (useEllipticalBounds == 0 || debugShowClipping == 0 || abs(metaballGhostBoundaryNormalStrength) <= 0.0001)
+	float filletT;
+	float strength;
+	if (debugShowClipping == 0 || !TryGetAnalyticBoundaryNormalParams(worldPos, filletT, strength))
 	{
 		return 0.0;
 	}
 
-	float width = max(analyticBoundaryExpansion, 0.0001);
-	float shellDistance = analyticBoundaryExpansion > 0.0001
-		? OuterAnalyticBoundaryDistance(worldPos) + analyticBoundaryExpansion
-		: AnalyticBoundaryDistance(worldPos);
-	float filletT = smoothstep(0.0, 1.0, saturate(shellDistance / width));
-	float analyticMagnitude = sin(filletT * 1.57079633) * abs(metaballGhostBoundaryNormalStrength);
+	float analyticMagnitude = sin(filletT * 1.57079633) * strength;
 	return step(1.0, analyticMagnitude * analyticMagnitude);
 }
 
@@ -217,22 +221,11 @@ float2 GetPhaseNormalXY(float4 normalPacked, float density0, float density1, boo
 	return phaseDensity > 0.0001 ? encodedNormalXY * 2.0 - 1.0 : 0.0;
 }
 
-float3 GetPhaseNormal(float4 normalPacked, float density0, float density1, bool usePhase1)
+float3 GetCombinedPhaseNormal(float4 normalPacked, float density0, float density1, float phaseT)
 {
-	return NormalFromXY(GetPhaseNormalXY(normalPacked, density0, density1, usePhase1), GetPhaseNormalStrength(usePhase1));
-}
-
-float PhaseNormalClipAmount(float4 normalPacked, float density0, float density1, bool usePhase1)
-{
-	float2 normalXY = ApplyNormalStrength(GetPhaseNormalXY(normalPacked, density0, density1, usePhase1), GetPhaseNormalStrength(usePhase1));
-	return debugShowClipping != 0 ? step(1.0, dot(normalXY, normalXY)) : 0.0;
-}
-
-float3 GetBlendedPhaseNormal(float4 normalPacked, float density0, float density1, float phaseT)
-{
-	float3 normal0 = GetPhaseNormal(normalPacked, density0, density1, false);
-	float3 normal1 = GetPhaseNormal(normalPacked, density0, density1, true);
-	return normalize(lerp(normal0, normal1, phaseT));
+	float2 normal0XY = ApplyNormalStrength(GetPhaseNormalXY(normalPacked, density0, density1, false), GetPhaseNormalStrength(false));
+	float2 normal1XY = ApplyNormalStrength(GetPhaseNormalXY(normalPacked, density0, density1, true), GetPhaseNormalStrength(true));
+	return NormalFromStrengthenedXY(lerp(normal0XY, normal1XY, phaseT));
 }
 
 float NormalizedData(float weightedData, float weight, float fallback)
@@ -269,7 +262,7 @@ float SampleAntiAliasedPhaseT(float2 uv, float density0, float density1, float b
 	return smoothstep(-phaseAA, phaseAA, phaseRatio - phaseBoundary);
 }
 
-bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float data0, out float data1, out float3 normal0, out float3 normal1, out float3 albedo)
+bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float data0, out float data1, out float3 normal, out float3 albedo)
 {
 	float2 materialUv = i.uv;
 	float4 combined = tex2D(CombinedTex, materialUv);
@@ -279,10 +272,7 @@ bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float
 	float particleAlpha = smoothstep(max(densityThreshold - edgeSoftness, 0), densityThreshold + edgeSoftness, density);
 	if (useEllipticalBounds != 0)
 	{
-		float boundsDistance = OuterAnalyticBoundaryDistance(ParticleFluidWorldFromUv(materialUv, domainWorldCenter, domainWorldSize));
-		float boundsAA = max(fwidth(boundsDistance), 0.0001);
-		float boundsAlpha = smoothstep(boundsAA, -boundsAA, boundsDistance);
-		alpha = min(particleAlpha, boundsAlpha);
+		alpha = min(particleAlpha, OuterAnalyticBoundaryAlphaFromDomainUv(materialUv));
 	}
 	else
 	{
@@ -294,8 +284,7 @@ bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float
 		phaseT = 0.0;
 		data0 = 0.0;
 		data1 = 0.0;
-		normal0 = float3(0.0, 0.0, 1.0);
-		normal1 = float3(0.0, 0.0, 1.0);
+		normal = float3(0.0, 0.0, 1.0);
 		albedo = 0.0;
 		return false;
 	}
@@ -303,20 +292,19 @@ bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float
 	phaseT = SampleAntiAliasedPhaseT(materialUv, density0, density1, phaseBlendWidth);
 	data0 = combined.r / max(density0, 0.0001);
 	data1 = combined.b / max(density1, 0.0001);
-	float noise = InterleavedGradientNoise(i.vertex.xy);
 	float4 normalPacked = tex2D(NormalTex, materialUv);
-	float2 worldPos = ParticleFluidWorldFromUv(materialUv, domainWorldCenter, domainWorldSize);
-	normal0 = GetPhaseNormal(normalPacked, density0, density1, false);
-	normal1 = GetPhaseNormal(normalPacked, density0, density1, true);
-	normal0 = ApplyAnalyticBoundaryNormal(normal0, worldPos);
-	normal1 = ApplyAnalyticBoundaryNormal(normal1, worldPos);
-	float3 blendedNormal = normalize(lerp(normal0, normal1, phaseT));
+	float2 worldPos = ParticleFluidDomainWorldFromUv(materialUv);
+	normal = ApplyAnalyticBoundaryNormal(GetCombinedPhaseNormal(normalPacked, density0, density1, phaseT), worldPos);
 	float refractionMask = smoothstep(0.0, max(metaballRefractionEdgeFade, 0.0001), density - densityThreshold);
-	float2 refractedSourceUv = saturate(materialUv - blendedNormal.xy * metaballRefractionStrength * refractionMask);
+	float2 refractedSourceUv = saturate(materialUv - normal.xy * metaballRefractionStrength * refractionMask);
 	float4 refractedCombined = tex2D(CombinedTex, refractedSourceUv);
 	float refractedDensity0 = Phase0Density(refractedCombined);
 	float refractedDensity1 = refractedCombined.a;
-	albedo = ParticleFluidSampleGradientColour(refractedCombined, refractedDensity0, refractedDensity1, data0, data1, phaseT, screenSpaceRefractionCanCrossPhases, densityThreshold, phase0RenderBias);
+	float refractedDensity = max(refractedDensity0, refractedDensity1);
+	float refractedPhaseRatio = ParticleFluidPhaseRatio(refractedDensity0, refractedDensity1);
+	float refractedPhaseBoundary = ParticleFluidPhaseBoundary(phase0RenderBias);
+	float refractedPhaseT = screenSpaceRefractionCanCrossPhases != 0 && refractedDensity >= densityThreshold ? step(refractedPhaseBoundary, refractedPhaseRatio) : phaseT;
+	albedo = ParticleFluidSampleGradientColour(refractedCombined, refractedDensity0, refractedDensity1, data0, data1, refractedPhaseT);
 	return true;
 }
 
@@ -326,10 +314,9 @@ float4 fragMaterialAlbedo(v2f i) : SV_Target
 	float phaseT;
 	float data0;
 	float data1;
-	float3 normal0;
-	float3 normal1;
+	float3 normal;
 	float3 albedo;
-	if (!ResolveMetaballMaterial(i, alpha, phaseT, data0, data1, normal0, normal1, albedo))
+	if (!ResolveMetaballMaterial(i, alpha, phaseT, data0, data1, normal, albedo))
 	{
 		return 0.0;
 	}
@@ -343,15 +330,13 @@ float4 fragMaterialNormal(v2f i) : SV_Target
 	float phaseT;
 	float data0;
 	float data1;
-	float3 normal0;
-	float3 normal1;
+	float3 normal;
 	float3 albedo;
-	if (!ResolveMetaballMaterial(i, alpha, phaseT, data0, data1, normal0, normal1, albedo))
+	if (!ResolveMetaballMaterial(i, alpha, phaseT, data0, data1, normal, albedo))
 	{
 		return 0.0;
 	}
 
-	float3 normal = phaseT >= 0.5 ? normal1 : normal0;
 	return float4(saturate(normal * 0.5 + 0.5), phaseT);
 }
 
@@ -361,10 +346,9 @@ float4 fragMaterialTransport(v2f i) : SV_Target
 	float phaseT;
 	float data0;
 	float data1;
-	float3 normal0;
-	float3 normal1;
+	float3 normal;
 	float3 albedo;
-	if (!ResolveMetaballMaterial(i, alpha, phaseT, data0, data1, normal0, normal1, albedo))
+	if (!ResolveMetaballMaterial(i, alpha, phaseT, data0, data1, normal, albedo))
 	{
 		return 0.0;
 	}
@@ -374,7 +358,8 @@ float4 fragMaterialTransport(v2f i) : SV_Target
 	float density0 = Phase0Density(combined);
 	float density1 = combined.a;
 	phaseT = SampleAntiAliasedPhaseT(materialUv, density0, density1, transportPhaseBlendWidth);
-	return float4(data0, data1, alpha, phaseT);
+	float scalarData = lerp(data0, data1, phaseT);
+	return float4(scalarData, alpha, phaseT, 0.0);
 }
 
 float4 fragUnlitAlbedo(v2f i) : SV_Target
@@ -388,39 +373,38 @@ float4 fragUnlitAlbedo(v2f i) : SV_Target
 
 	return materialAlbedo;
 }
-		ENDCG
+		ENDHLSL
 
 		Pass {
 			Blend One Zero
-			CGPROGRAM
+			HLSLPROGRAM
 			#pragma vertex vert
 			#pragma fragment fragMaterialAlbedo
-			ENDCG
+			ENDHLSL
 		}
 
 		Pass {
 			Blend One Zero
-			CGPROGRAM
+			HLSLPROGRAM
 			#pragma vertex vert
 			#pragma fragment fragMaterialNormal
-			ENDCG
+			ENDHLSL
 		}
 
 		Pass {
 			Blend One Zero
-			CGPROGRAM
+			HLSLPROGRAM
 			#pragma vertex vert
 			#pragma fragment fragMaterialTransport
-			ENDCG
+			ENDHLSL
 		}
 
 		Pass {
 			Blend SrcAlpha OneMinusSrcAlpha
-			CGPROGRAM
+			HLSLPROGRAM
 			#pragma vertex vert
 			#pragma fragment fragUnlitAlbedo
-			ENDCG
+			ENDHLSL
 		}
-
 	}
 }

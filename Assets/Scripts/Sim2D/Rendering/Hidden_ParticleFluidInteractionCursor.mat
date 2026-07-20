@@ -25,21 +25,31 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _ArrowLength: 0.19607843
-    - _ArrowRadiusFraction: 0.8
-    - _ArrowWidth: 0.29411766
     - _CursorFamily: 0
-    - _ForceTickLength: 0.15
-    - _ForceTickThicknessMultiplier: 0.9
+    - _CursorWorldRadius: 1
+    - _ForceTickLength: 0.2
+    - _ForceTickThicknessMultiplier: 1
     - _InnerRadiusFraction: 0.66
-    - _Mode: 0
+    - _InnerRotation: 0
+    - _Interaction: 0
+    - _MinSegmentScreenThickness: 2
     - _OuterDashCount: 48
     - _OuterDashFill: 0.55
     - _Radius: 0.98039216
-    - _TemperatureWaveAmplitude: 1
+    - _ShadowSoftness: 0.15
+    - _TemperatureWaveAmplitude: 0.1
+    - _TemperatureWaveAmplitudeMultiplier: 0.46
     - _TemperatureWaveCount: 20
+    - _TemperatureWaveModulationStrength: -0.7
+    - _TemperatureWaveSecondaryStrength: 0.8
+    - _TemperatureWaveSpeed: 0
+    - _TemperatureWaveTertiaryStrength: -0.7
     - _Thickness: 0.019607844
+    - _UvScale: 1
     m_Colors:
-    - _Color: {r: 1, g: 1, b: 1, a: 0.45}
+    - _Color: {r: 1, g: 1, b: 1, a: 1}
+    - _ShadowColor: {r: 0, g: 0, b: 0, a: 0}
+    - _ShadowOffset: {r: 0, g: 0, b: 0, a: 0}
+    - _ShadowSoftness: {r: 0.015, g: -0.015, b: 0, a: 0}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

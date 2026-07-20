@@ -10,6 +10,9 @@ namespace Seb.Fluid2D.Rendering
 		public RenderTexture albedoTexture;
 		public RenderTexture normalTexture;
 		public RenderTexture transportTexture;
+		static readonly GraphicsFormat TransportFormat = SystemInfo.IsFormatSupported(GraphicsFormat.R16G16B16_SFloat, GraphicsFormatUsage.Render)
+			? GraphicsFormat.R16G16B16_SFloat
+			: GraphicsFormat.R16G16B16A16_SFloat;
 		
 		public bool IsAllocated => albedoTexture != null && normalTexture != null && transportTexture != null;
 
@@ -17,7 +20,7 @@ namespace Seb.Fluid2D.Rendering
 		{
 			ComputeHelper.CreateRenderTexture(ref albedoTexture, materialWidth, materialHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, $"{namePrefix} Material Albedo");
 			ComputeHelper.CreateRenderTexture(ref normalTexture, materialWidth, materialHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, $"{namePrefix} Material Normal");
-			ComputeHelper.CreateRenderTexture(ref transportTexture, transportWidth, transportHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, $"{namePrefix} Material Transport");
+			ComputeHelper.CreateRenderTexture(ref transportTexture, transportWidth, transportHeight, FilterMode.Bilinear, TransportFormat, $"{namePrefix} Material Transport");
 		}
 
 		public void RenderSurfaceMaps(CommandBuffer commandBuffer, Material material, int albedoPass, int normalPass, Bounds materialRegion, Camera camera)

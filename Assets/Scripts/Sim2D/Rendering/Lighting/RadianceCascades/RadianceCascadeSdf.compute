@@ -31,9 +31,9 @@ float4 LoadTransportAtUv(float2 uv)
 int ClassifyPixel(float2 uv, out float3 payloadColour)
 {
 	float4 transport = LoadTransportAtUv(uv);
-	float data0 = transport.r;
-	float mask = transport.b;
-	float phaseT = transport.a;
+	float phaseData = transport.r;
+	float mask = transport.g;
+	float phaseT = transport.b;
 	payloadColour = 0.0;
 
 	if (mask > 0.5 && phaseT < 0.5)
@@ -41,7 +41,7 @@ int ClassifyPixel(float2 uv, out float3 payloadColour)
 		uint gradientWidth;
 		uint gradientHeight;
 		ColourMap.GetDimensions(gradientWidth, gradientHeight);
-		int gradientX = (int)round(saturate(data0) * max((int)gradientWidth - 1, 0));
+		int gradientX = (int)round(saturate(phaseData) * max((int)gradientWidth - 1, 0));
 		payloadColour = ColourMap.Load(int3(gradientX, 0, 0)).rgb;
 		return 1;
 	}

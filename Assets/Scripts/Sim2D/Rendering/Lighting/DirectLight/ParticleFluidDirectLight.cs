@@ -23,7 +23,7 @@ namespace Seb.Fluid2D.Rendering
 		{
 			[Header("Refraction")]
 			public bool stochasticReflection = true;
-			[Min(0f)] public float dispersionStrength = 0f;
+			[Min(0f)] public float dispersionStrength;
 			[Range(0f, 1f)] public float dispersionRotation = 1f;
 
 			[Header("Rays")]
@@ -33,8 +33,8 @@ namespace Seb.Fluid2D.Rendering
 			[Range(1, 128)] public int raysPerPixel = 1;
 			[Min(1)] public int colourSampleStride = 8;
 			[Min(0f)] public float blur = 1.5f;
-			[Range(0f, 1f)] public float temporalJitterPixels = 0f;
-			[Min(0f)] public float surfaceNormalJitterPixels = 0f;
+			[Range(0f, 1f)] public float temporalJitterPixels;
+			[Min(0f)] public float surfaceNormalJitterPixels;
 		}
 
 		[System.Serializable]
@@ -56,8 +56,8 @@ namespace Seb.Fluid2D.Rendering
 		[System.Serializable]
 		public sealed class ProjectedShadowSettings
 		{
-			public float offset = 0f;
-			[Min(0f)] public float expansion = 0f;
+			public float offset;
+			[Min(0f)] public float expansion;
 			[Min(1)] public int mapBins = 2048;
 		}
 

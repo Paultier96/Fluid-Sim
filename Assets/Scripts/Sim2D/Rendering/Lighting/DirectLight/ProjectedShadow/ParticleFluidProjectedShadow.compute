@@ -50,12 +50,12 @@ void BuildProjectedShadowMap(uint3 id : SV_DispatchThreadID)
 	}
 
 	float4 transport = MaterialTransportTex.Load(int3(int2(id.xy), 0));
-	if (transport.b <= 0.5)
+	if (transport.g <= 0.5)
 	{
 		return;
 	}
 
-	bool phase0CastsShadow = transport.a < 0.5;
+	bool phase0CastsShadow = transport.b < 0.5;
 	if (!phase0CastsShadow)
 	{
 		return;

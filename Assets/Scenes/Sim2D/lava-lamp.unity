@@ -244,13 +244,6 @@ MonoBehaviour:
   wallFilmMaxAcceleration: 0
   wallPressureStrength: 0
   wallPressureRadius: 0
-  interactionRadius: 0.5
-  interactionStrength: 75
-  cursorVelocityTransferStrength: 10
-  cursorTemperatureBrushRadius: 0.5
-  cursorTemperatureBrushTransferRate: 100
-  cursorHeatBrushTemperature: 100
-  cursorCoolBrushTemperature: -10
   buoyancyInversionStrength: 8
   buoyancyInversionClamp: 1
   particleResolutionFactor: 1
@@ -638,6 +631,7 @@ MonoBehaviour:
   gaussianDiffuseScatterStrength: 0.5
   gaussianDiffuseRadius: 50
   gaussianDiffuseTextureScale: 0.5
+  gaussianDiffuseMaskInputToPhase0: 1
 --- !u!114 &271053326
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1214,57 +1208,89 @@ MonoBehaviour:
   sim: {fileID: 271053319}
   targetCamera: {fileID: 963194227}
   cursorLight: {fileID: 1874339691}
-  forceHover:
-    color: {r: 1, g: 1, b: 1, a: 0.45}
-    innerRingRadiusFraction: 0.5
-    light:
-      intensity: 0.15
-      temperatureKelvin: 6500
+  presetTargetLighting: {fileID: 0}
+  force:
+    hover:
       color: {r: 1, g: 1, b: 1, a: 1}
-  temperatureHover:
-    color: {r: 1, g: 1, b: 1, a: 0.45}
-    innerRingRadiusFraction: 0.5
-    light:
-      intensity: 0.15
-      temperatureKelvin: 6500
+      innerRingRadiusFraction: 0.5
+      lightIntensity: 0.15
+      lightTemperatureKelvin: 6500
+      lightColor: {r: 1, g: 1, b: 1, a: 1}
+    primary:
       color: {r: 1, g: 1, b: 1, a: 1}
-  pull:
-    color: {r: 0.35, g: 0.65, b: 1, a: 0.85}
-    innerRingRadiusFraction: 0.45
-    light:
-      intensity: 0.35
-      temperatureKelvin: 9000
+      innerRingRadiusFraction: 0.4
+      lightIntensity: 0.35
+      lightTemperatureKelvin: 9000
+      lightColor: {r: 1, g: 1, b: 1, a: 1}
+    secondary:
+      color: {r: 2, g: 2, b: 2, a: 1}
+      innerRingRadiusFraction: 0.6
+      lightIntensity: 0.35
+      lightTemperatureKelvin: 3200
+      lightColor: {r: 1, g: 1, b: 1, a: 1}
+  temperature:
+    hover:
       color: {r: 1, g: 1, b: 1, a: 1}
-  push:
-    color: {r: 1, g: 0.55, b: 0.2, a: 0.85}
-    innerRingRadiusFraction: 0.616
-    light:
-      intensity: 0.35
-      temperatureKelvin: 3200
+      innerRingRadiusFraction: 0.6
+      lightIntensity: 0.15
+      lightTemperatureKelvin: 6500
+      lightColor: {r: 1, g: 1, b: 1, a: 1}
+    primary:
       color: {r: 1, g: 1, b: 1, a: 1}
-  heat:
-    color: {r: 1, g: 0.2, b: 0.05, a: 0.9}
-    innerRingRadiusFraction: 0.35
-    light:
-      intensity: 0.65
-      temperatureKelvin: 1800
+      innerRingRadiusFraction: 0.66
+      lightIntensity: 0.65
+      lightTemperatureKelvin: 1800
+      lightColor: {r: 1, g: 1, b: 1, a: 1}
+    secondary:
       color: {r: 1, g: 1, b: 1, a: 1}
-  cool:
-    color: {r: 0.2, g: 0.85, b: 1, a: 0.9}
-    innerRingRadiusFraction: 0.7
-    light:
-      intensity: 0.65
-      temperatureKelvin: 14000
+      innerRingRadiusFraction: 0.55
+      lightIntensity: 0.65
+      lightTemperatureKelvin: 14000
+      lightColor: {r: 1, g: 1, b: 1, a: 1}
+  lighting:
+    hover:
       color: {r: 1, g: 1, b: 1, a: 1}
-  interactionMode: 0
-  minimumVisibleRadius: 0.001
-  modeTransitionDuration: 0.12
-  idleTemperatureWaveAmplitudeMultiplier: 1
-  heatTemperatureWaveAmplitudeMultiplier: 1.7
-  coolTemperatureWaveAmplitudeMultiplier: 0.35
+      innerRingRadiusFraction: 0.4
+      lightIntensity: 0.1
+      lightTemperatureKelvin: 6500
+      lightColor: {r: 1, g: 1, b: 1, a: 1}
+    primary:
+      color: {r: 0.9025157, g: 0.965508, b: 1, a: 0.9}
+      innerRingRadiusFraction: 0.5
+      lightIntensity: 1.2
+      lightTemperatureKelvin: 6500
+      lightColor: {r: 1, g: 1, b: 1, a: 1}
+    secondary:
+      color: {r: 1, g: 1, b: 1, a: 0.9}
+      innerRingRadiusFraction: 0.3
+      lightIntensity: 1.2
+      lightTemperatureKelvin: 6500
+      lightColor: {r: 1, g: 1, b: 1, a: 1}
+  interactionMode: 1
+  modeTransitionDuration: 0.025
+  interactionRadius: 0.38
+  interactionStrength: 0.63
+  cursorVelocityTransferStrength: 10
+  cursorTemperatureBrushRadius: 0.88
+  cursorTemperatureBrushTransferRate: 50
+  cursorHeatBrushTemperature: 100
+  cursorCoolBrushTemperature: -10
+  phaseLookPresets:
+  - {fileID: 11400000, guid: f358d11b0cef84248965e97e1576eac3, type: 2}
+  - {fileID: 11400000, guid: acaffe3b95fe46a4b97aaab9bb4bc9a9, type: 2}
+  - {fileID: 11400000, guid: 5f7896642fb597443ac7503d08c89091, type: 2}
+  - {fileID: 11400000, guid: 18efc9f951ab1444aaaf9e9c55114973, type: 2}
+  - {fileID: 11400000, guid: f0cd3fdc01bfd9e47a047c9845f6a1b4, type: 2}
+  - {fileID: 11400000, guid: 0ee4ca7788483bd448d44bf206b9fd0d, type: 2}
+  - {fileID: 11400000, guid: 15000c2ecf1405549ae6fc2968aa2d81, type: 2}
+  - {fileID: 11400000, guid: 2125e8b9b95684942bf359ad012e4fb1, type: 2}
+  activePhaseLookPresetIndex: 0
+  cyclePresetAction: {fileID: -2124286083462130786, guid: a8ea0249f80b70a498dd0319c42f8996, type: 3}
+  idleTemperatureWaveAmplitudeMultiplier: 0.4
+  heatTemperatureWaveAmplitudeMultiplier: 1
+  coolTemperatureWaveAmplitudeMultiplier: 0
   gamepadCursorEnabled: 1
   gamepadCursorSpeed: 12
-  clampGamepadCursorToCamera: 1
   currentWorldVelocity: {x: 0, y: 0}
 --- !u!23 &1476915557
 MeshRenderer:

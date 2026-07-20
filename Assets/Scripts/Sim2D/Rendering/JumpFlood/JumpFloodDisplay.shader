@@ -22,8 +22,6 @@ Shader "Custom/JumpFloodDisplay"
             Texture2D _PayloadTex;
             SamplerState sampler_PayloadTex;
             float4x4 _InverseViewProjection;
-            float2 domainWorldCenter;
-            float2 domainWorldSize;
             float2 ellipseBoundsCenter;
             float2 ellipseBoundsSize;
             float2 boundsSize;
@@ -85,7 +83,7 @@ Shader "Custom/JumpFloodDisplay"
                 if (payload.a < 0.0)
                     return float4(0,0,0,1);
 
-                float mask = BoundsMask(ParticleFluidWorldFromUv(seedUV, domainWorldCenter, domainWorldSize));
+                float mask = BoundsMask(ParticleFluidDomainWorldFromUv(seedUV));
                 return float4(payload.rgb * mask, 1);
             }
             ENDCG

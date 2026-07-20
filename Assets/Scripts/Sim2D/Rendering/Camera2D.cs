@@ -154,7 +154,7 @@ public class Camera2D : MonoBehaviour
             return;
         }
 
-        Vector2 input = ParticleFluidSimulationInput.Actions.Player.Look.ReadValue<Vector2>();
+        Vector2 input = ParticleFluidInteractionCursor2D.Actions.Player.Look.ReadValue<Vector2>();
 
         float worldHeight;
         if (cam.orthographic)
@@ -178,7 +178,7 @@ public class Camera2D : MonoBehaviour
             return;
         }
 
-        float input = ParticleFluidSimulationInput.Actions.Player.Zoom.ReadValue<float>();
+        float input = ParticleFluidInteractionCursor2D.Actions.Player.Zoom.ReadValue<float>();
         if (Mathf.Abs(input) <= gamepadZoomDeadZone)
         {
             return;
