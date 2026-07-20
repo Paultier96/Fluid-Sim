@@ -308,8 +308,16 @@ bool ResolveMetaballMaterial(v2f i, out float alpha, out float phaseT, out float
 	return true;
 }
 
-float4 fragMaterialAlbedo(v2f i) : SV_Target
+struct MaterialMapOutputs
 {
+	float4 albedo : SV_Target0;
+	float4 normal : SV_Target1;
+	float4 transport : SV_Target2;
+};
+
+MaterialMapOutputs fragMaterialMaps(v2f i)
+{
+	MaterialMapOutputs outputs;
 	float alpha;
 	float phaseT;
 	float data0;
@@ -318,48 +326,22 @@ float4 fragMaterialAlbedo(v2f i) : SV_Target
 	float3 albedo;
 	if (!ResolveMetaballMaterial(i, alpha, phaseT, data0, data1, normal, albedo))
 	{
-		return 0.0;
-	}
-
-	return float4(albedo, alpha);
-}
-
-float4 fragMaterialNormal(v2f i) : SV_Target
-{
-	float alpha;
-	float phaseT;
-	float data0;
-	float data1;
-	float3 normal;
-	float3 albedo;
-	if (!ResolveMetaballMaterial(i, alpha, phaseT, data0, data1, normal, albedo))
-	{
-		return 0.0;
-	}
-
-	return float4(saturate(normal * 0.5 + 0.5), phaseT);
-}
-
-float4 fragMaterialTransport(v2f i) : SV_Target
-{
-	float alpha;
-	float phaseT;
-	float data0;
-	float data1;
-	float3 normal;
-	float3 albedo;
-	if (!ResolveMetaballMaterial(i, alpha, phaseT, data0, data1, normal, albedo))
-	{
-		return 0.0;
+		outputs.albedo = 0.0;
+		outputs.normal = 0.0;
+		outputs.transport = 0.0;
+		return outputs;
 	}
 
 	float2 materialUv = i.uv;
 	float4 combined = tex2D(CombinedTex, materialUv);
 	float density0 = Phase0Density(combined);
 	float density1 = combined.a;
-	phaseT = SampleAntiAliasedPhaseT(materialUv, density0, density1, transportPhaseBlendWidth);
-	float scalarData = lerp(data0, data1, phaseT);
-	return float4(scalarData, alpha, phaseT, 0.0);
+	float transportPhaseT = SampleAntiAliasedPhaseT(materialUv, density0, density1, transportPhaseBlendWidth);
+	float scalarData = lerp(data0, data1, transportPhaseT);
+	outputs.albedo = float4(albedo, alpha);
+	outputs.normal = float4(saturate(normal * 0.5 + 0.5), phaseT);
+	outputs.transport = float4(scalarData, alpha, transportPhaseT, 0.0);
+	return outputs;
 }
 
 float4 fragUnlitAlbedo(v2f i) : SV_Target
@@ -379,23 +361,7 @@ float4 fragUnlitAlbedo(v2f i) : SV_Target
 			Blend One Zero
 			HLSLPROGRAM
 			#pragma vertex vert
-			#pragma fragment fragMaterialAlbedo
-			ENDHLSL
-		}
-
-		Pass {
-			Blend One Zero
-			HLSLPROGRAM
-			#pragma vertex vert
-			#pragma fragment fragMaterialNormal
-			ENDHLSL
-		}
-
-		Pass {
-			Blend One Zero
-			HLSLPROGRAM
-			#pragma vertex vert
-			#pragma fragment fragMaterialTransport
+			#pragma fragment fragMaterialMaps
 			ENDHLSL
 		}
 

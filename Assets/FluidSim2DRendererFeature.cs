@@ -158,23 +158,27 @@ namespace Seb.Fluid2D.Simulation
             RecordBlurPass(renderGraph, "Fluid Sim 2D Normal Blur Horizontal", normalHandle, normalBlurHandle, metaballRenderer.normalAccumulationTexture, metaballRenderer.normalBlurTexture, metaballRenderer.blurMaterial, new Vector2(1f, 0f));
             RecordBlurPass(renderGraph, "Fluid Sim 2D Normal Blur Vertical", normalBlurHandle, normalHandle, metaballRenderer.normalBlurTexture, metaballRenderer.normalAccumulationTexture, metaballRenderer.blurMaterial, new Vector2(0f, 1f));
 
-            if (materialTransportHandle.IsValid())
+            if (useMaterialPipeline && materialAlbedoHandle.IsValid() && materialNormalHandle.IsValid() && materialTransportHandle.IsValid())
             {
-                using (var builder = renderGraph.AddUnsafePass<TransportMapPassData>("Fluid Sim 2D Transport Map", out var passData))
+                using (var builder = renderGraph.AddUnsafePass<MaterialMapPassData>("Fluid Sim 2D Material Maps", out var passData))
                 {
                     passData.metaballRenderer = metaballRenderer;
                     passData.combined = combinedHandle;
                     passData.normal = normalHandle;
                     passData.gradient = gradientHandle;
                     passData.gradient2 = gradient2Handle;
+                    passData.albedo = materialAlbedoHandle;
+                    passData.materialNormal = materialNormalHandle;
                     passData.transport = materialTransportHandle;
                     UseIfValid(builder, passData.combined, AccessFlags.Read);
                     UseIfValid(builder, passData.normal, AccessFlags.Read);
                     UseIfValid(builder, passData.gradient, AccessFlags.Read);
                     UseIfValid(builder, passData.gradient2, AccessFlags.Read);
+                    UseIfValid(builder, passData.albedo, AccessFlags.Write);
+                    UseIfValid(builder, passData.materialNormal, AccessFlags.Write);
                     UseIfValid(builder, passData.transport, AccessFlags.Write);
                     builder.AllowPassCulling(false);
-                    builder.SetRenderFunc(static (TransportMapPassData data, UnsafeGraphContext context) =>
+                    builder.SetRenderFunc(static (MaterialMapPassData data, UnsafeGraphContext context) =>
                     {
                         CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
                         data.metaballRenderer.RecordMaterialMaps(nativeCommandBuffer);
@@ -198,32 +202,6 @@ namespace Seb.Fluid2D.Simulation
                     {
                         CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
                         data.metaballRenderer.RecordMotionPyramid(nativeCommandBuffer, data.effectiveMotionBlurRadius);
-                    });
-                }
-            }
-
-            if (useMaterialPipeline && materialAlbedoHandle.IsValid() && materialNormalHandle.IsValid())
-            {
-                using (var builder = renderGraph.AddUnsafePass<SurfaceMaterialMapPassData>("Fluid Sim 2D Surface Material Maps", out var passData))
-                {
-                    passData.metaballRenderer = metaballRenderer;
-                    passData.combined = combinedHandle;
-                    passData.normal = normalHandle;
-                    passData.gradient = gradientHandle;
-                    passData.gradient2 = gradient2Handle;
-                    passData.albedo = materialAlbedoHandle;
-                    passData.materialNormal = materialNormalHandle;
-                    UseIfValid(builder, passData.combined, AccessFlags.Read);
-                    UseIfValid(builder, passData.normal, AccessFlags.Read);
-                    UseIfValid(builder, passData.gradient, AccessFlags.Read);
-                    UseIfValid(builder, passData.gradient2, AccessFlags.Read);
-                    UseIfValid(builder, passData.albedo, AccessFlags.Write);
-                    UseIfValid(builder, passData.materialNormal, AccessFlags.Write);
-                    builder.AllowPassCulling(false);
-                    builder.SetRenderFunc(static (SurfaceMaterialMapPassData data, UnsafeGraphContext context) =>
-                    {
-                        CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-                        data.metaballRenderer.RecordSurfaceMaterialMaps(nativeCommandBuffer);
                     });
                 }
             }
@@ -981,17 +959,7 @@ namespace Seb.Fluid2D.Simulation
             public TextureHandle radianceCascadeSdfPayloadB;
         }
 
-        class TransportMapPassData
-        {
-            public MetaballRenderer2D metaballRenderer;
-            public TextureHandle combined;
-            public TextureHandle normal;
-            public TextureHandle gradient;
-            public TextureHandle gradient2;
-            public TextureHandle transport;
-        }
-
-        class SurfaceMaterialMapPassData
+        class MaterialMapPassData
         {
             public MetaballRenderer2D metaballRenderer;
             public TextureHandle combined;
@@ -1000,6 +968,7 @@ namespace Seb.Fluid2D.Simulation
             public TextureHandle gradient2;
             public TextureHandle albedo;
             public TextureHandle materialNormal;
+            public TextureHandle transport;
         }
 
         class BlurPassData

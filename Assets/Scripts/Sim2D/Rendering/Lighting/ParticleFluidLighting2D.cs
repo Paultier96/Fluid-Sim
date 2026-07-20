@@ -1,7 +1,6 @@
 using System;
 using UnityEngine;
 using UnityEngine.Rendering;
-using UnityEngine.Serialization;
 #if UNITY_EDITOR
 #endif
 
@@ -293,8 +292,8 @@ using UnityEngine.Serialization;
 		{
 			BindMaterialTextures();
 			commandBuffer.BeginSample("Particle Fluid/Final Lighting");
-			ParticleDisplay2D display = Display;
-			ParticleFluidPassBindings.ApplyFinalLightingGlobals(commandBuffer, display, _domainRenderRegion);
+			ParticleDisplay2D particleDisplay2D = Display;
+			ParticleFluidPassBindings.ApplyFinalLightingGlobals(commandBuffer, particleDisplay2D, _domainRenderRegion);
 			commandBuffer.SetRenderTarget(finalTarget);
 			commandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _domainRenderRegion.CreateRegionMatrix(), lightingMaterial, 0, LightingPass);
 			commandBuffer.EndSample("Particle Fluid/Final Lighting");

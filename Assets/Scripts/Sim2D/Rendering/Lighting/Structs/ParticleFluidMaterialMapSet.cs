@@ -23,6 +23,24 @@ namespace Seb.Fluid2D.Rendering
 			ComputeHelper.CreateRenderTexture(ref transportTexture, transportWidth, transportHeight, FilterMode.Bilinear, TransportFormat, $"{namePrefix} Material Transport");
 		}
 
+		public void RenderMaterialMaps(CommandBuffer commandBuffer, Material material, int materialMapsPass, Bounds materialRegion, Camera camera)
+		{
+			if (!IsAllocated || commandBuffer == null || material == null || camera == null)
+			{
+				return;
+			}
+
+			RenderTargetIdentifier[] targets =
+			{
+				albedoTexture,
+				normalTexture,
+				transportTexture
+			};
+			commandBuffer.BeginSample("Particle Fluid/Build Material Maps");
+			ParticleFluidRenderUtils.DrawRegionQuad(commandBuffer, targets, material, materialMapsPass, materialRegion, camera, true, Color.clear);
+			commandBuffer.EndSample("Particle Fluid/Build Material Maps");
+		}
+
 		public void RenderSurfaceMaps(CommandBuffer commandBuffer, Material material, int albedoPass, int normalPass, Bounds materialRegion, Camera camera)
 		{
 			if (!IsAllocated || commandBuffer == null || material == null || camera == null)

@@ -86,26 +86,10 @@ namespace Seb.Fluid2D.Rendering
 			float effectiveNormalStrength = _currentDisplay.GetEffectiveNormalStrength(_currentDisplay.EffectiveConfiguredBlurRadius);
 			materialRenderer.SetSourceTextures(combinedAccumulationTexture, normalAccumulationTexture);
 			ParticleFluidPassBindings.ApplyMetaballMaterialGlobals(targetCommandBuffer, _currentDisplay, _currentCamera, _lighting, _currentRenderRegion, effectiveNormalStrength);
-			materialRenderer.RenderTransportMap(targetCommandBuffer, _currentRenderRegion, _currentCamera);
+			materialRenderer.RenderMaterialMaps(targetCommandBuffer, _currentRenderRegion, _currentCamera);
 			if (_lighting != null)
 			{
-				_lighting.ApplyLightingInputs(materialRenderer.MaterialMaps.CreateLightingInputs(_currentRenderRegion, _currentSourceSize, velocityTexture));
-			}
-		}
-
-		public void RecordSurfaceMaterialMaps(CommandBuffer targetCommandBuffer)
-		{
-			if (targetCommandBuffer == null || _currentDisplay == null)
-			{
-				return;
-			}
-			float effectiveNormalStrength = _currentDisplay.GetEffectiveNormalStrength(_currentDisplay.EffectiveConfiguredBlurRadius);
-			materialRenderer.SetSourceTextures(combinedAccumulationTexture, normalAccumulationTexture);
-			ParticleFluidPassBindings.ApplyMetaballMaterialGlobals(targetCommandBuffer, _currentDisplay, _currentCamera, _lighting, _currentRenderRegion, effectiveNormalStrength);
-			materialRenderer.RenderSurfaceMaps(targetCommandBuffer, _currentRenderRegion, _currentCamera);
-			if (_lighting != null)
-			{
-				_lighting.ApplyLightingInputs(materialRenderer.MaterialMaps.CreateLightingInputs(_currentRenderRegion, _currentSourceSize, velocityTexture));
+				_lighting.ApplyLightingInputs(materialRenderer.MaterialMaps.CreateLightingInputs(_currentRenderRegion, _currentMaterialSize, velocityTexture));
 			}
 		}
 
@@ -143,7 +127,7 @@ namespace Seb.Fluid2D.Rendering
 
 		public ParticleFluidLighting2D.FrameContext CreateLightingContext(ParticleDisplay2D display, Camera cam)
 		{
-			return new ParticleFluidLighting2D.FrameContext(display, cam, _currentRenderRegion, _currentSourceSize);
+			return new ParticleFluidLighting2D.FrameContext(display, cam, _currentRenderRegion, _currentMaterialSize);
 		}
 
 		public void Release()
@@ -235,7 +219,7 @@ namespace Seb.Fluid2D.Rendering
 			}
 			if (ShouldUseMaterialPipeline(display))
 			{
-				materialRenderer.EnsureRenderTextures(_currentMaterialSize, _currentSourceSize);
+				materialRenderer.EnsureRenderTextures(_currentMaterialSize, _currentMaterialSize);
 			}
 			else
 			{
@@ -371,7 +355,7 @@ namespace Seb.Fluid2D.Rendering
 			{
 				float effectiveNormalStrength = display.GetEffectiveNormalStrength(display.EffectiveConfiguredBlurRadius);
 				ParticleFluidPassBindings.ApplyMetaballMaterialGlobals(targetCommandBuffer, display, cam, _lighting, _currentRenderRegion, effectiveNormalStrength);
-				materialRenderer.RenderSurfaceMaps(targetCommandBuffer, _currentRenderRegion, cam);
+				materialRenderer.RenderMaterialMaps(targetCommandBuffer, _currentRenderRegion, cam);
 				RecordPreparedMaterialAndLighting(display, cam, targetCommandBuffer, finalTarget);
 			}
 			else if (_debugMaterial != null)
@@ -404,7 +388,7 @@ namespace Seb.Fluid2D.Rendering
 			}
 			else if (_lighting != null && _lighting.lightingMaterial != null)
 			{
-				ParticleFluidLightingInputSet lightingInputs = materialRenderer.MaterialMaps.CreateLightingInputs(_currentRenderRegion, _currentSourceSize, velocityTexture);
+				ParticleFluidLightingInputSet lightingInputs = materialRenderer.MaterialMaps.CreateLightingInputs(_currentRenderRegion, _currentMaterialSize, velocityTexture);
 				ParticleFluidLighting2D.FrameContext lightingContext = _lighting.PrepareLighting(cam, lightingInputs);
 				_lighting.RenderLit(targetCommandBuffer, finalTarget, cam, lightingContext, lightingInputs.transportTexture);
 			}

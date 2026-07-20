@@ -5,10 +5,8 @@ namespace Seb.Fluid2D.Rendering
 {
 	internal sealed class MetaballMaterialRenderer2D
 	{
-		const int AlbedoPass = 0;
-		const int NormalPass = 1;
-		const int TransportPass = 2;
-		const int UnlitPass = 3;
+		const int MaterialMapsPass = 0;
+		const int UnlitPass = 1;
 
 		Material material;
 		readonly ParticleFluidMaterialMapSet materialMaps = new ();
@@ -58,22 +56,13 @@ namespace Seb.Fluid2D.Rendering
 		}
 
 
-		public void RenderSurfaceMaps(CommandBuffer commandBuffer, Bounds materialRegion, Camera camera)
+		public void RenderMaterialMaps(CommandBuffer commandBuffer, Bounds materialRegion, Camera camera)
 		{
 			if (!IsReady || commandBuffer == null || camera == null)
 			{
 				return;
 			}
-			materialMaps.RenderSurfaceMaps(commandBuffer, material, AlbedoPass, NormalPass, materialRegion, camera);
-		}
-
-		public void RenderTransportMap(CommandBuffer commandBuffer, Bounds transportRegion, Camera camera)
-		{
-			if (!IsReady || commandBuffer == null || camera == null)
-			{
-				return;
-			}
-			materialMaps.RenderTransportMap(commandBuffer, material, TransportPass, transportRegion, camera);
+			materialMaps.RenderMaterialMaps(commandBuffer, material, MaterialMapsPass, materialRegion, camera);
 		}
 
 		public void RenderUnlit(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, Bounds region)

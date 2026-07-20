@@ -64,6 +64,19 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.DrawMesh(GetQuadMesh(), region.CreateRegionMatrix(), material, 0, pass);
 			commandBuffer.SetViewProjectionMatrices(restoreCamera.worldToCameraMatrix, GL.GetGPUProjectionMatrix(restoreCamera.projectionMatrix, false));
 		}
+
+		internal static void DrawRegionQuad(CommandBuffer commandBuffer, RenderTargetIdentifier[] targets, Material material, int pass, Bounds region, Camera restoreCamera, bool clear = false, Color? clearColor = null)
+		{
+			commandBuffer.SetRenderTarget(targets, BuiltinRenderTextureType.None);
+			if (clear)
+			{
+				commandBuffer.ClearRenderTarget(false, true, clearColor ?? Color.clear);
+			}
+
+			commandBuffer.SetViewProjectionMatrices(Matrix4x4.identity, region.CreateRegionProjection());
+			commandBuffer.DrawMesh(GetQuadMesh(), region.CreateRegionMatrix(), material, 0, pass);
+			commandBuffer.SetViewProjectionMatrices(restoreCamera.worldToCameraMatrix, GL.GetGPUProjectionMatrix(restoreCamera.projectionMatrix, false));
+		}
 	}
 }
 
