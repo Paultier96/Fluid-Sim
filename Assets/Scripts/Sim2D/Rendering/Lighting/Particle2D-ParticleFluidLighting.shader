@@ -28,7 +28,6 @@ sampler2D MaterialTransportTex;
 sampler2D CausticTex;
 sampler2D SoftLightTex;
 sampler2D SoftLightTexPhase1;
-sampler2D ProjectedShadowTex;
 sampler2D ColourMap;
 sampler2D ColourMap2;
 #include "Shared/ParticleFluidGradientSampling.cginc"
@@ -37,10 +36,6 @@ float4 MaterialAlbedoTex_TexelSize;
 int particleFluidCausticsEnabled;
 int particleFluidPhaseDiffuseLightEnabled;
 int particleGaussianPhase0Only;
-int particleFluidProjectedShadowEnabled;
-float2 particleFluidProjectedShadowDirection;
-float particleFluidProjectedShadowOffset;
-float particleFluidProjectedShadowExpansion;
 float particleFluidRadianceCascadeDirectCausticStrength;
 float4 particleFluidPhaseDiffuseLightTint[2];
 float4 particlePhaseSurface[2];
@@ -79,81 +74,6 @@ float InterleavedGradientNoise(float2 pixel)
 {
 	float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
 	return frac(magic.z * frac(dot(pixel, magic.xy)));
-}
-
-float ProjectedShadowHalfPerp(float2 direction, float2 regionSize)
-{
-	float2 dirLengthSafe = length(direction) > 0.0001 ? normalize(direction) : float2(0.0, -1.0);
-	float2 perp = float2(-dirLengthSafe.y, dirLengthSafe.x);
-	return max(0.5 * (abs(perp.x) * regionSize.x + abs(perp.y) * regionSize.y), 0.0001);
-}
-
-float ProjectedShadowHalfForward(float2 direction, float2 regionSize)
-{
-	float2 forward = length(direction) > 0.0001 ? normalize(direction) : float2(0.0, -1.0);
-	return max(0.5 * (abs(forward.x) * regionSize.x + abs(forward.y) * regionSize.y), 0.0001);
-}
-
-float4 SampleProjectedShadow(float2 worldPos, float2 regionCenter, float2 regionSize, float2 direction, sampler2D shadowMap)
-{
-	float dirLength = length(direction);
-	if (dirLength <= 0.0001)
-	{
-		return 0.0;
-	}
-
-	float2 forward = direction / dirLength;
-	float2 perp = float2(-forward.y, forward.x);
-	worldPos -= forward * particleFluidProjectedShadowOffset;
-	float halfPerp = ProjectedShadowHalfPerp(direction, regionSize);
-	float halfForward = ProjectedShadowHalfForward(direction, regionSize);
-	float2 rel = worldPos - regionCenter;
-	float binT = dot(rel, perp) / halfPerp * 0.5 + 0.5;
-	float depthT = dot(rel, forward) / halfForward * 0.5 + 0.5;
-	float perpExpansionT = max(particleFluidProjectedShadowExpansion, 0.0) / halfPerp * 0.5;
-	float forwardExpansionT = max(particleFluidProjectedShadowExpansion, 0.0) / halfForward * 0.5;
-	float4 bestSample = 0.0;
-	float bestDepth = 2.0;
-	float hasSample = 0.0;
-	float centerOccupied = 0.0;
-	int occupiedTapCount = 0;
-	float binOffsets[5] = { -1.0, -0.5, 0.0, 0.5, 1.0 };
-
-	[unroll]
-	for (int tap = 0; tap < 5; tap++)
-	{
-		float tapBinT = binT + binOffsets[tap] * perpExpansionT;
-		float tapInRange = step(0.0, tapBinT) * step(tapBinT, 1.0) * step(0.0, depthT) * step(depthT, 1.0);
-		float4 tapSample = tex2D(shadowMap, float2(tapBinT, 0.5));
-		float tapOccupied = tapInRange * tapSample.y * step(tapSample.x + 0.01 - forwardExpansionT, depthT);
-		if (tap == 2)
-		{
-			centerOccupied = tapOccupied;
-		}
-		if (tapOccupied > 0.0)
-		{
-			occupiedTapCount++;
-		}
-		if (tapOccupied > 0.0 && tapSample.x < bestDepth)
-		{
-			bestDepth = tapSample.x;
-			bestSample = float4(tapSample.x, tapSample.y, depthT, tapInRange);
-			hasSample = 1.0;
-		}
-	}
-
-	if (centerOccupied <= 0.0 && occupiedTapCount < 2)
-	{
-		return float4(0.0, 0.0, depthT, 0.0);
-	}
-
-	return hasSample > 0.0 ? bestSample : float4(0.0, 0.0, depthT, 0.0);
-}
-
-float ProjectedShadowOccupancy(float2 worldPos)
-{
-	float4 sample = SampleProjectedShadow(worldPos, domainWorldCenter, domainWorldSize, particleFluidProjectedShadowDirection, ProjectedShadowTex);
-	return sample.w * sample.y * step(sample.x + 0.01, sample.z);
 }
 
 float AnalyticBoundaryLightExclusion(float2 worldPos)
@@ -445,14 +365,6 @@ float4 fragSplitLighting(v2f i) : SV_Target
 		directLightIrradiance0 = lightField * phase0DirectCausticStrength;
 		directLightIrradiance1 = lightField * phase1DirectCausticStrength;
 	}
-	else if (particleFluidProjectedShadowEnabled != 0 && ParticleLightType(0) == 0)
-	{
-		float shadowOccupancy = ProjectedShadowOccupancy(worldPos);
-		float shadowLight = 1.0 - shadowOccupancy;
-		directLightIrradiance0 = shadowLight;
-		directLightIrradiance1 = shadowLight;
-	}
-
 	float primaryPointAttenuation = ParticleLightType(0) == 1 ? ParticlePointLightAttenuation(particleLightPoints[0], ParticleLightPointFalloff(0), worldPos) : 1.0;
 	float3 primaryPointIrradiance = float3(primaryPointAttenuation, primaryPointAttenuation, primaryPointAttenuation);
 	float3 specularCausticIrradiance0 = SampleSpecularCausticIrradiance(materialUv, normal, particlePhaseScale.x);

@@ -15,9 +15,8 @@ namespace Seb.Fluid2D.Rendering
 		public ParticleFluidInteractionCursor2D interactionCursor;
 		public enum RenderMode
 		{
-			DirectParticles,
-			JumpFlood,
-			Metaballs
+			DirectParticles = 0,
+			Metaballs = 2
 		}
 
 		public enum DebugVisualization
@@ -69,7 +68,7 @@ namespace Seb.Fluid2D.Rendering
 		internal float GetEffectiveMotionBlurRadius(Camera cam, float motionBlurRadius)
 		{
 			motionBlurRadius *= ParticleResolutionLengthScale;
-			return motionBlurRadius * GetZoomScale(cam) * Mathf.Max(metaballs.renderTextureScale, 0.0001f);
+			return motionBlurRadius * GetZoomScale(cam) * Mathf.Max(metaballs.velocityTextureScale, 0.0001f);
 		}
 
 		internal float GetZoomScale(Camera cam)
@@ -110,6 +109,8 @@ namespace Seb.Fluid2D.Rendering
 			[Header("Shape - Surface")]
 			[Tooltip("Resolution of the metaball render textures relative to the screen. Lower values improve performance at the cost of sharpness.")]
 			[Range(0.25f, 1f)] public float renderTextureScale = 0.5f;
+			[Tooltip("Resolution of the particle motion texture relative to the screen. Lower values improve performance for temporal reprojection and motion debug at the cost of motion detail.")]
+			[Range(0.125f, 1f)] public float velocityTextureScale = 0.5f;
 			[Tooltip("Radius in pixels at resolution factor 1 of the Gaussian blur. Larger values make particles merge at greater distances.")]
 			[Min(0)] public float blurRadius = 6;
 			[Tooltip("Blurred density value at which the fluid surface appears. Increase to shrink the visible fluid; decrease to expand it.")]
@@ -146,21 +147,6 @@ namespace Seb.Fluid2D.Rendering
 			[Range(-4f, 4f)] public float ghostBoundaryNormalStrength = 1f;
 		}
 		
-		public JumpFloodSettings jumpFlood = new();
-
-		JumpFloodRenderer2D jumpFloodRenderer;
-		
-		internal JumpFloodRenderer2D JumpFloodRenderer => jumpFloodRenderer ??= new JumpFloodRenderer2D();
-
-		[Serializable]
-		public sealed class JumpFloodSettings
-		{
-			public ComputeShader computeShader;
-			public Shader displayShader;
-			[Tooltip("Shader that converts the Jump Flood result into the albedo/normal material maps consumed by ParticleFluidLighting2D.")]
-			public Shader materialShader;
-		}
-
 		public FluidSim2D sim;
 		public ParticleFluidLighting2D lighting;
 		private ParticleFluidLighting2D activeLighting;
@@ -270,7 +256,7 @@ namespace Seb.Fluid2D.Rendering
 			EnsureMaterials();
 			UpdateSettings();
 
-			if (renderMode != RenderMode.JumpFlood && (renderMode != RenderMode.Metaballs || metaballs.blurShader == null))
+			if (renderMode != RenderMode.Metaballs || metaballs.blurShader == null)
 			{
 				DrawDirectParticles();
 				DrawVectorField();
@@ -667,7 +653,6 @@ namespace Seb.Fluid2D.Rendering
 			ComputeHelper.Release(argsBuffer);
 			ComputeHelper.Release(vectorArgsBuffer);
 			_metaballRenderer?.Release();
-			jumpFloodRenderer?.Release();
 			lighting?.Release();
 			if (vectorArrowMesh != null)
 			{

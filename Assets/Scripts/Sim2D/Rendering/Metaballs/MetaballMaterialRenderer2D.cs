@@ -29,9 +29,9 @@ namespace Seb.Fluid2D.Rendering
 			material = new Material(shader);
 		}
 
-		public void EnsureRenderTextures(Vector2Int materialSize, Vector2Int transportSize)
+		public void EnsureRenderTextures(Vector2Int materialSize)
 		{
-			materialMaps.EnsureRenderTextures(materialSize.x, materialSize.y, transportSize.x, transportSize.y, "Particle2D");
+			materialMaps.EnsureRenderTextures(materialSize, "Particle2D");
 		}
 
 		public void ApplySharedSettings(float analyticBoundaryExpansion)

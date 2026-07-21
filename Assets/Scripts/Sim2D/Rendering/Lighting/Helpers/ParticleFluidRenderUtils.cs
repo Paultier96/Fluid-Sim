@@ -28,13 +28,19 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 		
-		public static void GaussianBlur(CommandBuffer targetCommandBuffer, float causticBlurRadius, Material blurMaterial, RenderTexture source, RenderTexture target)
+		public static void GaussianBlur(CommandBuffer targetCommandBuffer, float blurRadius, Material blurMaterial, RenderTexture source, RenderTexture target, string name)
 		{
-			blurMaterial.SetFloat("blurRadius", causticBlurRadius);
+			if (blurRadius < 0.001f)
+			{
+				return;
+			}
+			targetCommandBuffer.BeginSample(name);
+			blurMaterial.SetFloat("blurRadius", blurRadius);
 			targetCommandBuffer.SetGlobalVector("blurDirection", new Vector2(1, 0));
 			targetCommandBuffer.Blit(source, target, blurMaterial);
 			targetCommandBuffer.SetGlobalVector("blurDirection", new Vector2(0, 1));
 			targetCommandBuffer.Blit(target, source, blurMaterial);
+			targetCommandBuffer.EndSample(name);
 		}
 
 		public static void Swap(ref RenderTexture a, ref RenderTexture b)

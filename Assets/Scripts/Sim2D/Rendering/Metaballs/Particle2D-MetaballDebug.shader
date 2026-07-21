@@ -5,8 +5,9 @@ Shader "Hidden/Particle2DMetaballDebug" {
 		ZWrite Off
 		ZTest Always
 
-		CGINCLUDE
-		#include "UnityCG.cginc"
+		HLSLINCLUDE
+		#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+		#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Color.hlsl"
 		#include "../Lighting/Shared/ParticleFluidCommon.hlsl"
 
 struct appdata {
@@ -35,7 +36,7 @@ float particleCausticDebugExposure;
 v2f vert(appdata v)
 {
 	v2f o;
-	o.vertex = UnityObjectToClipPos(v.vertex);
+	o.vertex = TransformObjectToHClip(v.vertex.xyz);
 	o.uv = v.uv;
 	return o;
 }
@@ -46,7 +47,7 @@ float3 HeatMapClipColour(float t)
 	#if defined(UNITY_COLORSPACE_GAMMA)
 		return clipColour;
 	#else
-		return GammaToLinearSpace(clipColour);
+		return SRGBToLinear(clipColour);
 	#endif
 }
 
@@ -81,7 +82,7 @@ bool ResolveMetaball(v2f i, out float alpha, out float3 litColour)
 	
 	if (debugMode == 1) // Normals
 	{
-		litColour = GammaToLinearSpace(tex2D(MaterialNormalTex, materialUv).rgb);
+		litColour = SRGBToLinear(tex2D(MaterialNormalTex, materialUv).rgb);
 		return true;
 	}
 
@@ -132,40 +133,17 @@ float4 frag(v2f i) : SV_Target
 	{
 		return float4(tex2D(DebugTex0, causticUv).rgb, 1.0);
 	}
-	if (debugMode == 10) // Caustic motion
-	{
-		float4 motionDebug = tex2D(DebugTex0, causticUv);
-		float2 debugMotion = motionDebug.xy * max(domainWorldSize, float2(0.0001, 0.0001));
-		float motionConfidence = saturate(motionDebug.z);
-		float motionScale = max(debugGradientMax, 0.0001);
-		float rawMotionMagnitude = length(debugMotion) * motionScale;
-		float motionMagnitude = saturate(rawMotionMagnitude) * motionConfidence;
-		float2 motionDirection = length(debugMotion) > 0.0000001 ? normalize(debugMotion) : 0.0;
-		float2 motionColour = saturate(0.5 + motionDirection * 0.5);
-		float3 movingColour = float3(motionColour * motionMagnitude, motionMagnitude);
-		float3 debugColour = movingColour;
-		debugColour = motionConfidence > 0.0 ? ApplyMotionClipMarker(rawMotionMagnitude, debugColour) : debugColour;
-		return float4(debugColour, 1.0);
-	}
-	if (debugMode == 11) // Projected shadow
-	{
-		float projectedShadow = saturate(tex2D(DebugTex0, causticUv).a);
-		float3 unshadowed = float3(0.0, 0.0, 0.0);
-		float3 shadowed = float3(1.0, 0.6, 0.0);
-		return float4(lerp(unshadowed, shadowed, projectedShadow), 1.0);
-	}
 	if (debugMode == 12) // Particle motion
 	{
 		float2 materialUv = i.uv;
-		float4 materialTransport = tex2D(MaterialTransportTex, materialUv);
-		if (materialTransport.g <= 0.0001)
+		float4 packedVelocity = tex2D(VelocityTex, materialUv);
+		float2 weightedVelocity = packedVelocity.rg;
+		float weight = packedVelocity.b;
+		if (weight <= 0.0001)
 		{
 			return float4(0.0, 0.0, 0.0, 1.0);
 		}
 
-		float4 packedVelocity = tex2D(VelocityTex, materialUv);
-		float2 weightedVelocity = packedVelocity.rg;
-		float weight = packedVelocity.b;
 		float2 velocity = weight > 0.0001 ? weightedVelocity / weight : 0.0;
 		float2 debugMotion = velocity * max(motionDebugDeltaTime, 0.0);
 		float motionScale = max(debugGradientMax, 0.0001);
@@ -187,14 +165,14 @@ float4 frag(v2f i) : SV_Target
 
 	return float4(colour, alpha);
 }
-		ENDCG
+		ENDHLSL
 
 		Pass {
 			Blend SrcAlpha OneMinusSrcAlpha
-			CGPROGRAM
+			HLSLPROGRAM
 			#pragma vertex vert
 			#pragma fragment frag
-			ENDCG
+			ENDHLSL
 		}
 	}
 }

@@ -648,7 +648,6 @@ MonoBehaviour:
   temporalShader: {fileID: 4800000, guid: 73c5a11f4158468ab8fbd99b9bd1e938, type: 3}
   causticsCompute: {fileID: 7200000, guid: 8f4e77c1b8284da4ca6c929de309e7a1, type: 3}
   projectedShadowCompute: {fileID: 7200000, guid: 5b61f463d7b3490ea86cc45d7f3b3c8c, type: 3}
-  lightingMode: 2
   textureScale: 0.5
   traceSettings:
     stochasticReflection: 1
@@ -1380,7 +1379,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &1874339690
 Transform:
   m_ObjectHideFlags: 0

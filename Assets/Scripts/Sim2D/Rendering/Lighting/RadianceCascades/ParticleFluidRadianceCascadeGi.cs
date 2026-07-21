@@ -208,7 +208,7 @@ namespace Seb.Fluid2D.Rendering
 			bool useBoundarySourceTexture = false;
 			float boundarySourceNormalization = 1f;
 			Texture boundarySourceTexture = Texture2D.blackTexture;
-			if (_lighting.directLight != null && _lighting.directLight.lightingMode == ParticleFluidDirectLight.LightingMode.Caustics)
+			if (_lighting.directLight != null && _lighting.directLight.IsCausticsEnabled)
 			{
 				if (useGaussianBoundarySource && _lighting.gaussianSss.gaussianSoftLightTexture0 != null)
 				{

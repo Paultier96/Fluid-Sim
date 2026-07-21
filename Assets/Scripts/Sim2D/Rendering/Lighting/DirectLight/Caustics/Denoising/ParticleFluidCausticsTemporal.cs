@@ -10,9 +10,7 @@ namespace Seb.Fluid2D.Rendering
 		public enum TemporalMotionSource
 		{
 			Static,
-			ParticleMotion,
-			CausticMotion,
-			ProjectedShadow
+			ParticleMotion
 		}
 		
 		private readonly ParticleFluidDirectLight _directLight;
@@ -21,13 +19,9 @@ namespace Seb.Fluid2D.Rendering
 		private int _causticTemporalFrameCount;
 		private Vector2 _previousCausticWorldCenter;
 		private Vector2 _previousCausticWorldSize;
-		private Vector2 _previousProjectedShadowDirection;
 		private Material _temporalMaterial;
 		private Material _causticBlurMaterial;
-		private Material _causticMotionBlurMaterial;
 		internal RenderTexture causticBlurTexture;
-		internal RenderTexture causticMotionDilatedTexture;
-		internal RenderTexture causticMotionDilationScratchTexture;
 		internal RenderTexture causticHistoryTexture;
 		internal RenderTexture causticTemporalTexture;
 		private readonly ParticleFluidDirectLight.CausticsTemporalSettings _temporalSettings;
@@ -42,14 +36,11 @@ namespace Seb.Fluid2D.Rendering
 		{
 			ParticleFluidRenderUtils.EnsureMaterial(ref _temporalMaterial, _directLight.temporalShader);
 			ParticleFluidRenderUtils.EnsureMaterial(ref _causticBlurMaterial, _directLight.blurShader);
-			ParticleFluidRenderUtils.EnsureMaterial(ref _causticMotionBlurMaterial, _directLight.blurShader);
 		}
 
 		private void EnsureResources(int width, int height, bool denoisingEnabled)
 		{
 			ComputeHelper.CreateRenderTexture(ref causticBlurTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Blur");
-			ComputeHelper.CreateRenderTexture(ref causticMotionDilatedTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Motion Dilated");
-			ComputeHelper.CreateRenderTexture(ref causticMotionDilationScratchTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Motion Dilation Scratch");
 			if (denoisingEnabled)
 			{
 				ComputeHelper.CreateRenderTexture(ref causticHistoryTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic History");
@@ -63,7 +54,7 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
-		internal void EnsureTemporalResources(int causticWidth, int causticHeight, Bounds domainRegion, bool denoisingEnabled, bool useProjectedShadowMap)
+		internal void EnsureTemporalResources(int causticWidth, int causticHeight, Bounds domainRegion, bool denoisingEnabled)
 		{
 			bool hadCausticHistory = causticHistoryTexture != null && causticHistoryTexture.IsCreated();
 			bool causticHistoryResize = hadCausticHistory
@@ -96,36 +87,25 @@ namespace Seb.Fluid2D.Rendering
 			else
 			{
 				EnsureResources(causticWidth, causticHeight, false);
-				_directLight.projectedShadow.Release();
-				_previousProjectedShadowDirection = Vector2.zero;
 				_clearCausticHistory = true;
 				_hasPreviousCausticCamera = false;
 				_causticTemporalFrameCount = 0;
-			}
-
-			if (!useProjectedShadowMap)
-			{
-				_previousProjectedShadowDirection = Vector2.zero;
 			}
 		}
 
 		internal void Release()
 		{
-			ComputeHelper.Release(causticBlurTexture, causticMotionDilatedTexture, causticMotionDilationScratchTexture, causticHistoryTexture, causticTemporalTexture);
+			ComputeHelper.Release(causticBlurTexture, causticHistoryTexture, causticTemporalTexture);
 			causticBlurTexture = null;
-			causticMotionDilatedTexture = null;
-			causticMotionDilationScratchTexture = null;
 			causticHistoryTexture = null;
 			causticTemporalTexture = null;
 			_hasPreviousCausticCamera = false;
 			_causticTemporalFrameCount = 0;
 			_previousCausticWorldCenter = Vector2.zero;
 			_previousCausticWorldSize = Vector2.zero;
-			_previousProjectedShadowDirection = Vector2.zero;
 			_clearCausticHistory = false;
 			ParticleFluidRenderUtils.DestroyMaterial(ref _temporalMaterial);
 			ParticleFluidRenderUtils.DestroyMaterial(ref _causticBlurMaterial);
-			ParticleFluidRenderUtils.DestroyMaterial(ref _causticMotionBlurMaterial);
 		}
 
 		public void ApplyTemporalSettings(ParticleFluidLighting2D.FrameContext context, Texture velocityTexture)
@@ -138,7 +118,6 @@ namespace Seb.Fluid2D.Rendering
 			ParticleFluidLighting2D lighting = _directLight.particleFluidLighting2D;
 			ParticleDisplay2D display = context.display;
 			_temporalMaterial.SetTexture("VelocityTex", velocityTexture != null ? velocityTexture : Texture2D.blackTexture);
-			_temporalMaterial.SetTexture("CausticMotionTex", _directLight.causticMotionTexture != null ? _directLight.causticMotionTexture : Texture2D.blackTexture);
 			_temporalMaterial.SetInt("debugMode", MetaballRenderer2D.GetDebugShaderMode(display, lighting));
 			_temporalMaterial.SetFloat("motionDebugDeltaTime", display.sim.CurrentSimulationDeltaTime);
 			_temporalMaterial.SetFloat("causticTemporalHistoryWeight", display.sim.isPaused ? 0.99f : _temporalSettings.temporalHistoryWeight);
@@ -183,89 +162,21 @@ namespace Seb.Fluid2D.Rendering
 		
 
 
-		public void RecordBlurAndMotion(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer)
+		public void RecordBlur(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer)
 		{
 			ParticleFluidDirectLight.CausticsTraceSettings traceSettings = _directLight.traceSettings;
 			ParticleDisplay2D.MetaballSettings surface = context.display.metaballs;
 			float rayTextureBlurScale = surface.renderTextureScale * _directLight.textureScale;
 			float causticBlurRadius = traceSettings.blur * rayTextureBlurScale;
-			float temporalMotionBlurRadius = _temporalSettings.temporalMotionBlur * rayTextureBlurScale;
-			if (causticBlurRadius > 0.001f)
-			{
-				ParticleFluidRenderUtils.GaussianBlur(targetCommandBuffer, causticBlurRadius, _causticBlurMaterial,_directLight.causticResolvedTexture, causticBlurTexture);
-			}
-
-			RenderTexture temporalMotionTexture = _directLight.causticMotionTexture;
-			bool useCausticMotion = _temporalMaterial != null && _temporalSettings.temporalMotionSource == TemporalMotionSource.CausticMotion;
-			if (useCausticMotion && _temporalSettings.temporalMotionDilationRadius > 0.001f && causticMotionDilatedTexture != null && causticMotionDilationScratchTexture != null)
-			{
-				int dilationIterations = Mathf.Max(1, _temporalSettings.temporalMotionDilationIterations);
-				float motionDilationRadius = _temporalSettings.temporalMotionDilationRadius * rayTextureBlurScale / dilationIterations;
-				ParticleFluidLayoutBindings.ApplyDomainGlobals(targetCommandBuffer, context.renderRegion);
-				RenderTexture dilationSource = _directLight.causticMotionTexture;
-				RenderTexture dilationTarget = causticMotionDilatedTexture;
-				for (int i = 0; i < dilationIterations; i++)
-				{
-					_temporalMaterial.SetFloat("causticMotionDilationRadius", motionDilationRadius);
-					targetCommandBuffer.Blit(dilationSource, dilationTarget, _temporalMaterial, 1);
-					temporalMotionTexture = dilationTarget;
-					dilationSource = dilationTarget;
-					dilationTarget = dilationTarget == causticMotionDilatedTexture ? causticMotionDilationScratchTexture : causticMotionDilatedTexture;
-				}
-			}
-			if (useCausticMotion && temporalMotionBlurRadius > 0.001f && temporalMotionTexture != null && causticMotionDilationScratchTexture != null)
-			{
-				RenderTexture motionBlurScratch = temporalMotionTexture == causticMotionDilationScratchTexture
-					? causticMotionDilatedTexture
-					: causticMotionDilationScratchTexture;
-				ParticleFluidRenderUtils.GaussianBlur(targetCommandBuffer, temporalMotionBlurRadius, _causticMotionBlurMaterial,temporalMotionTexture,motionBlurScratch);
-			}
-			_temporalMaterial?.SetTexture("CausticMotionTex", temporalMotionTexture != null ? temporalMotionTexture : Texture2D.blackTexture);
-			targetCommandBuffer.SetGlobalTexture("CausticMotionTex", temporalMotionTexture != null ? temporalMotionTexture : this._directLight.causticMotionTexture);
+			ParticleFluidRenderUtils.GaussianBlur(targetCommandBuffer, causticBlurRadius, _causticBlurMaterial,_directLight.causticResolvedTexture, causticBlurTexture, "recordBlur");
 		}
 
-		public RenderTexture GetTemporalMotionTextureAfterBlur()
+		public void RecordTemporal(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer)
 		{
-			bool useCausticMotion = _temporalMaterial != null && _temporalSettings.temporalMotionSource == TemporalMotionSource.CausticMotion;
-			if (!useCausticMotion)
-			{
-				return _directLight.causticMotionTexture;
-			}
-
-			bool hasDilationTargets = causticMotionDilatedTexture != null && causticMotionDilationScratchTexture != null;
-			if (_temporalSettings.temporalMotionDilationRadius > 0.001f && hasDilationTargets)
-			{
-				int dilationIterations = Mathf.Max(1, _temporalSettings.temporalMotionDilationIterations);
-				return dilationIterations % 2 == 1 ? causticMotionDilatedTexture : causticMotionDilationScratchTexture;
-			}
-
-			return _directLight.causticMotionTexture;
-		}
-
-		public void RecordTemporal(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, RenderTexture temporalMotionTexture)
-		{
-			const int copyWithValidAlphaPass = 3;
-			ParticleFluidDirectLight.ProjectedShadowSettings projectedShadowSettings = _directLight.projectedShadowSettings;
+			const int copyWithValidAlphaPass = 2;
 			ParticleFluidLighting2D lightingOwner = _directLight.particleFluidLighting2D;
 			ParticleDisplay2D display = context.display;
-			bool wantsProjectedShadowMap = _temporalSettings.projectedShadowHistoryRejection || _temporalSettings.temporalMotionSource == TemporalMotionSource.ProjectedShadow;
-			Vector2 projectedShadowDirection = Vector2.zero;
-			bool useProjectedShadowMap = false;
 			_temporalMaterial?.SetTexture("MaterialTransportTex", lightingOwner.materialTransportTexture != null ? lightingOwner.materialTransportTexture : Texture2D.blackTexture);
-			if (wantsProjectedShadowMap && lightingOwner.lightManager.GetMainDirectionalLight() is { } directionalLight)
-			{
-				Vector3 effectiveLightDirection = directionalLight.GetBoundaryRefractedDirection(lightingOwner.PhaseMaterials[1].indexOfRefraction, context.display.sim.analyticBoundary);
-				ParticleFluidProjectedShadow.RecordParams projectedShadowParams = new(
-					_directLight.projectedShadowCompute,
-					_directLight.projectedShadow.projectedShadowMapBuffer,
-					_directLight.projectedShadow.projectedShadowMapTexture,
-					lightingOwner.materialTransportTexture,
-					projectedShadowSettings.mapBins,
-					effectiveLightDirection,
-					context.renderRegion,
-					context.sourceSize);
-				useProjectedShadowMap = _directLight.projectedShadow.RecordCurrentShadowMap(targetCommandBuffer, projectedShadowParams, out projectedShadowDirection);
-			}
 
 			if (_temporalSettings.denoisingEnabled && _temporalMaterial != null)
 			{
@@ -284,35 +195,20 @@ namespace Seb.Fluid2D.Rendering
 					_temporalMaterial.SetFloat("causticTemporalHistoryWeight", Mathf.Min(targetHistoryWeight, warmupHistoryWeight));
 					_temporalMaterial.SetInt("causticTemporalMotionSource", (int)_temporalSettings.temporalMotionSource);
 					ParticleFluidPassBindings.ApplyCausticTemporalGlobals(targetCommandBuffer, display, context.renderRegion, _previousCausticWorldCenter, _previousCausticWorldSize);
-					_temporalMaterial.SetFloat("causticProjectedShadowOffset", projectedShadowSettings.offset);
-					_temporalMaterial.SetFloat("causticProjectedShadowExpansion", projectedShadowSettings.expansion);
-					_temporalMaterial.SetInt("causticProjectedShadowMapEnabled", useProjectedShadowMap ? 1 : 0);
-					_temporalMaterial.SetVector("causticProjectedShadowDirection", projectedShadowDirection);
-					_temporalMaterial.SetVector("causticProjectedShadowHistoryDirection", _previousProjectedShadowDirection);
-					_temporalMaterial.SetTexture("CausticProjectedShadowMapTex", _directLight.projectedShadow.projectedShadowMapTexture);
-					_temporalMaterial.SetTexture("CausticProjectedShadowHistoryTex", _directLight.projectedShadow.projectedShadowMapHistoryTexture);
 					_temporalMaterial.SetTexture("CausticHistoryTex", causticHistoryTexture);
-					_temporalMaterial.SetTexture("CausticMotionTex", temporalMotionTexture);
 					targetCommandBuffer.Blit(this._directLight.causticResolvedTexture, causticTemporalTexture, _temporalMaterial, 0);
 					targetCommandBuffer.Blit(causticTemporalTexture, causticHistoryTexture, _temporalMaterial, copyWithValidAlphaPass);
 					_causticTemporalFrameCount = nextFrameCount;
 				}
 
-				if (useProjectedShadowMap)
-				{
-					targetCommandBuffer.Blit(_directLight.projectedShadow.projectedShadowMapTexture, _directLight.projectedShadow.projectedShadowMapHistoryTexture);
-				}
-
 				_previousCausticWorldCenter = context.renderRegion.center;
 				_previousCausticWorldSize = context.renderRegion.size;
-				_previousProjectedShadowDirection = useProjectedShadowMap ? projectedShadowDirection : Vector2.zero;
 				_hasPreviousCausticCamera = true;
 				return;
 			}
 
 			_hasPreviousCausticCamera = false;
 			_causticTemporalFrameCount = 0;
-			_previousProjectedShadowDirection = Vector2.zero;
 		}
 	}
 }

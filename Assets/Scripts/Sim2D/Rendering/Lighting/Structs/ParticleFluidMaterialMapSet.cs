@@ -16,11 +16,11 @@ namespace Seb.Fluid2D.Rendering
 		
 		public bool IsAllocated => albedoTexture != null && normalTexture != null && transportTexture != null;
 
-		public void EnsureRenderTextures(int materialWidth, int materialHeight, int transportWidth, int transportHeight, string namePrefix)
+		public void EnsureRenderTextures(Vector2Int materialSize, string namePrefix)
 		{
-			ComputeHelper.CreateRenderTexture(ref albedoTexture, materialWidth, materialHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, $"{namePrefix} Material Albedo");
-			ComputeHelper.CreateRenderTexture(ref normalTexture, materialWidth, materialHeight, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, $"{namePrefix} Material Normal");
-			ComputeHelper.CreateRenderTexture(ref transportTexture, transportWidth, transportHeight, FilterMode.Bilinear, TransportFormat, $"{namePrefix} Material Transport");
+			ComputeHelper.CreateRenderTexture(ref albedoTexture, materialSize.x, materialSize.y, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, $"{namePrefix} Material Albedo");
+			ComputeHelper.CreateRenderTexture(ref normalTexture, materialSize.x, materialSize.y, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, $"{namePrefix} Material Normal");
+			ComputeHelper.CreateRenderTexture(ref transportTexture, materialSize.x, materialSize.y, FilterMode.Bilinear, TransportFormat, $"{namePrefix} Material Transport");
 		}
 
 		public void RenderMaterialMaps(CommandBuffer commandBuffer, Material material, int materialMapsPass, Bounds materialRegion, Camera camera)
@@ -41,31 +41,6 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.EndSample("Particle Fluid/Build Material Maps");
 		}
 
-		public void RenderSurfaceMaps(CommandBuffer commandBuffer, Material material, int albedoPass, int normalPass, Bounds materialRegion, Camera camera)
-		{
-			if (!IsAllocated || commandBuffer == null || material == null || camera == null)
-			{
-				return;
-			}
-
-			commandBuffer.BeginSample("Particle Fluid/Build Surface Maps");
-			ParticleFluidRenderUtils.DrawRegionQuad(commandBuffer, albedoTexture, material, albedoPass, materialRegion, camera, true, Color.clear);
-			ParticleFluidRenderUtils.DrawRegionQuad(commandBuffer, normalTexture, material, normalPass, materialRegion, camera, true, Color.clear);
-			commandBuffer.EndSample("Particle Fluid/Build Surface Maps");
-		}
-
-		public void RenderTransportMap(CommandBuffer commandBuffer, Material material, int transportPass, Bounds transportRegion, Camera camera)
-		{
-			if (!IsAllocated || commandBuffer == null || material == null || camera == null)
-			{
-				return;
-			}
-
-			commandBuffer.BeginSample("Particle Fluid/Build Transport Map");
-			ParticleFluidRenderUtils.DrawRegionQuad(commandBuffer, transportTexture, material, transportPass, transportRegion, camera, true, Color.clear);
-			commandBuffer.EndSample("Particle Fluid/Build Transport Map");
-		}
-
 		public void RenderUnlit(CommandBuffer commandBuffer, Material material, RenderTargetIdentifier finalTarget, int unlitPass, Bounds region)
 		{
 			if (!IsAllocated || commandBuffer == null || material == null)
@@ -80,9 +55,9 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.EndSample("Particle Fluid/Unlit Fallback");
 		}
 
-		public ParticleFluidLightingInputSet CreateLightingInputs(Bounds renderRegion, Vector2Int sourceSize, Texture velocityTexture = null)
+		public ParticleFluidLightingInputSet CreateLightingInputs(Bounds renderRegion, Vector2Int materialSize, Texture velocityTexture = null)
 		{
-			return new ParticleFluidLightingInputSet(albedoTexture, normalTexture, transportTexture, renderRegion, sourceSize, velocityTexture);
+			return new ParticleFluidLightingInputSet(albedoTexture, normalTexture, transportTexture, renderRegion, materialSize, velocityTexture);
 		}
 
 		public void Release()

@@ -3,21 +3,16 @@
 #pragma kernel Resolve
 
 Texture2D<float4> MaterialTransportTex;
-Texture2D<float4> VelocityTex;
 Texture2D<float4> ColourMap;
 Texture2D<float4> ColourMap2;
 RWStructuredBuffer<uint> CausticAccum;
-RWStructuredBuffer<int> CausticMotionAccum;
 StructuredBuffer<float4> CausticsLights;
 StructuredBuffer<float4> CausticsMaterials;
 RWTexture2D<float4> CausticResult;
-RWTexture2D<float4> CausticMotionResult;
 
 #include "../../Shared/ParticleFluidCommon.hlsl"
 #include "../../Shared/ParticleFluidCombinedSamplingCompute.hlsl"
 #include "../../Shared/ParticleFluidGradientSamplingCompute.hlsl"
-static const float CausticMotionWeightScale = 1048576.0;
-static const float CausticMotionValueScale = 1048576.0;
 
 int2 transportResolution;
 int2 materialNormalResolution;
@@ -28,7 +23,6 @@ int causticsRaySteps;
 int causticsRayStride;
 int causticsRaysPerPixel;
 int causticsColourSampleStride;
-int causticsMotionEnabled;
 int causticsStochasticReflection;
 int causticsFrameIndex;
 float causticsDispersionStrength;
@@ -38,7 +32,6 @@ float causticsAbsorptionAlbedoSaturationInfluence;
 float causticsRayBrightness;
 float causticsTemporalJitterPixels;
 float causticsSurfaceNormalJitterPixels;
-float causticsDeltaTime;
 float2 causticsWorldCenter;
 float2 causticsWorldSize;
 
@@ -132,47 +125,6 @@ int PhaseFromTransport(float4 transport)
 	}
 
 	return transport.b < 0.5 ? 0 : 1;
-}
-
-float4 LoadVelocityPacked(int2 pixel)
-{
-	pixel = clamp(pixel, int2(0, 0), int2(transportResolution.x - 1, transportResolution.y - 1));
-	return VelocityTex.Load(int3(pixel, 0));
-}
-
-float4 SampleVelocityPackedNeighborhood(int2 pixel, int radius)
-{
-	float4 packedVelocity = 0.0;
-	[loop]
-	for (int y = -radius; y <= radius; y++)
-	{
-		[loop]
-		for (int x = -radius; x <= radius; x++)
-		{
-			int distance = abs(x) + abs(y);
-			float sampleWeight = 1.0 / (1.0 + (float)distance);
-			packedVelocity += LoadVelocityPacked(pixel + int2(x, y)) * sampleWeight;
-		}
-	}
-
-	return packedVelocity;
-}
-
-float2 SampleVelocity(float2 uv)
-{
-	int2 pixel = VelocityPixel(uv);
-	float4 packedVelocity = SampleVelocityPackedNeighborhood(pixel, 1);
-	if (packedVelocity.b <= 0.0001)
-	{
-		packedVelocity = SampleVelocityPackedNeighborhood(pixel, 3);
-	}
-
-	if (packedVelocity.b <= 0.0001)
-	{
-		return 0.0;
-	}
-
-	return packedVelocity.rg / packedVelocity.b;
 }
 
 int PhaseAt(float2 uv)
@@ -721,35 +673,6 @@ void AddCausticAtUv(float2 uv, float energy, float3 colour)
 	InterlockedAdd(CausticAccum[splatIndex + 2], encodedEnergy.b);
 }
 
-void AddCausticMotionAtUv(float2 uv, float energy, float2 motionUv)
-{
-	if (energy <= 0.0 || !ParticleFluidInsideUv01(uv))
-	{
-		return;
-	}
-
-	float weight = max(energy, 0.0);
-	if (weight <= 0.0)
-	{
-		return;
-	}
-
-	float2 splatCentre = uv * (causticSize - 1);
-	int2 splatPixel = (int2)round(splatCentre);
-	uint splatIndex = AccumIndex(splatPixel);
-	int encodedWeight = (int)round(weight * CausticMotionWeightScale);
-	if (encodedWeight <= 0)
-	{
-		return;
-	}
-
-	float2 encodedMotionFloat = clamp(motionUv * weight * CausticMotionValueScale, -2147483000.0, 2147483000.0);
-	int2 encodedMotion = (int2)round(encodedMotionFloat);
-	InterlockedAdd(CausticMotionAccum[splatIndex + 0], encodedMotion.x);
-	InterlockedAdd(CausticMotionAccum[splatIndex + 1], encodedMotion.y);
-	InterlockedAdd(CausticMotionAccum[splatIndex + 2], encodedWeight);
-}
-
 [numthreads(16, 16, 1)]
 void Clear(uint3 id : SV_DispatchThreadID)
 {
@@ -764,14 +687,6 @@ void Clear(uint3 id : SV_DispatchThreadID)
 	CausticAccum[index + 2] = 0;
 	CausticAccum[index + 3] = 0;
 	CausticResult[int2(id.xy)] = 0.0;
-	if (causticsMotionEnabled != 0)
-	{
-		CausticMotionAccum[index + 0] = 0;
-		CausticMotionAccum[index + 1] = 0;
-		CausticMotionAccum[index + 2] = 0;
-		CausticMotionAccum[index + 3] = 0;
-		CausticMotionResult[int2(id.xy)] = 0.0;
-	}
 }
 
 [numthreads(64, 1, 1)]
@@ -815,10 +730,7 @@ void Trace(uint3 id : SV_DispatchThreadID)
 	InitSpectralRay(spectralSeed, spectralRotationSeed, lightSubRay, lightSubRayCount, lightMultiplier, lightTemperatureKelvin, lightDispersionScale, spectralOffset, rayEnergy);
 	int currentPhase = MediumPhaseFromTransport(currentTransport, insideInnerBoundary);
 	float3 mediumColour = AbsorptionColourFromTransport(currentTransport, currentPhase);
-	float2 rayMotionUv = 0.0;
-	bool hasRayMotion = false;
 	int raySeed = (int)id.x + (int)id.y;
-	bool rayIsRefractedOnly = true;
 	float effectiveGlassIor = EffectiveAbsoluteIor(CausticsMaterialIor(2), spectralOffset);
 	float effectiveFluidIor = EffectiveAbsoluteIor(CausticsMaterialIor(1), spectralOffset);
 	int maxSteps = min(4096, (int)ceil(length(causticSize)) + causticsRaySteps);
@@ -853,7 +765,6 @@ void Trace(uint3 id : SV_DispatchThreadID)
 				: -AnalyticSurfaceNormal(uv, rayDir, max(analyticBoundaryExpansion, 0.0));
 			if (enteringBoundary)
 			{
-				rayIsRefractedOnly = rayIsRefractedOnly && CanRefract2D(rayDir, normal, eta);
 				rayEnergy *= SurfaceTransmission(rayDir, normal, eta, CausticsMaterialReflectance(2));
 				rayDir = Refract2D(rayDir, normal, eta);
 
@@ -867,7 +778,6 @@ void Trace(uint3 id : SV_DispatchThreadID)
 			{
 				rayEnergy *= SurfaceReflectance(rayDir, normal, eta, CausticsMaterialReflectance(2));
 				rayDir = Reflect2D(rayDir, normal);
-				rayIsRefractedOnly = false;
 				rayStep = rayDir / causticSize;
 				// The sampled position was outside. Resume slightly along the inward
 				// reflected direction so the same crossing cannot fire repeatedly.
@@ -889,7 +799,6 @@ void Trace(uint3 id : SV_DispatchThreadID)
 			float2 normal = enteringFluid
 				? AnalyticSurfaceNormal(uv, rayDir, 0.0)
 				: -AnalyticSurfaceNormal(uv, rayDir, 0.0);
-			rayIsRefractedOnly = rayIsRefractedOnly && CanRefract2D(rayDir, normal, eta);
 			rayEnergy *= SurfaceTransmission(rayDir, normal, eta, CausticsMaterialReflectance(2));
 			rayDir = Refract2D(rayDir, normal, eta);
 
@@ -941,28 +850,13 @@ void Trace(uint3 id : SV_DispatchThreadID)
 			float2 normal = SurfaceNormal(uv, rayDir);
 			float eta = EffectivePhaseEta(true, spectralOffset);
 			int selectedPhase = causticsPhase == 0 ? 0 : 1;
-			if (causticsMotionEnabled != 0)
-			{
-				float2 surfaceMotionUv = SampleVelocity(uv) * max(causticsDeltaTime, 0.0) / max(causticsWorldSize, 0.0001);
-				if (hasRayMotion)
-				{
-					rayMotionUv = lerp(rayMotionUv, surfaceMotionUv, 0.025);
-				}
-				else
-				{
-					rayMotionUv = surfaceMotionUv;
-					hasRayMotion = true;
-				}
-			}
 			float materialReflectance = PhaseReflectance(selectedPhase);
 			float materialMetallic = PhaseMetallic(selectedPhase);
 				float3 materialColour = materialMetallic > 0.0 ? RayColourFromTransport(currentTransport, selectedPhase) : float3(1.0, 1.0, 1.0);
-			bool canTransmit = CanRefract2D(rayDir, normal, eta);
 			float surfaceEnergy = causticsStochasticReflection != 0
 				? 1.0
 				: SurfaceTransmission(rayDir, normal, eta, materialReflectance);
 			bool transmitted = ResolveSurfaceDirection(rayDir, rayEnergy, normal, uv, eta, materialReflectance, materialMetallic, materialColour, raySeed, stepIndex, subRay);
-			rayIsRefractedOnly = rayIsRefractedOnly && transmitted && canTransmit;
 			rayEnergy *= surfaceEnergy;
 			rayStep = rayDir / causticSize;
 			stepWorldDistance = length(rayStep * causticsWorldSize);
@@ -978,12 +872,10 @@ void Trace(uint3 id : SV_DispatchThreadID)
 			float materialReflectance = PhaseReflectance(otherPhase);
 			float materialMetallic = PhaseMetallic(otherPhase);
 			float3 materialColour = materialMetallic > 0.0 ? RayColourFromTransport(currentTransport, otherPhase) : float3(1.0, 1.0, 1.0);
-			bool canTransmit = CanRefract2D(rayDir, normal, eta);
 			float surfaceEnergy = causticsStochasticReflection != 0
 				? 1.0
 				: SurfaceTransmission(rayDir, normal, eta, materialReflectance);
 			bool transmitted = ResolveSurfaceDirection(rayDir, rayEnergy, normal, uv, eta, materialReflectance, materialMetallic, materialColour, raySeed, stepIndex, subRay);
-			rayIsRefractedOnly = rayIsRefractedOnly && transmitted && canTransmit;
 			rayEnergy *= surfaceEnergy;
 			rayStep = rayDir / causticSize;
 			stepWorldDistance = length(rayStep * causticsWorldSize);
@@ -996,12 +888,6 @@ void Trace(uint3 id : SV_DispatchThreadID)
 			float pointAttenuation = pointLight != 0 ? PointLightAttenuation(UvToWorld(uv), launchAnchor, launchFalloff) : 1.0;
 			float depositedEnergy = causticLineEnergy * pointAttenuation;
 			AddCausticAtUv(uv, depositedEnergy, rayEnergy);
-			if (causticsMotionEnabled != 0 && rayIsRefractedOnly)
-			{
-				float motionLuminance = dot(max(rayEnergy, 0.0), float3(0.2126, 0.7152, 0.0722));
-				float motionEnergyWeight = sqrt(saturate(motionLuminance));
-				AddCausticMotionAtUv(uv, depositedEnergy * motionEnergyWeight, rayMotionUv);
-			}
 		}
 
 		previousDensity = density;
@@ -1022,13 +908,4 @@ void Resolve(uint3 id : SV_DispatchThreadID)
 	uint index = AccumIndex(pixel);
 	float3 caustic = float3((float)CausticAccum[index + 0], (float)CausticAccum[index + 1], (float)CausticAccum[index + 2]) / 65535.0;
 	CausticResult[int2(id.xy)] = float4(caustic, 1.0);
-	if (causticsMotionEnabled != 0)
-	{
-		float motionWeight = (float)CausticMotionAccum[index + 2];
-		float2 motionUv = motionWeight > 0.0
-			? float2((float)CausticMotionAccum[index + 0], (float)CausticMotionAccum[index + 1]) / max(motionWeight, 1.0) * (CausticMotionWeightScale / CausticMotionValueScale)
-			: 0.0;
-		float motionConfidence = saturate(motionWeight / CausticMotionWeightScale);
-		CausticMotionResult[int2(id.xy)] = float4(motionUv, motionConfidence, 1.0);
-	}
 }

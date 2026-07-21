@@ -37,9 +37,7 @@ using UnityEngine.Rendering;
 			None,
 			Caustics,
 			SoftLight,
-			RadianceCascadeRaw,
-			CausticMotion,
-			ProjectedShadow
+			RadianceCascadeRaw
 		}
 
 		[Header("Shaders")]
@@ -219,21 +217,21 @@ using UnityEngine.Rendering;
 			public readonly ParticleDisplay2D display;
 			public readonly Camera cam;
 			public readonly Bounds renderRegion;
-			public readonly Vector2Int sourceSize;
+			public readonly Vector2Int materialSize;
 
-			public FrameContext(ParticleDisplay2D display, Camera cam, Bounds renderRegion, Vector2Int sourceSize)
+			public FrameContext(ParticleDisplay2D display, Camera cam, Bounds renderRegion, Vector2Int materialSize)
 			{
 				this.display = display;
 				this.cam = cam;
 				this.renderRegion = renderRegion;
-				this.sourceSize = sourceSize;
+				this.materialSize = materialSize;
 			}
 		}
 		
 		internal FrameContext PrepareLighting(Camera cam, ParticleFluidLightingInputSet inputs)
 		{
 			ApplyLightingInputs(inputs);
-			FrameContext context = new FrameContext(display, cam, inputs.renderRegion, inputs.sourceSize);
+			FrameContext context = new FrameContext(display, cam, inputs.renderRegion, inputs.materialSize);
 			directLight.ApplyTemporalSettings(context, inputs.velocityTexture);
 			return context;
 		}
@@ -285,7 +283,6 @@ using UnityEngine.Rendering;
 			lightingMaterial.SetFloat("particleTransmissionPower", transmissionPower);
 			lightingMaterial.SetFloat("particleAmbientOcclusion", ambientOcclusion);
 			lightingMaterial.SetFloat("particleAmbientOcclusionPower", ambientOcclusionPower);
-			directLight.ApplyInactiveProjectedShadow(lightingMaterial);
 		}
 
 		internal void Render(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, Camera cam)
@@ -299,37 +296,8 @@ using UnityEngine.Rendering;
 			commandBuffer.EndSample("Particle Fluid/Final Lighting");
 		}
 
-		internal void RecordProjectedShadowAndApply(CommandBuffer commandBuffer, FrameContext context, Texture transportTexture)
-		{
-			if (lightingMaterial == null || commandBuffer == null)
-			{
-				return;
-			}
-
-			Vector2 projectedShadowDirection = Vector2.zero;
-			ParticleFluidProjectedShadow.RecordParams projectedShadowParams = default;
-			bool shouldRender = directLight.projectedShadow.ShouldRender(directLight);
-			if (shouldRender)
-			{
-				ParticleFluidDirectLight.ProjectedShadowSettings projectedShadowSettings = directLight.projectedShadowSettings;
-				projectedShadowParams = new ParticleFluidProjectedShadow.RecordParams(
-					directLight.projectedShadowCompute,
-					directLight.projectedShadow.projectedShadowMapBuffer,
-					directLight.projectedShadow.projectedShadowMapTexture,
-					transportTexture,
-					projectedShadowSettings.mapBins,
-					lightManager.GetMainDirectionalLight().GetBoundaryRefractedDirection(PhaseMaterials[1].indexOfRefraction, context.display.sim.analyticBoundary),
-					context.renderRegion,
-					context.sourceSize);
-			}
-
-			bool useProjectedShadow = shouldRender && directLight.projectedShadow.RecordCurrentShadowMap(commandBuffer, projectedShadowParams, out projectedShadowDirection);
-			directLight.projectedShadow.ApplyToMaterial(lightingMaterial, useProjectedShadow, projectedShadowDirection, directLight.projectedShadowSettings);
-		}
-
 		internal void RenderLit(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, Camera cam, FrameContext context, Texture transportTexture)
 		{
-			RecordProjectedShadowAndApply(commandBuffer, context, transportTexture);
 			Render(commandBuffer, finalTarget, cam);
 		}
 
