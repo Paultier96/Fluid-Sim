@@ -32,6 +32,16 @@ namespace Seb.Fluid2D.Rendering
 		internal RenderTexture gaussianSoftLightTexture0;
 		internal RenderTexture gaussianSoftLightTexture1;
 
+		private void OnEnable()
+		{
+			EnsureMaterials();
+		}
+
+		private void OnDisable()
+		{
+			Release();
+		}
+
 		internal void ApplyPhaseLookPreset(ParticleFluidPhaseLookPreset preset)
 		{
 			if (preset == null)
@@ -70,15 +80,15 @@ namespace Seb.Fluid2D.Rendering
 
 		internal Texture Render(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, Texture sharpCaustics, Texture transportTexture, float directLightTextureScale)
 		{
-			ParticleDisplay2D.MetaballSettings metaballSettings = context.display.metaballs;
+			MetaballRenderer2D metaballSettings = context.display.metaballs;
 			targetCommandBuffer.BeginSample("Metaballs/Phase Diffuse Light");
 			if (_phaseDiffuseLightInitMaterial == null || _gaussianDiffuseBlurMaterial == null || gaussianSoftLightTexture0 == null || gaussianSoftLightTexture1 == null)
 			{
 				targetCommandBuffer.EndSample("Metaballs/Phase Diffuse Light");
 				return Texture2D.blackTexture;
 			}
-			ParticleFluidLayoutBindings.ApplyPhaseSplitGlobals(targetCommandBuffer, metaballSettings);
-			ParticleFluidLayoutBindings.ApplyLayoutGlobals(targetCommandBuffer, context.display.sim.analyticBoundary, context.renderRegion);
+			ParticleFluidRenderBindings.ApplyPhaseSplitGlobals(targetCommandBuffer, metaballSettings);
+			ParticleFluidRenderBindings.ApplyLayoutGlobals(targetCommandBuffer, context.display.sim.analyticBoundary, context.renderRegion);
 
 			_phaseDiffuseLightInitMaterial.SetTexture(SharpCausticsTex, sharpCaustics);
 			_phaseDiffuseLightInitMaterial.SetTexture(MaterialTransportTex, transportTexture != null ? transportTexture : Texture2D.blackTexture);
@@ -96,6 +106,8 @@ namespace Seb.Fluid2D.Rendering
 		internal void Release()
 		{
 			ComputeHelper.Release(gaussianSoftLightTexture0, gaussianSoftLightTexture1);
+			gaussianSoftLightTexture0 = null;
+			gaussianSoftLightTexture1 = null;
 			ParticleFluidRenderUtils.DestroyMaterial(ref _phaseDiffuseLightInitMaterial);
 			ParticleFluidRenderUtils.DestroyMaterial(ref _gaussianDiffuseBlurMaterial);
 		}

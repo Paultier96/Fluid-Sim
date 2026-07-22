@@ -30,10 +30,6 @@ Shader "Hidden/Particle2DMetaballMaterial" {
 		sampler2D NormalTex;
 		sampler2D MaterialAlbedoTex;
 		sampler2D MaterialTransportTex;
-		sampler2D ColourMap;
-		sampler2D ColourMap2;
-		sampler2D DebugHeatMap;
-		sampler2D DebugSignedHeatMap;
 		sampler2D _MainTex;
 		float4 _MainTex_TexelSize;
 		float densityThreshold;
@@ -76,16 +72,6 @@ Shader "Hidden/Particle2DMetaballMaterial" {
 			#else
 			return SRGBToLinear(clipColour);
 			#endif
-		}
-
-		float3 SampleDebugHeatMap(sampler2D gradientTex, float rawT, float sampleT)
-		{
-			float3 colour = tex2D(gradientTex, float2(saturate(sampleT), 0.5)).rgb;
-			if (debugShowClipping != 0 && (rawT < 0.0 || rawT > 1.0))
-			{
-				return HeatMapClipColour(rawT);
-			}
-			return colour;
 		}
 
 		float2 ApplyNormalStrength(float2 normalXY, float normalStrengthMultiplier)

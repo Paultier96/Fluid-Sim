@@ -12,24 +12,55 @@ using UnityEngine.Rendering;
 		[RequireComponent(typeof(ParticleFluidDirectLight))]
 	public class ParticleFluidLighting2D : MonoBehaviour
 	{
+		private static readonly int MaterialAlbedoTex = Shader.PropertyToID("MaterialAlbedoTex");
+		private static readonly int MaterialNormalTex = Shader.PropertyToID("MaterialNormalTex");
+		private static readonly int MaterialTransportTex = Shader.PropertyToID("MaterialTransportTex");
+		private static readonly int MaterialAlbedoTexTexelSize = Shader.PropertyToID("MaterialAlbedoTex_TexelSize");
+		private static readonly int ParticleFluidCausticsEnabled = Shader.PropertyToID("particleFluidCausticsEnabled");
+		private static readonly int CausticTex = Shader.PropertyToID("CausticTex");
+		private static readonly int ParticleFluidPhaseDiffuseLightEnabled = Shader.PropertyToID("particleFluidPhaseDiffuseLightEnabled");
+		private static readonly int ParticleGaussianPhase0Only = Shader.PropertyToID("particleGaussianPhase0Only");
+		private static readonly int ParticleFluidRadianceCascadeDirectCausticStrength = Shader.PropertyToID("particleFluidRadianceCascadeDirectCausticStrength");
+		private static readonly int SoftLightTex = Shader.PropertyToID("SoftLightTex");
+		private static readonly int SoftLightTexPhase1 = Shader.PropertyToID("SoftLightTexPhase1");
+		private static readonly int ParticleFluidPhaseDiffuseLightTint = Shader.PropertyToID("particleFluidPhaseDiffuseLightTint");
+		private static readonly int ParticlePhaseSurface = Shader.PropertyToID("particlePhaseSurface");
+		private static readonly int ParticlePhaseSoftLight = Shader.PropertyToID("particlePhaseSoftLight");
+		private static readonly int ParticleFluidIridescenceIntensity = Shader.PropertyToID("particleFluidIridescenceIntensity");
+		private static readonly int ParticleFluidIridescenceScale = Shader.PropertyToID("particleFluidIridescenceScale");
+		private static readonly int ParticleAmbientLight = Shader.PropertyToID("particleAmbientLight");
+		private static readonly int ParticleFresnelColor = Shader.PropertyToID("particleFresnelColor");
+		private static readonly int ParticleFresnelIntensity = Shader.PropertyToID("particleFresnelIntensity");
+		private static readonly int ParticleFresnelPower = Shader.PropertyToID("particleFresnelPower");
+		private static readonly int ScreenSpaceReflectionDistance = Shader.PropertyToID("screenSpaceReflectionDistance");
+		private static readonly int ScreenSpaceReflectionEdgePower = Shader.PropertyToID("screenSpaceReflectionEdgePower");
+		private static readonly int ParticleSpecularCausticSampleOffset = Shader.PropertyToID("particleSpecularCausticSampleOffset");
+		private static readonly int ParticleSpecularAntiAliasingStrength = Shader.PropertyToID("particleSpecularAntiAliasingStrength");
+		private static readonly int ParticlePhaseScale = Shader.PropertyToID("particlePhaseScale");
+		private static readonly int ParticleTransmissionIntensity = Shader.PropertyToID("particleTransmissionIntensity");
+		private static readonly int ParticleTransmissionPower = Shader.PropertyToID("particleTransmissionPower");
+		private static readonly int ParticleAmbientOcclusion = Shader.PropertyToID("particleAmbientOcclusion");
+		private static readonly int ParticleAmbientOcclusionPower = Shader.PropertyToID("particleAmbientOcclusionPower");
+		private static readonly int GradientAtlas = Shader.PropertyToID("GradientAtlas");
+
 		[Serializable]
 		public class PhaseMaterialSettings
 		{
 			[Min(1.0001f)] public float indexOfRefraction = 1.333f;
-			[Min(0f)] public float absorption = 0f;
+			[Min(0f)] public float absorption;
 			[Tooltip("Blends ray absorption colour from the phase albedo gradient toward Diffuse Light Tint. 0 uses the current albedo-based absorption; 1 uses Diffuse Light Tint.")]
-			[Range(0f, 1f)] public float absorptionDiffuseTintBlend = 0f;
-			[Range(0f, 1f)] public float reflectance = 0f;
+			[Range(0f, 1f)] public float absorptionDiffuseTintBlend;
+			[Range(0f, 1f)] public float reflectance;
 			[Range(0.02f, 1f)] public float roughness = 0.35f;
-			[Range(0f, 1f)] public float metallic = 0f;
-			[Range(0f, 1f)] public float screenSpaceReflectionStrength = 0f;
+			[Range(0f, 1f)] public float metallic;
+			[Range(0f, 1f)] public float screenSpaceReflectionStrength;
 			[ColorUsage(false, true)] public Color diffuseLightTint = Color.white;
 			[Tooltip("Blends sharp caustic diffuse/transmission lighting from physical albedo-filtered light toward additive/emissive light.")]
-			[Range(0f, 1f)] public float causticAdditiveBlend = 0f;
+			[Range(0f, 1f)] public float causticAdditiveBlend;
 			[Tooltip("Blends soft diffuse lighting from physical albedo-filtered light toward additive/emissive light. Use higher values for a stronger SSS glow.")]
-			[Range(0f, 1f)] public float diffuseAdditiveBlend = 0f;
+			[Range(0f, 1f)] public float diffuseAdditiveBlend;
 			[Tooltip("How much soft diffuse lighting is modulated by the phase normal and primary light direction. 0 is fully ambient, 1 is Lambert diffuse.")]
-			[Range(0f, 1f)] public float diffuseNormalInfluence = 0f;
+			[Range(0f, 1f)] public float diffuseNormalInfluence;
 		}
 
 		public enum LightingDebugVisualization
@@ -46,17 +77,17 @@ using UnityEngine.Rendering;
 		[Header("Debug")]
 		public LightingDebugVisualization debugMode = LightingDebugVisualization.None;
 
-		[Range(0f, 1f)] public float ambientLight = 0.65f;
+		[Range(0f, 1f)] public float ambientLight;
 
 		[Header("Fresnel")]
 		[ColorUsage(false, true)] public Color fresnelColor = new (0.75f, 0.9f, 1f, 1f);
-		[Min(0f)] public float fresnelIntensity = 0.25f;
+		[Min(0f)] public float fresnelIntensity = 0.01f;
 		[Min(0.1f)] public float fresnelPower = 3f;
 
 		[Header("Screen-Space Refraction And Reflections")]
 		[Min(0)] public float refractionStrength = 0.01f;
 		[Min(0)] public float refractionEdgeFade = 0.05f;
-		public bool screenSpaceRefractionCanCrossPhases = false;
+		public bool screenSpaceRefractionCanCrossPhases;
 		[Space]
 		[Min(0f)] public float screenSpaceReflectionDistance = 24f;
 		[Min(0.1f)] public float screenSpaceReflectionEdgePower = 1.5f;
@@ -73,7 +104,7 @@ using UnityEngine.Rendering;
 		[Min(0.1f)] public float ambientOcclusionPower = 2f;
 
 		[Header("Iridescence")]
-		[Min(0f)] public float iridescenceIntensity = 0f;
+		[Min(0f)] public float iridescenceIntensity;
 		[Min(0f)] public float iridescenceScale = 2.0f;
 
 		[Header("MaterialMaps")]
@@ -103,7 +134,7 @@ using UnityEngine.Rendering;
 		private readonly Vector4[] _phaseSoftLightData = new Vector4[2];
 		private ParticleFluidPhaseLookPresetController _phaseLookPresetController;
 
-		[SerializeField] private ParticleDisplay2D display;
+		public ParticleDisplay2D display;
 		[SerializeField] internal ParticleFluidLightManager lightManager;
 		[SerializeField] internal ParticleFluidGaussianSss gaussianSss;
 		[SerializeField] internal ParticleFluidRadianceCascadeGi radianceCascadeGi;
@@ -120,30 +151,33 @@ using UnityEngine.Rendering;
 		internal Texture currentSoftLightPhase1Texture;
 		internal Texture currentGaussianBlurTexture;
 
-		void Awake()
+		private void Awake()
 		{
 			_phaseLookPresetController = new ParticleFluidPhaseLookPresetController(this);
 			SyncMaterialSlots();
 			ResolveReferences();
 			ResetSoftLightDebugOutputs();
 		}
-		
-		void OnEnable()
+
+		private void OnEnable()
 		{
 			_phaseLookPresetController ??= new ParticleFluidPhaseLookPresetController(this);
 			SyncMaterialSlots();
 			ResolveReferences();
-			display?.RegisterLighting(this);
+			ParticleFluidRenderUtils.EnsureMaterial(ref lightingMaterial, lightingShader);
+			gaussianSss?.EnsureMaterials();
+			radianceCascadeGi?.EnsureMaterials();
+			directLight?.EnsureMaterials();
 			_phaseLookPresetController.OnEnable();
 		}
 
-		void OnDisable()
+		private void OnDisable()
 		{
-			display?.UnregisterLighting(this);
 			_phaseLookPresetController?.OnDisable();
+			Release();
 		}
 
-		void OnValidate()
+		private void OnValidate()
 		{
 			SyncMaterialSlots();
 			ResolveReferences();
@@ -173,14 +207,6 @@ using UnityEngine.Rendering;
 			_phaseLookPresetController.Apply();
 		}
 
-		public void EnsureMaterials(Shader shader)
-		{
-			ParticleFluidRenderUtils.EnsureMaterial(ref lightingMaterial, shader);
-			gaussianSss.EnsureMaterials();
-			radianceCascadeGi.EnsureMaterials();
-			directLight.EnsureMaterials();
-		}
-
 		internal void ResetSoftLightDebugOutputs()
 		{
 			currentSoftLightPhase0Texture = Texture2D.blackTexture;
@@ -194,17 +220,17 @@ using UnityEngine.Rendering;
 			Texture albedoTexture = materialAlbedoTexture != null ? materialAlbedoTexture : Texture2D.blackTexture;
 			Texture normalTexture = materialNormalTexture != null ? materialNormalTexture : Texture2D.blackTexture;
 			Texture transportTexture = materialTransportTexture != null ? materialTransportTexture : Texture2D.blackTexture;
-			lightingMaterial.SetTexture("MaterialAlbedoTex", albedoTexture);
-			lightingMaterial.SetTexture("MaterialNormalTex", normalTexture);
-			lightingMaterial.SetTexture("MaterialTransportTex", transportTexture);
-			lightingMaterial.SetVector("MaterialAlbedoTex_TexelSize", new Vector4(1f / albedoTexture.width, 1f / albedoTexture.height, albedoTexture.width, albedoTexture.height));
+			lightingMaterial.SetTexture(MaterialAlbedoTex, albedoTexture);
+			lightingMaterial.SetTexture(MaterialNormalTex, normalTexture);
+			lightingMaterial.SetTexture(MaterialTransportTex, transportTexture);
+			lightingMaterial.SetVector(MaterialAlbedoTexTexelSize, new Vector4(1f / albedoTexture.width, 1f / albedoTexture.height, albedoTexture.width, albedoTexture.height));
 		}
 
-		internal void ApplyLightingInputs(ParticleFluidLightingInputSet inputs)
+		internal void ApplyMaterialMaps(ParticleFluidMaterialMapSet materialMaps)
 		{
-			materialAlbedoTexture = inputs.albedoTexture;
-			materialNormalTexture = inputs.normalTexture;
-			materialTransportTexture = inputs.transportTexture;
+			materialAlbedoTexture = materialMaps.albedoTexture;
+			materialNormalTexture = materialMaps.normalTexture;
+			materialTransportTexture = materialMaps.transportTexture;
 			if (lightingMaterial != null)
 			{
 				BindMaterialTextures();
@@ -227,31 +253,22 @@ using UnityEngine.Rendering;
 				this.materialSize = materialSize;
 			}
 		}
-		
-		internal FrameContext PrepareLighting(Camera cam, ParticleFluidLightingInputSet inputs)
-		{
-			ApplyLightingInputs(inputs);
-			FrameContext context = new FrameContext(display, cam, inputs.renderRegion, inputs.materialSize);
-			directLight.ApplyTemporalSettings(context, inputs.velocityTexture);
-			return context;
-		}
 
 		public void ApplySettings(FrameContext context, bool renderCaustics, bool renderSoftLight, Texture causticTexture)
 		{
-			ParticleDisplay2D display = context.display;
 			PhaseMaterialSettings[] materials = PhaseMaterials;
 
 			_domainRenderRegion = context.renderRegion;
-			currentZoomScale = context.display.GetZoomScale(context.cam);
+			currentZoomScale = display.GetZoomScale(context.cam);
 			
 			BindMaterialTextures();
-			lightingMaterial.SetInt("particleFluidCausticsEnabled", renderCaustics ? 1 : 0);
-			lightingMaterial.SetTexture("CausticTex", causticTexture);
-			lightingMaterial.SetInt("particleFluidPhaseDiffuseLightEnabled", renderSoftLight ? 1 : 0);
-			lightingMaterial.SetInt("particleGaussianPhase0Only", gaussianSss != null && gaussianSss.isActiveAndEnabled ? 1 : 0);
-			lightingMaterial.SetFloat("particleFluidRadianceCascadeDirectCausticStrength", radianceCascadeGi != null ? radianceCascadeGi.directCausticStrength : 0f);
-			lightingMaterial.SetTexture("SoftLightTex", Texture2D.blackTexture);
-			lightingMaterial.SetTexture("SoftLightTexPhase1", Texture2D.blackTexture);
+			lightingMaterial.SetInt(ParticleFluidCausticsEnabled, renderCaustics ? 1 : 0);
+			lightingMaterial.SetTexture(CausticTex, causticTexture);
+			lightingMaterial.SetInt(ParticleFluidPhaseDiffuseLightEnabled, renderSoftLight ? 1 : 0);
+			lightingMaterial.SetInt(ParticleGaussianPhase0Only, gaussianSss != null && gaussianSss.isActiveAndEnabled ? 1 : 0);
+			lightingMaterial.SetFloat(ParticleFluidRadianceCascadeDirectCausticStrength, radianceCascadeGi != null ? radianceCascadeGi.directCausticStrength : 0f);
+			lightingMaterial.SetTexture(SoftLightTex, Texture2D.blackTexture);
+			lightingMaterial.SetTexture(SoftLightTexPhase1, Texture2D.blackTexture);
 			ResetSoftLightDebugOutputs();
 			for (int phaseIndex = 0; phaseIndex < 2; phaseIndex++)
 			{
@@ -260,45 +277,41 @@ using UnityEngine.Rendering;
 				_phaseSurfaceData[phaseIndex] = new Vector4(material.reflectance, material.roughness, material.metallic, material.screenSpaceReflectionStrength);
 				_phaseSoftLightData[phaseIndex] = new Vector4(material.causticAdditiveBlend, material.diffuseAdditiveBlend, material.diffuseNormalInfluence, 0f);
 			}
-			lightingMaterial.SetVectorArray("particleFluidPhaseDiffuseLightTint", _phaseDiffuseLightTints);
-			lightingMaterial.SetVectorArray("particlePhaseSurface", _phaseSurfaceData);
-			lightingMaterial.SetVectorArray("particlePhaseSoftLight", _phaseSoftLightData);
-			lightingMaterial.SetFloat("particleFluidIridescenceIntensity", iridescenceIntensity);
-			lightingMaterial.SetFloat("particleFluidIridescenceScale", iridescenceScale);
-			lightingMaterial.SetFloat("particleAmbientLight", ambientLight);
+			lightingMaterial.SetVectorArray(ParticleFluidPhaseDiffuseLightTint, _phaseDiffuseLightTints);
+			lightingMaterial.SetVectorArray(ParticlePhaseSurface, _phaseSurfaceData);
+			lightingMaterial.SetVectorArray(ParticlePhaseSoftLight, _phaseSoftLightData);
+			lightingMaterial.SetFloat(ParticleFluidIridescenceIntensity, iridescenceIntensity);
+			lightingMaterial.SetFloat(ParticleFluidIridescenceScale, iridescenceScale);
+			lightingMaterial.SetFloat(ParticleAmbientLight, ambientLight);
 			lightManager.ApplyLightingMaterialParams(lightingMaterial, display.sim.analyticBoundary, PhaseMaterials[1].indexOfRefraction);
-			lightingMaterial.SetColor("particleFresnelColor", fresnelColor);
-			lightingMaterial.SetFloat("particleFresnelIntensity", fresnelIntensity);
-			lightingMaterial.SetFloat("particleFresnelPower", fresnelPower);
-			lightingMaterial.SetFloat("screenSpaceReflectionDistance", screenSpaceReflectionDistance * currentZoomScale);
-			lightingMaterial.SetFloat("screenSpaceReflectionEdgePower", screenSpaceReflectionEdgePower);
-			lightingMaterial.SetFloat("particleSpecularCausticSampleOffset", specularCausticSampleOffset * currentZoomScale);
-			lightingMaterial.SetFloat("particleSpecularAntiAliasingStrength", specularAntiAliasingStrength);
+			lightingMaterial.SetColor(ParticleFresnelColor, fresnelColor);
+			lightingMaterial.SetFloat(ParticleFresnelIntensity, fresnelIntensity);
+			lightingMaterial.SetFloat(ParticleFresnelPower, fresnelPower);
+			lightingMaterial.SetFloat(ScreenSpaceReflectionDistance, screenSpaceReflectionDistance * currentZoomScale);
+			lightingMaterial.SetFloat(ScreenSpaceReflectionEdgePower, screenSpaceReflectionEdgePower);
+			lightingMaterial.SetFloat(ParticleSpecularCausticSampleOffset, specularCausticSampleOffset * currentZoomScale);
+			lightingMaterial.SetFloat(ParticleSpecularAntiAliasingStrength, specularAntiAliasingStrength);
 			float phaseBoundary = Mathf.Clamp01(0.5f + Mathf.Clamp(display.metaballs.phase0RenderBias, -1f, 1f) * 0.5f);
 			float phase0Scale = Mathf.Sqrt(Mathf.Max(phaseBoundary * 2f, 0.0001f));
 			float phase1Scale = Mathf.Sqrt(Mathf.Max((1f - phaseBoundary) * 2f, 0.0001f));
 			Vector4 phaseRadiusScale = new Vector4(phase0Scale, phase1Scale, 0f, 0f);
-			lightingMaterial.SetVector("particlePhaseScale", phaseRadiusScale);
-			lightingMaterial.SetFloat("particleTransmissionIntensity", transmissionIntensity);
-			lightingMaterial.SetFloat("particleTransmissionPower", transmissionPower);
-			lightingMaterial.SetFloat("particleAmbientOcclusion", ambientOcclusion);
-			lightingMaterial.SetFloat("particleAmbientOcclusionPower", ambientOcclusionPower);
+			lightingMaterial.SetVector(ParticlePhaseScale, phaseRadiusScale);
+			lightingMaterial.SetFloat(ParticleTransmissionIntensity, transmissionIntensity);
+			lightingMaterial.SetFloat(ParticleTransmissionPower, transmissionPower);
+			lightingMaterial.SetFloat(ParticleAmbientOcclusion, ambientOcclusion);
+			lightingMaterial.SetFloat(ParticleAmbientOcclusionPower, ambientOcclusionPower);
 		}
 
-		internal void Render(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, Camera cam)
+		internal void Render(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget)
 		{
 			BindMaterialTextures();
 			commandBuffer.BeginSample("Particle Fluid/Final Lighting");
-			ParticleDisplay2D particleDisplay2D = Display;
-			ParticleFluidPassBindings.ApplyFinalLightingGlobals(commandBuffer, particleDisplay2D, _domainRenderRegion);
+			ParticleFluidRenderBindings.ApplyLayoutGlobals(commandBuffer, display.sim.analyticBoundary, _domainRenderRegion);
+			ParticleFluidRenderBindings.ApplyPhaseSplitGlobals(commandBuffer, display.metaballs);
+			commandBuffer.SetGlobalTexture(GradientAtlas, display.gradientAtlasTexture);
 			commandBuffer.SetRenderTarget(finalTarget);
 			commandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _domainRenderRegion.CreateRegionMatrix(), lightingMaterial, 0, LightingPass);
 			commandBuffer.EndSample("Particle Fluid/Final Lighting");
-		}
-
-		internal void RenderLit(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, Camera cam, FrameContext context, Texture transportTexture)
-		{
-			Render(commandBuffer, finalTarget, cam);
 		}
 
 		internal void RenderConfiguredLit(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, Camera cam, FrameContext context, Texture transportTexture, bool renderCaustics, bool renderSoftLight, Texture causticTexture, Texture sharpCausticsTexture = null)
@@ -308,7 +321,7 @@ using UnityEngine.Rendering;
 			{
 				RecordSoftLight(context, commandBuffer, sharpCausticsTexture != null ? sharpCausticsTexture : Texture2D.blackTexture);
 			}
-			RenderLit(commandBuffer, finalTarget, cam, context, transportTexture);
+			Render(commandBuffer, finalTarget);
 		}
 
 		public void EnsureLightingResources(Bounds renderRegion, Vector2Int causticSize)
@@ -332,12 +345,10 @@ using UnityEngine.Rendering;
 				lightingMaterial = null;
 			}
 
-			directLight.Release();
-			gaussianSss.Release();
-			radianceCascadeGi.Release();
+			directLight?.Release();
+			gaussianSss?.Release();
+			radianceCascadeGi?.Release();
 		}
-
-		internal ParticleDisplay2D Display => ResolveDisplay();
 
 		internal void RecordSoftLight(FrameContext context, CommandBuffer targetCommandBuffer, Texture sharpCaustics)
 		{
@@ -362,13 +373,12 @@ using UnityEngine.Rendering;
 			currentGaussianBlurTexture = gaussianBlurredTexture;
 			currentSoftLightPhase0Texture = phase0SoftLightTexture;
 			currentSoftLightPhase1Texture = phase1GITexture;
-			lightingMaterial.SetTexture("SoftLightTex", phase0SoftLightTexture);
-			lightingMaterial.SetTexture("SoftLightTexPhase1", phase1GITexture);
+			lightingMaterial.SetTexture(SoftLightTex, phase0SoftLightTexture);
+			lightingMaterial.SetTexture(SoftLightTexPhase1, phase1GITexture);
 		}
 
-		void ResolveReferences()
+		private void ResolveReferences()
 		{
-			ResolveDisplay();
 			lightManager ??= GetComponent<ParticleFluidLightManager>();
 			gaussianSss ??= GetComponent<ParticleFluidGaussianSss>();
 			radianceCascadeGi ??= GetComponent<ParticleFluidRadianceCascadeGi>();
@@ -378,29 +388,6 @@ using UnityEngine.Rendering;
 				lightManager = transform.parent.GetComponentInChildren<ParticleFluidLightManager>(true);
 			}
 			lightManager ??= FindAnyObjectByType<ParticleFluidLightManager>();
-		}
-
-		ParticleDisplay2D ResolveDisplay()
-		{
-			if (display != null)
-			{
-				return display;
-			}
-
-			display = GetComponent<ParticleDisplay2D>();
-			if (display != null)
-			{
-				return display;
-			}
-
-			if (transform.parent != null)
-			{
-				display = transform.parent.GetComponentInChildren<ParticleDisplay2D>(true);
-			}
-
-			display ??= FindAnyObjectByType<ParticleDisplay2D>();
-
-			return display;
 		}
 	}
 }

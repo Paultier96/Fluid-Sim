@@ -1,17 +1,30 @@
-using System;
 using Seb.Fluid2D.Simulation;
 using Seb.Helpers;
 using UnityEngine;
-using UnityEngine.Rendering;
-using UnityEngine.Serialization;
-#if UNITY_EDITOR
-using UnityEditor;
-#endif
 
 namespace Seb.Fluid2D.Rendering
 {
 	public class ParticleDisplay2D : MonoBehaviour
 	{
+		private static readonly int Positions2D = Shader.PropertyToID("Positions2D");
+		private static readonly int Velocities = Shader.PropertyToID("Velocities");
+		private static readonly int DensityData = Shader.PropertyToID("DensityData");
+		private static readonly int Phases = Shader.PropertyToID("Phases");
+		private static readonly int IsGhost = Shader.PropertyToID("IsGhost");
+		private static readonly int BlobIDs = Shader.PropertyToID("BlobIDs");
+		private static readonly int Temperatures = Shader.PropertyToID("Temperatures");
+		private static readonly int Curvatures = Shader.PropertyToID("Curvatures");
+		private static readonly int Scale = Shader.PropertyToID("scale");
+		private static readonly int TempMin = Shader.PropertyToID("tempMin");
+		private static readonly int TempMax = Shader.PropertyToID("tempMax");
+		private static readonly int DebugData = Shader.PropertyToID("DebugData");
+		private static readonly int DebugGradientMax = Shader.PropertyToID("debugGradientMax");
+		private static readonly int DebugCurvatureMax = Shader.PropertyToID("debugCurvatureMax");
+		private static readonly int DebugViscosityMax = Shader.PropertyToID("debugViscosityMax");
+		private static readonly int DensityMin = Shader.PropertyToID("debugDensityMin");
+		private static readonly int DensityMax = Shader.PropertyToID("debugDensityMax");
+		private static readonly int DebugMode = Shader.PropertyToID("debugMode");
+		private static readonly int DebugShowClipping = Shader.PropertyToID("debugShowClipping");
 		public ParticleFluidInteractionCursor2D interactionCursor;
 		public enum RenderMode
 		{
@@ -28,42 +41,16 @@ namespace Seb.Fluid2D.Rendering
 			Density = 4,
 			Temperature = 5,
 			BlobIds = 6,
-			ParticleMotion = 12,
+			ParticleMotion = 10,
 		}
 
-		public enum VectorFieldSource
-		{
-			None = 0,
-			SurfaceTensionForce = 1,
-			NonCoalescenceForces = 2,
-			Velocity = 3,
-			CurvatureNormal = 4,
-			Convection = 5,
-		}
-		
-		
-		public MetaballSettings metaballs = new ();
+		public MetaballRenderer2D metaballs = new ();
+		public ParticleFluidDirectParticleRenderer2D directParticles = new();
+		public ParticleFluidVectorFieldRenderer2D vectorField = new();
 
-		private MetaballRenderer2D _metaballRenderer;
-		internal MetaballRenderer2D MetaballRenderer => _metaballRenderer ??= new MetaballRenderer2D();
-
-		const float BlurReferenceOrthoSize = 15f;
-
+		private const float BlurReferenceOrthoSize = 15f;
 		internal float EffectiveConfiguredBlurRadius => metaballs.blurRadius * ParticleResolutionLengthScale;
-
-		float ParticleResolutionLengthScale
-		{
-			get
-			{
-				float resolutionFactor = Mathf.Max(0.0001f, sim.particleResolutionFactor);
-				return 1f / Mathf.Sqrt(resolutionFactor);
-			}
-		}
-
-		internal float GetEffectiveBlurRadius(Camera cam)
-		{
-			return EffectiveConfiguredBlurRadius * GetZoomScale(cam) * Mathf.Max(metaballs.renderTextureScale, 0.0001f);
-		}
+		private float ParticleResolutionLengthScale => 1f / Mathf.Sqrt(Mathf.Max(0.0001f, sim.particleResolutionFactor));
 
 		internal float GetEffectiveMotionBlurRadius(Camera cam, float motionBlurRadius)
 		{
@@ -73,591 +60,154 @@ namespace Seb.Fluid2D.Rendering
 
 		internal float GetZoomScale(Camera cam)
 		{
-			if (!cam.orthographic)
-			{
-				return 1f;
-			}
-
 			return BlurReferenceOrthoSize / Mathf.Max(cam.orthographicSize, 0.0001f);
 		}
-
-		internal float GetEffectiveNormalStrength(float referenceBlurRadius)
-		{
-			float baseStrength = Mathf.Max(0f, metaballs.normalStrength);
-			float compensation = Mathf.Max(0f, metaballs.normalBlurCompensation);
-			if (compensation <= 0f)
-			{
-				return baseStrength;
-			}
-
-			float blurScale = Mathf.Max(0f, referenceBlurRadius) / 6f;
-			return baseStrength * Mathf.Max(1f, Mathf.Pow(blurScale, compensation));
-		}
-
-		[Serializable]
-		public sealed class MetaballSettings
-		{
-			[Header("Shaders")]
-			[FormerlySerializedAs("compositeShader")]
-			[Tooltip("Shader used only for metaball debug visualizations.")]
-			public Shader debugShader;
-			[Tooltip("Shader used by the separated material-map pass. If left empty, Hidden/Particle2DMetaballMaterial is used as a fallback.")]
-			public Shader materialShader;
-			[Tooltip("Shader used for the separable Gaussian blur applied to the accumulation texture.")]
-			public Shader blurShader;
-
-			[Header("Shape - Surface")]
-			[Tooltip("Resolution of the metaball render textures relative to the screen. Lower values improve performance at the cost of sharpness.")]
-			[Range(0.25f, 1f)] public float renderTextureScale = 0.5f;
-			[Tooltip("Resolution of the particle motion texture relative to the screen. Lower values improve performance for temporal reprojection and motion debug at the cost of motion detail.")]
-			[Range(0.125f, 1f)] public float velocityTextureScale = 0.5f;
-			[Tooltip("Radius in pixels at resolution factor 1 of the Gaussian blur. Larger values make particles merge at greater distances.")]
-			[Min(0)] public float blurRadius = 6;
-			[Tooltip("Blurred density value at which the fluid surface appears. Increase to shrink the visible fluid; decrease to expand it.")]
-			[Min(0)] public float densityThreshold = 0.18f;
-			[Tooltip("Width of the density falloff around the surface threshold. Larger values give a softer, more transparent edge. Clamped so the fade never starts below zero density.")]
-			[Min(0.0001f)] public float edgeSoftness = 0.06f;
-
-			[Header("Shape - Phase Boundary")]
-			[Tooltip("Screen-space width in pixels for anti-aliased blending between fluid phases.")]
-			[Min(0.0001f)] public float phaseBlendWidth = 1f;
-			[Tooltip("Separate screen-space width in pixels for the transport map phase blending used by raymarched lighting. Increase to soften transport-derived phase gradients without changing the visible surface transition.")]
-			[Min(0.0001f)] public float transportPhaseBlendWidth = 1f;
-			[Tooltip("Render-only phase boundary bias. 0 is neutral, positive values make phase 0 visually expand, negative values make phase 1 expand.")]
-			[Range(-0.99f, 0.99f)] public float phase0RenderBias = 0f;
-			[Tooltip("How strongly phase boundary bias redistributes normal strength. The compressed phase is boosted strongly while the visually expanded phase is weakened mildly.")]
-			[Range(0f, 10f)] public float phaseBiasNormalStrength = 0.5f;
-
-			[Header("Shape - Particle Kernel")]
-			[Tooltip("Steepness of each particle's density kernel. Higher values make particles contribute a tighter, more localised density spike.")]
-			[Min(0.01f)] public float sharpness = 3.5f;
-			[Tooltip("Uniform scale applied to each particle's density contribution. Increase if particles are too sparse to merge.")]
-			[Min(0)] public float intensity = 1.0f;
-
-			[Header("Lighting - Normals")]
-			[Tooltip("Multiplier applied to reconstructed normal XY before rebuilding Z. Higher values make blurred normals look steeper.")]
-			[Min(0f)] public float normalStrength = 1f;
-			[Tooltip("Curves the reconstructed normal magnitude before rebuilding Z. Values above 1 keep the surface flatter for longer and push the steep falloff closer to the silhouette.")]
-			[Min(0.0001f)] public float normalProfileCurve = 1f;
-			[Tooltip("Exponent used to increase normal strength with effective blur radius. 0 disables automatic compensation, 1 is linear.")]
-			[Min(0f)] public float normalBlurCompensation = 0.5f;
-
-			[Header("Ghost Boundary Normals")]
-			[Tooltip("Strength of the analytic ellipse/cut-boundary normals in the metaball composite. Values above 1 make the boundary normal ramp steeper; negative values flip the direction.")]
-			[Range(-4f, 4f)] public float ghostBoundaryNormalStrength = 1f;
-		}
+		
+		internal float EffectiveNormalStrength => 
+			metaballs.normalBlurCompensation <= 0f ? 
+			metaballs.normalStrength : 
+			metaballs.normalStrength * Mathf.Max(1f, Mathf.Pow(EffectiveConfiguredBlurRadius / 6f, metaballs.normalBlurCompensation));
 		
 		public FluidSim2D sim;
 		public ParticleFluidLighting2D lighting;
-		private ParticleFluidLighting2D activeLighting;
-		internal ParticleFluidLighting2D ActiveLighting
-		{
-			get
-			{
-				if (activeLighting != null)
-				{
-					return activeLighting;
-				}
-				return lighting != null && lighting.isActiveAndEnabled ? lighting : null;
-			}
-		}
-		public Mesh mesh;
+		internal ParticleFluidLighting2D ActiveLighting => lighting is { isActiveAndEnabled: true } ? lighting : null;
+		public Mesh particleMesh;
 		public RenderMode renderMode = RenderMode.DirectParticles;
-		public Shader directParticleShader;
 		public Shader metaballShader;
 		public float scale;
 
 		[Header("Albedo")]
 		public Gradient phase0ColourMap;
 		public Gradient phase1ColourMap;
-		public int gradientResolution;
+		public int gradientResolution = 64;
 
 		[Header("Debug")]
 		public DebugVisualization debugMode = DebugVisualization.None;
 		public float debugGradientMax = 1.0f;
-		[Min(0f)] public float debugDensityMin = 0f;
+		[Min(0f)] public float debugDensityMin = 210f;
 		[Min(0.0001f)] public float debugDensityMax = 500f;
 		public bool debugShowClipping = true;
 		public Gradient heatMap;
 		public Gradient signedHeatMap;
-
-		[Header("Vector Field Debug")]
-		public Shader vectorFieldShader;
-		public VectorFieldSource vectorFieldSource = VectorFieldSource.SurfaceTensionForce;
-		[Min(0f)] public float vectorScale = 0.25f;
-		[Min(0.0001f)] public float vectorMaxMagnitude = 1.0f;
-		public bool vectorUseLogScale = false;
-		[Min(1f)] public float vectorLogScaleStrength = 10.0f;
-		[Min(0f)] public float vectorWidth = 0.035f;
-
-		Material directParticleMaterial;
-		Material vectorFieldMaterial;
-		Mesh vectorArrowMesh;
 		
 		internal ComputeBuffer argsBuffer;
-		ComputeBuffer vectorArgsBuffer;
-		Bounds bounds;
-		internal Texture2D gradientTexture;
-		internal Texture2D gradientTexture2;
-		internal Texture2D debugHeatMapTexture;
-		internal Texture2D debugSignedHeatMapTexture;
-		bool needsUpdate;
-		DebugVisualization lastDebugMode;
-		VectorFieldSource lastVectorFieldSource;
+		internal Texture2D gradientAtlasTexture;
+		private bool _needsUpdate;
+		private DebugVisualization _lastDebugMode;
+		private ParticleFluidVectorFieldRenderer2D.VectorFieldSource _lastVectorFieldSource;
 		private Camera _camera;
 
-		void Awake()
+		private void Awake()
 		{
 			_camera = Camera.main;
-			Debug.Assert(sim != null, "ParticleDisplay2D requires a FluidSim2D reference.", this);
-			Debug.Assert(mesh != null, "ParticleDisplay2D requires a particle mesh.", this);
-			Debug.Assert(directParticleShader != null, "ParticleDisplay2D requires a direct particle shader.", this);
-			EnsureMaterials();
-			needsUpdate = true;
-			lastDebugMode = debugMode;
+			_needsUpdate = true;
+			_lastDebugMode = debugMode;
+			_lastVectorFieldSource = vectorField.source;
 		}
 
-		internal void RegisterLighting(ParticleFluidLighting2D particleFluidLighting)
+		private void LateUpdate()
 		{
-			if (particleFluidLighting == null)
+			if (debugMode != _lastDebugMode || vectorField.source != _lastVectorFieldSource)
 			{
-				return;
+				_lastDebugMode = debugMode;
+				_lastVectorFieldSource = vectorField.source;
+				sim.RefreshDebugBuffers();
 			}
 
-			if (lighting == null)
+			ComputeHelper.CreateArgsBuffer(ref argsBuffer, particleMesh, sim.resources.positionBuffer.count);
+
+			if (_needsUpdate)
 			{
-				lighting = particleFluidLighting;
+				_needsUpdate = false;
+				EnsureGradientTextures();
 			}
 
-			if (particleFluidLighting == lighting || activeLighting == null)
-			{
-				activeLighting = particleFluidLighting;
-			}
-		}
+			directParticles.Prepare(this);
+			vectorField.Prepare(this);
 
-		internal void UnregisterLighting(ParticleFluidLighting2D particleFluidLighting)
-		{
-			if (activeLighting == particleFluidLighting)
-			{
-				activeLighting = null;
-			}
-		}
-
-#if UNITY_EDITOR
-		void OnEnable()
-		{
-			Camera.onPreCull += DrawSceneViewDirect;
-		}
-#endif
-
-		void LateUpdate()
-		{
-			RefreshSimulationDebugBuffersIfNeeded();
-			EnsureMaterials();
-			UpdateSettings();
-
-			if (renderMode != RenderMode.Metaballs || metaballs.blurShader == null)
-			{
-				DrawDirectParticles();
-				DrawVectorField();
-			}
-		}
-
-		void RefreshSimulationDebugBuffersIfNeeded()
-		{
-			bool changed = debugMode != lastDebugMode || vectorFieldSource != lastVectorFieldSource;
-			if (!changed) return;
-
-			lastDebugMode = debugMode;
-			lastVectorFieldSource = vectorFieldSource;
-			sim.RefreshDebugBuffers();
-		}
-
-		void UpdateSettings()
-		{
-			EnsureGradientTextures();
-
-            ComputeHelper.CreateArgsBuffer(ref argsBuffer, mesh, sim.resources.positionBuffer.count);
-            ComputeHelper.CreateArgsBuffer(ref vectorArgsBuffer, vectorArrowMesh, sim.resources.positionBuffer.count);
-			bounds = new Bounds(Vector3.zero, Vector3.one * 10000);
-
-			if (needsUpdate)
-			{
-				needsUpdate = false;
-				ApplyGradientTextures();
-			}
-			
-			ApplyDirectParticleMaterialSettings();
-			ApplyVectorFieldMaterialSettings();
-			ApplyVectorFieldSettings();
-		}
-
-		void ApplyDirectParticleMaterialSettings()
-		{
-			BindSimulationBuffers(directParticleMaterial);
-			ApplyCommonParticleSettings(directParticleMaterial);
-		}
-
-		void ApplyVectorFieldMaterialSettings()
-		{
-			if (vectorFieldMaterial == null)
-			{
-				return;
-			}
-
-			BindSimulationBuffers(vectorFieldMaterial);
-		}
-
-		void EnsureMaterials()
-		{
-			if (vectorFieldShader == null)
-			{
-				vectorFieldShader = Shader.Find("Instanced/Particle2DVectorField");
-			}
-
-			EnsureMaterial(ref directParticleMaterial, directParticleShader);
-			EnsureMaterial(ref vectorFieldMaterial, vectorFieldShader);
-			EnsureVectorArrowMesh();
-		}
-
-		void EnsureMaterial(ref Material material, Shader shader)
-		{
-			if (shader == null || (material != null && material.shader == shader))
-			{
-				return;
-			}
-
-			material = new Material(shader);
-			needsUpdate = true;
+			if (renderMode == RenderMode.Metaballs) return;
+			directParticles.Draw(this, _camera);
+			vectorField.Draw(this, _camera);
 		}
 
 		internal void BindSimulationBuffers(Material targetMaterial)
 		{
-			targetMaterial.SetBuffer("Positions2D", sim.resources.positionBuffer);
-			targetMaterial.SetBuffer("Velocities", sim.resources.velocityBuffer);
-			targetMaterial.SetBuffer("DensityData", sim.resources.densityBuffer);
-			targetMaterial.SetBuffer("Phases", sim.resources.phaseBuffer);
-			targetMaterial.SetBuffer("IsGhost", sim.resources.ghostFlagBuffer);
-			targetMaterial.SetBuffer("BlobIDs", sim.resources.blobIdBuffer);
-			targetMaterial.SetBuffer("Temperatures", sim.resources.temperatureBuffer);
-			targetMaterial.SetBuffer("Curvatures", sim.resources.debugVectorSignBuffer);
+			targetMaterial.SetBuffer(Positions2D, sim.resources.positionBuffer);
+			targetMaterial.SetBuffer(Velocities, sim.resources.velocityBuffer);
+			targetMaterial.SetBuffer(DensityData, sim.resources.densityBuffer);
+			targetMaterial.SetBuffer(Phases, sim.resources.phaseBuffer);
+			targetMaterial.SetBuffer(IsGhost, sim.resources.ghostFlagBuffer);
+			targetMaterial.SetBuffer(BlobIDs, sim.resources.blobIdBuffer);
+			targetMaterial.SetBuffer(Temperatures, sim.resources.temperatureBuffer);
+			targetMaterial.SetBuffer(Curvatures, sim.resources.debugVectorSignBuffer);
 		}
 
 		internal void ApplyCommonParticleSettings(Material targetMaterial)
 		{
-			targetMaterial.SetFloat("scale", scale * ParticleResolutionLengthScale);
-			targetMaterial.SetFloat("tempMin", sim.ambientTemperature);
-			targetMaterial.SetFloat("tempMax", sim.HeatSourceTemperature);
-			targetMaterial.SetBuffer("DebugData", sim.resources.debugDataBuffer);
-			targetMaterial.SetFloat("debugGradientMax", debugGradientMax);
-			targetMaterial.SetFloat("debugCurvatureMax", sim.maxSurfaceTensionCurvature);
-			targetMaterial.SetFloat("debugViscosityMax", sim.simulationDebug.GetMaxViscosity(sim.phases, sim.ambientTemperature, sim.HeatSourceTemperature));
-			targetMaterial.SetFloat("debugDensityMin", DebugDensityMin);
-			targetMaterial.SetFloat("debugDensityMax", DebugDensityMax);
-			targetMaterial.SetInt("debugMode", (int)(debugMode == DebugVisualization.ParticleMotion ? DebugVisualization.None : debugMode));
-			ApplyDebugClipSettings(targetMaterial);
+			targetMaterial.SetFloat(Scale, scale * ParticleResolutionLengthScale);
+			targetMaterial.SetFloat(TempMin, sim.ambientTemperature);
+			targetMaterial.SetFloat(TempMax, sim.HeatSourceTemperature);
+			targetMaterial.SetBuffer(DebugData, sim.resources.debugDataBuffer);
+			targetMaterial.SetFloat(DebugGradientMax, debugGradientMax);
+			targetMaterial.SetFloat(DebugCurvatureMax, sim.maxSurfaceTensionCurvature);
+			targetMaterial.SetFloat(DebugViscosityMax, sim.simulationDebug.GetMaxViscosity(sim.phases, sim.ambientTemperature, sim.HeatSourceTemperature));
+			targetMaterial.SetFloat(DensityMin, Mathf.Min(debugDensityMin, debugDensityMax - 0.0001f) * sim.particleResolutionFactor);
+			targetMaterial.SetFloat(DensityMax, Mathf.Max(debugDensityMax, debugDensityMin + 0.0001f) * sim.particleResolutionFactor);
+			targetMaterial.SetInt(DebugMode, (int)(debugMode == DebugVisualization.ParticleMotion ? DebugVisualization.None : debugMode));
+			targetMaterial.SetInt(DebugShowClipping, debugShowClipping ? 1 : 0);
 		}
 
-		void ApplyVectorFieldSettings()
+		private void EnsureGradientTextures()
 		{
-			if (vectorFieldMaterial == null)
+			const int height = 4;
+			if (!gradientAtlasTexture || gradientAtlasTexture.width != gradientResolution || gradientAtlasTexture.height != height || gradientAtlasTexture.format != TextureFormat.RGBAHalf)
 			{
-				return;
+				gradientAtlasTexture = new Texture2D(gradientResolution, height, TextureFormat.RGBAHalf, false, true);
 			}
 
-			vectorFieldMaterial.SetFloat("vectorScale", vectorScale);
-			vectorFieldMaterial.SetFloat("vectorMaxMagnitude", EffectiveVectorMaxMagnitude);
-			vectorFieldMaterial.SetInt("vectorUseLogScale", vectorUseLogScale ? 1 : 0);
-			vectorFieldMaterial.SetFloat("vectorLogScaleStrength", vectorLogScaleStrength);
-			vectorFieldMaterial.SetFloat("vectorWidth", vectorWidth);
-			vectorFieldMaterial.SetInt("vectorUseSignedColor", vectorFieldSource == VectorFieldSource.CurvatureNormal ? 1 : 0);
-			vectorFieldMaterial.SetBuffer("DebugVectorData", GetVectorFieldBuffer());
-			vectorFieldMaterial.SetBuffer("DebugVectorSign", sim.resources.debugVectorSignBuffer);
-		}
-		internal float DebugDensityMin => Mathf.Min(debugDensityMin, debugDensityMax - 0.0001f) * sim.particleResolutionFactor;
-		internal float DebugDensityMax => Mathf.Max(debugDensityMax, debugDensityMin + 0.0001f) * sim.particleResolutionFactor;
-		float EffectiveVectorMaxMagnitude
-		{
-			get
-			{
-				return vectorFieldSource switch
-				{
-					VectorFieldSource.CurvatureNormal => sim.maxSurfaceTensionCurvature,
-					VectorFieldSource.SurfaceTensionForce => Mathf.Max(Mathf.Max(Mathf.Abs(sim.surfaceTension), Mathf.Abs(sim.blobBlobSurfaceTension), Mathf.Abs(sim.blobSelfSurfaceTension)) * sim.maxSurfaceTensionCurvature, 0.0001f),
-					VectorFieldSource.Convection => Mathf.Max(Mathf.Abs(sim.gravity) * sim.buoyancyInversionStrength * Mathf.Max(0f, sim.buoyancyInversionClamp), 0.0001f),
-					VectorFieldSource.NonCoalescenceForces => sim.carrierWedgeMaxAcceleration > 0
-						? Mathf.Max(sim.carrierWedgeMaxAcceleration, vectorMaxMagnitude)
-						: Mathf.Max(0.0001f, Mathf.Abs(sim.carrierWedgeStrength), vectorMaxMagnitude),
-					_ => Mathf.Max(0.0001f, vectorMaxMagnitude),
-				};
-			}
-		}
+			gradientAtlasTexture.wrapMode = TextureWrapMode.Clamp;
+			gradientAtlasTexture.filterMode = FilterMode.Bilinear;
 
-		internal void ApplyDebugClipSettings(Material targetMaterial)
-		{
-			targetMaterial.SetInt("debugShowClipping", debugShowClipping ? 1 : 0);
-		}
-
-		public int ComputeVectorFieldMode
-		{
-			get
-			{
-				return vectorFieldSource switch
-				{
-					VectorFieldSource.SurfaceTensionForce => 1,
-					VectorFieldSource.NonCoalescenceForces => 2,
-					VectorFieldSource.CurvatureNormal => 3,
-					VectorFieldSource.Convection => 4,
-					_ => 0,
-				};
-			}
-		}
-
-		ComputeBuffer GetVectorFieldBuffer()
-		{
-			return vectorFieldSource == VectorFieldSource.Velocity ? sim.resources.velocityBuffer : sim.resources.debugVectorDataBuffer;
-		}
-
-		void ApplyGradientTextures()
-		{
-			directParticleMaterial.SetTexture("ColourMap", gradientTexture);
-			directParticleMaterial.SetTexture("ColourMap2", gradientTexture2);
-			directParticleMaterial.SetTexture("DebugHeatMap", debugHeatMapTexture);
-			directParticleMaterial.SetTexture("DebugSignedHeatMap", debugSignedHeatMapTexture);
-		}
-
-		void EnsureGradientTextures()
-		{
-			if (!needsUpdate)
-			{
-				return;
-			}
-
-			Gradient primary = GetGradient(0);
-			Gradient secondary = GetGradient(1);
-			TextureFromGradient(ref gradientTexture, gradientResolution, primary, FilterMode.Bilinear, true, TextureFormat.RGBAHalf, true);
-			TextureFromGradient(ref gradientTexture2, gradientResolution, secondary, FilterMode.Bilinear, true, TextureFormat.RGBAHalf, true);
-			TextureFromGradient(ref debugHeatMapTexture, gradientResolution, heatMap, FilterMode.Bilinear, true, TextureFormat.RGBAHalf);
-			TextureFromGradient(ref debugSignedHeatMapTexture, GetSignedGradientResolution(), signedHeatMap, FilterMode.Bilinear, true, TextureFormat.RGBAHalf);
-		}
-
-		Gradient GetGradient(int index)
-		{
-			Gradient colourMap = index == 0 ? phase0ColourMap : phase1ColourMap;
-			if (colourMap != null)
-			{
-				return colourMap;
-			}
-
-			Gradient gradient = new Gradient();
-			gradient.SetKeys(
-				new[] { new GradientColorKey(Color.black, 0), new GradientColorKey(Color.white, 1) },
-				new[] { new GradientAlphaKey(1, 0), new GradientAlphaKey(1, 1) }
-			);
-			return gradient;
+			WriteGradientRow(gradientAtlasTexture, 0, gradientResolution, phase0ColourMap, true);
+			WriteGradientRow(gradientAtlasTexture, 1, gradientResolution, phase1ColourMap, true);
+			WriteGradientRow(gradientAtlasTexture, 2, gradientResolution, heatMap, false);
+			WriteGradientRow(gradientAtlasTexture, 3, gradientResolution, signedHeatMap, false);
+			gradientAtlasTexture.Apply();
 		}
 
 		internal void SetPhaseColourMaps(Gradient phase0, Gradient phase1)
 		{
-			phase0ColourMap = CloneGradient(phase0);
-			phase1ColourMap = CloneGradient(phase1);
-			needsUpdate = true;
+			phase0ColourMap = phase0;
+			phase1ColourMap = phase1;
+			_needsUpdate = true;
 		}
 
-		internal static Gradient CloneGradient(Gradient source)
+		private static void WriteGradientRow(Texture2D texture, int row, int width, Gradient gradient, bool convertGammaToLinear)
 		{
-			if (source == null)
+			for (int x = 0; x < width; x++)
 			{
-				return null;
-			}
-
-			Gradient clone = new Gradient();
-			clone.SetKeys(source.colorKeys, source.alphaKeys);
-			clone.mode = source.mode;
-			return clone;
-		}
-
-		int GetSignedGradientResolution()
-		{
-			int width = Mathf.Max(3, gradientResolution);
-			return width % 2 == 0 ? width + 1 : width;
-		}
-
-		void DrawDirectParticles()
-		{
-			if (argsBuffer == null)
-			{
-				return;
-			}
-
-			Graphics.DrawMeshInstancedIndirect(
-				mesh,
-				0,
-				directParticleMaterial,
-				bounds,
-				argsBuffer,
-				0,
-				null,
-				ShadowCastingMode.Off,
-				false,
-				gameObject.layer,
-				_camera
-			);
-		}
-
-		bool ShouldDrawVectorField()
-		{
-			return vectorFieldSource != VectorFieldSource.None
-			       && GetVectorFieldBuffer() != null
-			       && vectorFieldMaterial != null
-			       && vectorArgsBuffer != null;
-		}
-
-		void DrawVectorField()
-		{
-			if (!ShouldDrawVectorField())
-			{
-				return;
-			}
-
-			Graphics.DrawMeshInstancedIndirect(
-				vectorArrowMesh,
-				0,
-				vectorFieldMaterial,
-				bounds,
-				vectorArgsBuffer,
-				0,
-				null,
-				ShadowCastingMode.Off,
-				false,
-				gameObject.layer,
-				_camera
-			);
-		}
-
-		internal void AppendVectorFieldDraw(CommandBuffer commandBuffer)
-		{
-			if (!ShouldDrawVectorField())
-			{
-				return;
-			}
-			commandBuffer.DrawMeshInstancedIndirect(vectorArrowMesh, 0, vectorFieldMaterial, 0, vectorArgsBuffer);
-		}
-
-		void EnsureVectorArrowMesh()
-		{
-			if (vectorArrowMesh != null)
-			{
-				return;
-			}
-
-			vectorArrowMesh = new Mesh();
-			vectorArrowMesh.name = "Sim2D Vector Arrow";
-			vectorArrowMesh.vertices = new[]
-			{
-				new Vector3(0f, -0.5f, 0f),
-				new Vector3(0.62f, -0.5f, 0f),
-				new Vector3(0.62f, -1f, 0f),
-				new Vector3(1f, 0f, 0f),
-				new Vector3(0.62f, 1f, 0f),
-				new Vector3(0.62f, 0.5f, 0f),
-				new Vector3(0f, 0.5f, 0f),
-			};
-			vectorArrowMesh.triangles = new[]
-			{
-				0, 1, 6,
-				1, 5, 6,
-				1, 2, 3,
-				1, 3, 5,
-				3, 4, 5,
-			};
-			vectorArrowMesh.RecalculateBounds();
-		}
-
-#if UNITY_EDITOR
-		void DrawSceneViewDirect(Camera sceneViewCamera)
-		{
-			if (sceneViewCamera.cameraType != CameraType.SceneView || sceneViewCamera == Camera.main)
-			{
-				return;
-			}
-
-			EnsureMaterials();
-			UpdateSettings();
-			DrawDirectParticles();
-			DrawVectorField();
-		}
-#endif
-
-		internal static Camera GetSceneViewCamera()
-		{
-#if UNITY_EDITOR
-			if (SceneView.lastActiveSceneView != null)
-			{
-				return SceneView.lastActiveSceneView.camera;
-			}
-#endif
-			return null;
-		}
-
-		public static void TextureFromGradient(ref Texture2D texture, int width, Gradient gradient, FilterMode filterMode = FilterMode.Bilinear, bool linear = false, TextureFormat textureFormat = TextureFormat.RGBA32, bool convertGammaToLinear = false)
-		{
-			width = Mathf.Max(1, width);
-
-			if (texture == null || texture.width != width || texture.format != textureFormat)
-			{
-				texture = new Texture2D(width, 1, textureFormat, false, linear);
-			}
-
-			if (gradient == null)
-			{
-				gradient = new Gradient();
-				gradient.SetKeys(
-					new GradientColorKey[] { new (Color.black, 0), new (Color.black, 1) },
-					new GradientAlphaKey[] { new (1, 0), new (1, 1) }
-				);
-			}
-
-			texture.wrapMode = TextureWrapMode.Clamp;
-			texture.filterMode = filterMode;
-
-			Color[] cols = new Color[width];
-			for (int i = 0; i < cols.Length; i++)
-			{
-				float t = cols.Length == 1 ? 0 : i / (cols.Length - 1f);
-				cols[i] = gradient.Evaluate(t);
+				float t = width == 1 ? 0 : x / (width - 1f);
+				Color colour = gradient.Evaluate(t);
 				if (convertGammaToLinear)
 				{
-					cols[i] = cols[i].linear;
+					colour = colour.linear;
 				}
+				texture.SetPixel(x, row, colour);
 			}
-
-			texture.SetPixels(cols);
-			texture.Apply();
 		}
 
-		void OnValidate()
+		private void OnValidate()
 		{
-			needsUpdate = true;
+			_needsUpdate = true;
 		}
 
-		void OnDisable()
-		{
-			#if UNITY_EDITOR
-			Camera.onPreCull -= DrawSceneViewDirect;
-			#endif
-		}
-
-		void OnDestroy()
+		private void OnDestroy()
 		{
 			ComputeHelper.Release(argsBuffer);
-			ComputeHelper.Release(vectorArgsBuffer);
-			_metaballRenderer?.Release();
+			directParticles?.Release();
+			vectorField?.Release();
+			metaballs?.Release();
 			lighting?.Release();
-			if (vectorArrowMesh != null)
-			{
-				DestroyImmediate(vectorArrowMesh);
-			}
 		}
 	}
 }

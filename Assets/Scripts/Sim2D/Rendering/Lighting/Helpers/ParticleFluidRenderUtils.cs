@@ -6,6 +6,8 @@ namespace Seb.Fluid2D.Rendering
 {
 	internal static class ParticleFluidRenderUtils
 	{
+		private static readonly int BlurRadius = Shader.PropertyToID("blurRadius");
+		private static readonly int BlurDirection = Shader.PropertyToID("blurDirection");
 		private static Mesh _quadMesh;
 
 		internal static void EnsureMaterial(ref Material material, Shader shader)
@@ -35,10 +37,10 @@ namespace Seb.Fluid2D.Rendering
 				return;
 			}
 			targetCommandBuffer.BeginSample(name);
-			blurMaterial.SetFloat("blurRadius", blurRadius);
-			targetCommandBuffer.SetGlobalVector("blurDirection", new Vector2(1, 0));
+			targetCommandBuffer.SetGlobalFloat(BlurRadius, blurRadius);
+			targetCommandBuffer.SetGlobalVector(BlurDirection, new Vector2(1, 0));
 			targetCommandBuffer.Blit(source, target, blurMaterial);
-			targetCommandBuffer.SetGlobalVector("blurDirection", new Vector2(0, 1));
+			targetCommandBuffer.SetGlobalVector(BlurDirection, new Vector2(0, 1));
 			targetCommandBuffer.Blit(target, source, blurMaterial);
 			targetCommandBuffer.EndSample(name);
 		}
@@ -85,4 +87,3 @@ namespace Seb.Fluid2D.Rendering
 		}
 	}
 }
-

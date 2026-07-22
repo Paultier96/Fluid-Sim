@@ -15,7 +15,7 @@ namespace Seb.Fluid2D.Rendering
 		public Gradient phase0ColourMap;
 		public Gradient phase1ColourMap;
 
-		void OnValidate()
+		private void OnValidate()
 		{
 			Changed?.Invoke(this);
 		}

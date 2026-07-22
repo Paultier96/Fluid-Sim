@@ -11,12 +11,55 @@ namespace Seb.Fluid2D.Rendering
 	[RequireComponent(typeof(ParticleFluidLighting2D))]
 	public sealed class ParticleFluidRadianceCascadeGi : MonoBehaviour
 	{
+		private static readonly int CascadeLevel = Shader.PropertyToID("_CascadeLevel");
+		private static readonly int UpperCascadeTex = Shader.PropertyToID("_UpperCascadeTex");
+		private static readonly int Width = Shader.PropertyToID("_Width");
+		private static readonly int Height = Shader.PropertyToID("_Height");
+		private static readonly int TransportWidth = Shader.PropertyToID("transportWidth");
+		private static readonly int TransportHeight = Shader.PropertyToID("transportHeight");
+		private static readonly int MetaballWorldCenter = Shader.PropertyToID("metaballWorldCenter");
+		private static readonly int MetaballWorldSize = Shader.PropertyToID("metaballWorldSize");
+		private static readonly int Result = Shader.PropertyToID("Result");
+		private static readonly int ResultPayload = Shader.PropertyToID("ResultPayload");
+		private static readonly int MaterialTransportTex = Shader.PropertyToID("MaterialTransportTex");
+		private static readonly int GradientAtlas = Shader.PropertyToID("GradientAtlas");
+		private static readonly int Step = Shader.PropertyToID("_Step");
+		private static readonly int SrcTex = Shader.PropertyToID("_SrcTex");
+		private static readonly int SrcPayloadTex = Shader.PropertyToID("_SrcPayloadTex");
+		private static readonly int DstTex = Shader.PropertyToID("_DstTex");
+		private static readonly int DstPayloadTex = Shader.PropertyToID("_DstPayloadTex");
+		private static readonly int BoundarySourceTex = Shader.PropertyToID("_BoundarySourceTex");
+		private static readonly int ResultTex = Shader.PropertyToID("_ResultTex");
+		private static readonly int PayloadTex = Shader.PropertyToID("_PayloadTex");
+		private static readonly int CascadeResolution = Shader.PropertyToID("_CascadeResolution");
+		private static readonly int RayRange = Shader.PropertyToID("_RayRange");
+		private static readonly int CascadeCount = Shader.PropertyToID("_CascadeCount");
+		private static readonly int RaySteps = Shader.PropertyToID("_RaySteps");
+		private static readonly int RadianceIntensity = Shader.PropertyToID("_RadianceIntensity");
+		private static readonly int BlobEmissionStrength = Shader.PropertyToID("_BlobEmissionStrength");
+		private static readonly int RadianceDistanceAttenuation = Shader.PropertyToID("_RadianceDistanceAttenuation");
+		private static readonly int RadianceBoundaryCullPaddingPixels = Shader.PropertyToID("_RadianceBoundaryCullPaddingPixels");
+		private static readonly int DirectionalLightEnabled = Shader.PropertyToID("_DirectionalLightEnabled");
+		private static readonly int DirectionalLightDirection = Shader.PropertyToID("_DirectionalLightDirection");
+		private static readonly int DirectionalLightColor = Shader.PropertyToID("_DirectionalLightColor");
+		private static readonly int DirectionalLightIntensity = Shader.PropertyToID("_DirectionalLightIntensity");
+		private static readonly int DirectionalLightStrength = Shader.PropertyToID("_DirectionalLightStrength");
+		private static readonly int DirectionalLightCascadeStart = Shader.PropertyToID("_DirectionalLightCascadeStart");
+		private static readonly int SdfPhase0InsetPixels = Shader.PropertyToID("_SdfPhase0InsetPixels");
+		private static readonly int SdfPhase0OutlinePixels = Shader.PropertyToID("_SdfPhase0OutlinePixels");
+		private static readonly int UseBoundarySourceTex = Shader.PropertyToID("_UseBoundarySourceTex");
+		private static readonly int BoundarySourceNormalization = Shader.PropertyToID("_BoundarySourceNormalization");
+		private static readonly int SdfBoundarySourceMultiplyAlbedo = Shader.PropertyToID("_SdfBoundarySourceMultiplyAlbedo");
+		private static readonly int DomainWorldCenter = Shader.PropertyToID("domainWorldCenter");
+		private static readonly int DomainWorldSize = Shader.PropertyToID("domainWorldSize");
+
 		[Header("Shaders")]
 		public ComputeShader radianceCascadeSdfCompute;
 		public Shader radianceCascadeSdfShader;
 
+		[FormerlySerializedAs("TextureScale")]
 		[Header("Global Illumination")]
-		[FormerlySerializedAs("radianceCascadeTextureScale")] [Range(0.25f, 1f)] public float TextureScale = 0.5f;
+		[Range(0.25f, 1f)] public float textureScale = 0.5f;
 		[Range(1, 6)] public int radianceCascadeCount = 4;
 		[Min(0.0001f)] public float rayRange = 1.25f;
 		[Range(1, 64)] public int raySteps = 16;
@@ -41,9 +84,20 @@ namespace Seb.Fluid2D.Rendering
 		internal RenderTexture radianceCascadeSdfPayloadA;
 		internal RenderTexture radianceCascadeSdfPayloadB;
 
-		void Awake()
+		private void Awake()
 		{
 			_lighting = GetComponent<ParticleFluidLighting2D>();
+		}
+
+		private void OnEnable()
+		{
+			_lighting ??= GetComponent<ParticleFluidLighting2D>();
+			EnsureMaterials();
+		}
+
+		private void OnDisable()
+		{
+			Release();
 		}
 
 		internal void EnsureMaterials()
@@ -56,8 +110,8 @@ namespace Seb.Fluid2D.Rendering
 			if (renderRadianceCascade)
 			{
 				int cascadeTileDivisor = 1 << (Mathf.Clamp(radianceCascadeCount, 1, 6) - 1);
-				int width = RoundUpToMultiple(Mathf.Max(1, Mathf.RoundToInt(causticSize.x * TextureScale)), cascadeTileDivisor);
-				int height = RoundUpToMultiple(Mathf.Max(1, Mathf.RoundToInt(causticSize.y * TextureScale)), cascadeTileDivisor);
+				int width = RoundUpToMultiple(Mathf.Max(1, Mathf.RoundToInt(causticSize.x * textureScale)), cascadeTileDivisor);
+				int height = RoundUpToMultiple(Mathf.Max(1, Mathf.RoundToInt(causticSize.y * textureScale)), cascadeTileDivisor);
 				ComputeHelper.CreateRenderTexture(ref radianceCascadeTexture0, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Radiance Cascade 0");
 				ComputeHelper.CreateRenderTexture(ref radianceCascadeTexture1, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Radiance Cascade 1");
 				ComputeHelper.CreateRenderTexture(ref radianceCascadeSdfSeedA, width, height, FilterMode.Point, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D RC SDF Seed A");
@@ -68,9 +122,15 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			ComputeHelper.Release(radianceCascadeTexture0, radianceCascadeTexture1, radianceCascadeSdfSeedA, radianceCascadeSdfSeedB, radianceCascadeSdfPayloadA, radianceCascadeSdfPayloadB);
+			radianceCascadeTexture0 = null;
+			radianceCascadeTexture1 = null;
+			radianceCascadeSdfSeedA = null;
+			radianceCascadeSdfSeedB = null;
+			radianceCascadeSdfPayloadA = null;
+			radianceCascadeSdfPayloadB = null;
 		}
 
-		static int RoundUpToMultiple(int value, int multiple)
+		private static int RoundUpToMultiple(int value, int multiple)
 		{
 			multiple = Mathf.Max(1, multiple);
 			return Mathf.Max(multiple, ((value + multiple - 1) / multiple) * multiple);
@@ -78,28 +138,15 @@ namespace Seb.Fluid2D.Rendering
 
 		internal Texture Render(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, Texture sharpCaustics, bool useGaussianBoundarySource)
 		{
-			Texture phase1Texture = RenderRadianceCascadeSdfLight(context, targetCommandBuffer, sharpCaustics, useGaussianBoundarySource);
+			BuildRadianceCascadeSdfField(context, targetCommandBuffer, out RenderTexture sdfResult, out RenderTexture sdfPayload, _lighting.materialTransportTexture);
+			Texture phase1Texture = RenderRadianceCascadePass(context, targetCommandBuffer, sharpCaustics, sdfResult, sdfPayload, _radianceCascadeSdfMaterial, "Metaballs/Radiance Cascades SDF", useGaussianBoundarySource);
 			return phase1Texture;
 		}
 
 		internal void Release()
 		{
-			ReleaseResources();
-			ParticleFluidRenderUtils.DestroyMaterial(ref _radianceCascadeSdfMaterial);
-		}
-
-		private void ReleaseResources()
-		{
 			EnsureResources(default, false);
-		}
-
-		private Texture RenderRadianceCascadeSdfLight(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, Texture sharpCaustics, bool useGaussianBoundarySource)
-		{
-			BuildRadianceCascadeSdfField(context, targetCommandBuffer, 
-				out RenderTexture sdfResult, 
-				out RenderTexture sdfPayload, 
-				_lighting.materialTransportTexture);
-			return RenderRadianceCascadePass(context, targetCommandBuffer, sharpCaustics, sdfResult, sdfPayload, _radianceCascadeSdfMaterial, "Metaballs/Radiance Cascades SDF", useGaussianBoundarySource);
+			ParticleFluidRenderUtils.DestroyMaterial(ref _radianceCascadeSdfMaterial);
 		}
 
 		private Texture RenderRadianceCascadePass(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, Texture sharpCaustics, RenderTexture sdfResult, RenderTexture sdfPayload, Material material, string sampleName, bool useGaussianBoundarySource)
@@ -122,8 +169,8 @@ namespace Seb.Fluid2D.Rendering
 			SetCommonParams(context, targetCommandBuffer, width, height, sharpCaustics, sdfResult, sdfPayload, useGaussianBoundarySource);
 			for (int level = cascadeCount - 1; level >= 0; level--)
 			{
-				targetCommandBuffer.SetGlobalInt("_CascadeLevel", level);
-				targetCommandBuffer.SetGlobalTexture("_UpperCascadeTex", source);
+				targetCommandBuffer.SetGlobalInt(CascadeLevel, level);
+				targetCommandBuffer.SetGlobalTexture(UpperCascadeTex, source);
 				ParticleFluidRenderUtils.DrawRegionQuad(targetCommandBuffer, target, material, 0, context.renderRegion, context.cam, false);
 				ParticleFluidRenderUtils.Swap(ref source, ref target);
 			}
@@ -138,7 +185,7 @@ namespace Seb.Fluid2D.Rendering
 			payloadTexture = null;
 			ParticleDisplay2D display = context.display;
 			materialTransportTexture ??= Texture2D.blackTexture;
-			Texture colourMap = display != null && display.gradientTexture != null ? display.gradientTexture : Texture2D.blackTexture;
+			Texture gradientAtlas = display != null && display.gradientAtlasTexture != null ? display.gradientAtlasTexture : Texture2D.blackTexture;
 
 			int width = radianceCascadeSdfSeedA.width;
 			int height = radianceCascadeSdfSeedA.height;
@@ -148,25 +195,25 @@ namespace Seb.Fluid2D.Rendering
 			int jumpFloodKernel = compute.FindKernel("JumpFlood");
 			int resolveDistanceKernel = compute.FindKernel("ResolveDistance");
 
-			targetCommandBuffer.SetComputeIntParam(compute, "_Width", width);
-			targetCommandBuffer.SetComputeIntParam(compute, "_Height", height);
-			targetCommandBuffer.SetComputeIntParam(compute, "transportWidth", materialTransportTexture.width);
-			targetCommandBuffer.SetComputeIntParam(compute, "transportHeight", materialTransportTexture.height);
-			targetCommandBuffer.SetComputeVectorParam(compute, "metaballWorldCenter", context.renderRegion.center);
-			targetCommandBuffer.SetComputeVectorParam(compute, "metaballWorldSize", context.renderRegion.size);
+			targetCommandBuffer.SetComputeIntParam(compute, Width, width);
+			targetCommandBuffer.SetComputeIntParam(compute, Height, height);
+			targetCommandBuffer.SetComputeIntParam(compute, TransportWidth, materialTransportTexture.width);
+			targetCommandBuffer.SetComputeIntParam(compute, TransportHeight, materialTransportTexture.height);
+			targetCommandBuffer.SetComputeVectorParam(compute, MetaballWorldCenter, context.renderRegion.center);
+			targetCommandBuffer.SetComputeVectorParam(compute, MetaballWorldSize, context.renderRegion.size);
 
-			targetCommandBuffer.SetComputeTextureParam(compute, clearKernel, "Result", radianceCascadeSdfSeedA);
-			targetCommandBuffer.SetComputeTextureParam(compute, clearKernel, "ResultPayload", radianceCascadeSdfPayloadA);
+			targetCommandBuffer.SetComputeTextureParam(compute, clearKernel, Result, radianceCascadeSdfSeedA);
+			targetCommandBuffer.SetComputeTextureParam(compute, clearKernel, ResultPayload, radianceCascadeSdfPayloadA);
 			int gx = (width + 15) / 16;
 			int gy = (height + 15) / 16;
 			targetCommandBuffer.DispatchCompute(compute, clearKernel, gx, gy, 1);
 
-			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "MaterialTransportTex", materialTransportTexture);
-			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "Result", radianceCascadeSdfSeedA);
-			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "ResultPayload", radianceCascadeSdfPayloadA);
-			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, "ColourMap", colourMap);
-			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "MaterialTransportTex", materialTransportTexture);
-			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "ColourMap", colourMap);
+			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, MaterialTransportTex, materialTransportTexture);
+			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, Result, radianceCascadeSdfSeedA);
+			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, ResultPayload, radianceCascadeSdfPayloadA);
+			targetCommandBuffer.SetComputeTextureParam(compute, seedKernel, GradientAtlas, gradientAtlas);
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, MaterialTransportTex, materialTransportTexture);
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, GradientAtlas, gradientAtlas);
 			targetCommandBuffer.DispatchCompute(compute, seedKernel, gx, gy, 1);
 
 			RenderTexture src = radianceCascadeSdfSeedA;
@@ -182,33 +229,33 @@ namespace Seb.Fluid2D.Rendering
 
 			for (int s = step; s >= 1; s >>= 1)
 			{
-				targetCommandBuffer.SetComputeIntParam(compute, "_Step", s);
-				targetCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, "_SrcTex", src);
-				targetCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, "_SrcPayloadTex", payloadSrc);
-				targetCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, "_DstTex", dst);
-				targetCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, "_DstPayloadTex", payloadDst);
+				targetCommandBuffer.SetComputeIntParam(compute, Step, s);
+				targetCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, SrcTex, src);
+				targetCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, SrcPayloadTex, payloadSrc);
+				targetCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, DstTex, dst);
+				targetCommandBuffer.SetComputeTextureParam(compute, jumpFloodKernel, DstPayloadTex, payloadDst);
 				targetCommandBuffer.DispatchCompute(compute, jumpFloodKernel, gx, gy, 1);
 				ParticleFluidRenderUtils.Swap(ref src, ref dst);
 				ParticleFluidRenderUtils.Swap(ref payloadSrc, ref payloadDst);
 			}
 
-			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "_SrcTex", src);
-			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "_SrcPayloadTex", payloadSrc);
-			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "Result", dst);
-			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, "ResultPayload", payloadDst);
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, SrcTex, src);
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, SrcPayloadTex, payloadSrc);
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, Result, dst);
+			targetCommandBuffer.SetComputeTextureParam(compute, resolveDistanceKernel, ResultPayload, payloadDst);
 			targetCommandBuffer.DispatchCompute(compute, resolveDistanceKernel, gx, gy, 1);
 
 			resultTexture = dst;
 			payloadTexture = payloadDst;
 		}
 
-		void SetCommonParams(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, int width, int height, Texture sharpCaustics, RenderTexture sdfResult, RenderTexture sdfPayload, bool useGaussianBoundarySource)
+		private void SetCommonParams(ParticleFluidLighting2D.FrameContext context, CommandBuffer commandBuffer, int width, int height, Texture sharpCaustics, RenderTexture sdfResult, RenderTexture sdfPayload, bool useGaussianBoundarySource)
 		{
 			ParticleDisplay2D display = context.display;
 			bool useBoundarySourceTexture = false;
 			float boundarySourceNormalization = 1f;
 			Texture boundarySourceTexture = Texture2D.blackTexture;
-			if (_lighting.directLight != null && _lighting.directLight.IsCausticsEnabled)
+			if (_lighting.directLight != null && _lighting.directLight.isActiveAndEnabled)
 			{
 				if (useGaussianBoundarySource && _lighting.gaussianSss.gaussianSoftLightTexture0 != null)
 				{
@@ -223,42 +270,36 @@ namespace Seb.Fluid2D.Rendering
 				}
 			}
 
-			targetCommandBuffer.SetGlobalTexture("_BoundarySourceTex", boundarySourceTexture);
-			targetCommandBuffer.SetGlobalTexture("_ResultTex", sdfResult != null ? sdfResult : Texture2D.blackTexture);
-			targetCommandBuffer.SetGlobalTexture("_PayloadTex", sdfPayload);
-			targetCommandBuffer.SetGlobalVector("_CascadeResolution", new Vector2(width, height));
-			targetCommandBuffer.SetGlobalFloat("_RayRange", Mathf.Max(rayRange * display.GetZoomScale(context.cam), 0.001f));
-			targetCommandBuffer.SetGlobalInt("_CascadeCount", Mathf.Clamp(radianceCascadeCount, 1, 6));
-			targetCommandBuffer.SetGlobalInt("_RaySteps", Mathf.Max(raySteps, 1));
-			targetCommandBuffer.SetGlobalFloat("_RadianceIntensity", intensity);
-			targetCommandBuffer.SetGlobalFloat("_BlobEmissionStrength", blobEmissionStrength);
-			targetCommandBuffer.SetGlobalFloat("_RadianceDistanceAttenuation", Mathf.Max(distanceAttenuation, 0f));
-			targetCommandBuffer.SetGlobalFloat("_RadianceBoundaryCullPaddingPixels", Mathf.Max(boundaryCullPaddingPixels, 0f));
-			ApplyLightGlobals(targetCommandBuffer, context.display.sim.analyticBoundary);
-			targetCommandBuffer.SetGlobalFloat("_DirectionalLightStrength", directionalLightStrength);
-			targetCommandBuffer.SetGlobalFloat("_DirectionalLightCascadeStart", directionalLightCascadeStart);
-			targetCommandBuffer.SetGlobalFloat("_SdfPhase0InsetPixels", Mathf.Max(sdfPhase0InsetPixels, 0f));
-			targetCommandBuffer.SetGlobalFloat("_SdfPhase0OutlinePixels", Mathf.Max(sdfPhase0OutlinePixels, 0f));
-			targetCommandBuffer.SetGlobalInt("_UseBoundarySourceTex", useBoundarySourceTexture ? 1 : 0);
-			targetCommandBuffer.SetGlobalFloat("_BoundarySourceNormalization", boundarySourceNormalization);
-			targetCommandBuffer.SetGlobalInt("_SdfBoundarySourceMultiplyAlbedo", sdfBoundarySourceMultiplyAlbedo ? 1 : 0);
-			ParticleFluidLayoutBindings.ApplyBoundaryGlobals(targetCommandBuffer, context.display.sim.analyticBoundary);
-			targetCommandBuffer.SetGlobalVector("domainWorldCenter", context.renderRegion.center);
-			targetCommandBuffer.SetGlobalVector("domainWorldSize", context.renderRegion.size);
-		}
-
-		void ApplyLightGlobals(CommandBuffer targetCommandBuffer, ParticleFluidAnalyticBoundary2D analyticBoundary)
-		{
+			commandBuffer.SetGlobalTexture(BoundarySourceTex, boundarySourceTexture);
+			commandBuffer.SetGlobalTexture(ResultTex, sdfResult != null ? sdfResult : Texture2D.blackTexture);
+			commandBuffer.SetGlobalTexture(PayloadTex, sdfPayload);
+			commandBuffer.SetGlobalVector(CascadeResolution, new Vector2(width, height));
+			commandBuffer.SetGlobalFloat(RayRange, Mathf.Max(rayRange * display.GetZoomScale(context.cam), 0.001f));
+			commandBuffer.SetGlobalInt(CascadeCount, Mathf.Clamp(radianceCascadeCount, 1, 6));
+			commandBuffer.SetGlobalInt(RaySteps, Mathf.Max(raySteps, 1));
+			commandBuffer.SetGlobalFloat(RadianceIntensity, intensity);
+			commandBuffer.SetGlobalFloat(BlobEmissionStrength, blobEmissionStrength);
+			commandBuffer.SetGlobalFloat(RadianceDistanceAttenuation, Mathf.Max(distanceAttenuation, 0f));
+			commandBuffer.SetGlobalFloat(RadianceBoundaryCullPaddingPixels, Mathf.Max(boundaryCullPaddingPixels, 0f));
 			ParticleFluidDirectionalLight2D skyLight = _lighting.lightManager.GetMainDirectionalLight();
 			bool useDirectionalLight = directionalLightEnabled && skyLight != null;
-			Vector3 direction = skyLight != null ? skyLight.GetBoundaryRefractedDirection(_lighting.PhaseMaterials[1].indexOfRefraction, analyticBoundary) : Vector3.down;
+			Vector3 direction = skyLight != null ? skyLight.GetBoundaryRefractedDirection(_lighting.PhaseMaterials[1].indexOfRefraction, context.display.sim.analyticBoundary) : Vector3.down;
 			Vector4 color = useDirectionalLight ? skyLight.EffectiveColor : Vector4.zero;
-			float intensity = useDirectionalLight ? skyLight.intensity : 0f;
-			targetCommandBuffer.SetGlobalInt("_DirectionalLightEnabled", useDirectionalLight ? 1 : 0);
-			targetCommandBuffer.SetGlobalVector("_DirectionalLightDirection", direction);
-			targetCommandBuffer.SetGlobalVector("_DirectionalLightColor", color);
-			targetCommandBuffer.SetGlobalFloat("_DirectionalLightIntensity", intensity);
+			float intensity1 = useDirectionalLight ? skyLight.intensity : 0f;
+			commandBuffer.SetGlobalInt(DirectionalLightEnabled, useDirectionalLight ? 1 : 0);
+			commandBuffer.SetGlobalVector(DirectionalLightDirection, direction);
+			commandBuffer.SetGlobalVector(DirectionalLightColor, color);
+			commandBuffer.SetGlobalFloat(DirectionalLightIntensity, intensity1);
+			commandBuffer.SetGlobalFloat(DirectionalLightStrength, directionalLightStrength);
+			commandBuffer.SetGlobalFloat(DirectionalLightCascadeStart, directionalLightCascadeStart);
+			commandBuffer.SetGlobalFloat(SdfPhase0InsetPixels, Mathf.Max(sdfPhase0InsetPixels, 0f));
+			commandBuffer.SetGlobalFloat(SdfPhase0OutlinePixels, Mathf.Max(sdfPhase0OutlinePixels, 0f));
+			commandBuffer.SetGlobalInt(UseBoundarySourceTex, useBoundarySourceTexture ? 1 : 0);
+			commandBuffer.SetGlobalFloat(BoundarySourceNormalization, boundarySourceNormalization);
+			commandBuffer.SetGlobalInt(SdfBoundarySourceMultiplyAlbedo, sdfBoundarySourceMultiplyAlbedo ? 1 : 0);
+			ParticleFluidRenderBindings.ApplyBoundaryGlobals(commandBuffer, context.display.sim.analyticBoundary);
+			commandBuffer.SetGlobalVector(DomainWorldCenter, context.renderRegion.center);
+			commandBuffer.SetGlobalVector(DomainWorldSize, context.renderRegion.size);
 		}
-
 	}
 }

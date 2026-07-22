@@ -55,7 +55,7 @@ namespace Seb.Fluid2D.Simulation
         public void UploadSettings(ComputeShader compute, ParticleDisplay2D display)
         {
             compute.SetInt("debugVisualizationMode", display != null ? (int)display.debugMode : 0);
-            compute.SetInt("debugVectorFieldMode", display != null ? display.ComputeVectorFieldMode : 0);
+            compute.SetInt("debugVectorFieldMode", display != null ? display.vectorField?.ComputeMode ?? 0 : 0);
         }
 
         static float GetTemperatureAdjustedViscosity(FluidSim2D.PhaseConfig phase, float temperature, float ambientTemperature)

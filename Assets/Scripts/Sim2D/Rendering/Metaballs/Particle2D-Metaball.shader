@@ -15,6 +15,7 @@ Shader "Instanced/Particle2DMetaball" {
 			#pragma target 4.5
 
 			#include "UnityCG.cginc"
+			#include "../Lighting/Shared/ParticleFluidCommon.hlsl"
 
 			StructuredBuffer<float2> Positions2D;
 			StructuredBuffer<int> Phases;
@@ -34,8 +35,6 @@ Shader "Instanced/Particle2DMetaball" {
 			float debugDensityMax;
 			float metaballSharpness;
 			float metaballIntensity;
-			float2 metaballRenderWorldCenter;
-			float2 metaballRenderWorldSize;
 			int debugMode;
 
 			struct v2f {
@@ -76,7 +75,7 @@ Shader "Instanced/Particle2DMetaball" {
 				float density = DensityData[instanceID].x;
 
 				v2f o;
-				float2 clipXY = (worldVertPos.xy - metaballRenderWorldCenter) / max(metaballRenderWorldSize, float2(0.0001, 0.0001)) * 2.0;
+				float2 clipXY = ParticleFluidDomainClipFromWorld(worldVertPos.xy);
 				clipXY.y = -clipXY.y;
 				o.pos = float4(clipXY, 0.0, 1.0);
 				o.uv = v.texcoord;
@@ -161,6 +160,7 @@ Shader "Instanced/Particle2DMetaball" {
 			#pragma target 4.5
 
 			#include "UnityCG.cginc"
+			#include "../Lighting/Shared/ParticleFluidCommon.hlsl"
 
 			StructuredBuffer<float2> Positions2D;
 			StructuredBuffer<int> Phases;
@@ -170,8 +170,6 @@ Shader "Instanced/Particle2DMetaball" {
 			float scale;
 			float metaballSharpness;
 			float metaballIntensity;
-			float2 metaballRenderWorldCenter;
-			float2 metaballRenderWorldSize;
 
 			struct v2f {
 				float4 pos : SV_POSITION;
@@ -188,7 +186,7 @@ Shader "Instanced/Particle2DMetaball" {
 				float3 worldVertPos = centreWorld + mul(unity_ObjectToWorld, v.vertex * scale);
 
 				v2f o;
-				float2 clipXY = (worldVertPos.xy - metaballRenderWorldCenter) / max(metaballRenderWorldSize, float2(0.0001, 0.0001)) * 2.0;
+				float2 clipXY = ParticleFluidDomainClipFromWorld(worldVertPos.xy);
 				clipXY.y = -clipXY.y;
 				o.pos = float4(clipXY, 0.0, 1.0);
 				o.uv = v.texcoord;
@@ -222,6 +220,7 @@ Shader "Instanced/Particle2DMetaball" {
 			#pragma target 4.5
 
 			#include "UnityCG.cginc"
+			#include "../Lighting/Shared/ParticleFluidCommon.hlsl"
 
 			StructuredBuffer<float2> Positions2D;
 			StructuredBuffer<float2> Velocities;
@@ -231,8 +230,6 @@ Shader "Instanced/Particle2DMetaball" {
 			float scale;
 			float metaballSharpness;
 			float metaballIntensity;
-			float2 metaballRenderWorldCenter;
-			float2 metaballRenderWorldSize;
 
 			struct v2f {
 				float4 pos : SV_POSITION;
@@ -248,7 +245,7 @@ Shader "Instanced/Particle2DMetaball" {
 				float3 worldVertPos = centreWorld + mul(unity_ObjectToWorld, v.vertex * scale);
 
 				v2f o;
-				float2 clipXY = (worldVertPos.xy - metaballRenderWorldCenter) / max(metaballRenderWorldSize, float2(0.0001, 0.0001)) * 2.0;
+				float2 clipXY = ParticleFluidDomainClipFromWorld(worldVertPos.xy);
 				clipXY.y = -clipXY.y;
 				o.pos = float4(clipXY, 0.0, 1.0);
 				o.uv = v.texcoord;

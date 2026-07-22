@@ -36,10 +36,7 @@ Shader "Instanced/Particle2D" {
 
 			float scale;
 			float4 colA;
-			Texture2D<float4> ColourMap;
-			Texture2D<float4> ColourMap2;
-			Texture2D<float4> DebugHeatMap;
-			Texture2D<float4> DebugSignedHeatMap;
+			Texture2D<float4> GradientAtlas;
 			SamplerState linear_clamp_sampler;
 			float velocityMax;
 
@@ -48,6 +45,16 @@ Shader "Instanced/Particle2D" {
 			float4 phase1Color;
 			float tempMin;
 			float tempMax;
+
+			static const float GradientAtlasPhase0Row = 0.125;
+			static const float GradientAtlasPhase1Row = 0.375;
+			static const float GradientAtlasHeatRow = 0.625;
+			static const float GradientAtlasSignedHeatRow = 0.875;
+
+			float3 SampleGradientAtlas(float value, float row)
+			{
+				return GradientAtlas.SampleLevel(linear_clamp_sampler, float2(saturate(value), row), 0).rgb;
+			}
 
 			struct v2f
 			{
@@ -106,11 +113,11 @@ Shader "Instanced/Particle2D" {
 
 					if (pid == 0)
 					{
-						o.colour = ColourMap.SampleLevel(linear_clamp_sampler, float2(tempT, 0.5), 0);
+						o.colour = SampleGradientAtlas(tempT, GradientAtlasPhase0Row);
 					}
 					else
 					{
-						o.colour= ColourMap2.SampleLevel(linear_clamp_sampler, float2(tempT, 0.5), 0);
+						o.colour = SampleGradientAtlas(tempT, GradientAtlasPhase1Row);
 					}
 
 					o.colour = saturate(o.colour);
@@ -139,26 +146,26 @@ Shader "Instanced/Particle2D" {
 					{
 						float t = debugData.x / max(debugCurvatureMax, 0.0001);
 						float heatT = 0.5 + t * 0.5;
-						o.colour = ApplyHeatMapClipMarker(heatT, DebugSignedHeatMap.SampleLevel(linear_clamp_sampler, float2(saturate(heatT), 0.5), 0).rgb);
+						o.colour = ApplyHeatMapClipMarker(heatT, SampleGradientAtlas(heatT, GradientAtlasSignedHeatRow));
 					}
 
 					else if (debugMode == 3) // viscosity
 					{
 						float t = debugData.x / max(debugViscosityMax, 0.0001);
-						o.colour = ApplyHeatMapClipMarker(t, DebugHeatMap.SampleLevel(linear_clamp_sampler, float2(saturate(t), 0.5), 0).rgb);
+						o.colour = ApplyHeatMapClipMarker(t, SampleGradientAtlas(t, GradientAtlasHeatRow));
 					}
 
 					if (debugMode == 4) //density
 					{
 						float density = DensityData[instanceID].x;
 						float t = (density - debugDensityMin) / max(debugDensityMax - debugDensityMin, 0.0001);
-						o.colour = ApplyHeatMapClipMarker(t, DebugHeatMap.SampleLevel(linear_clamp_sampler, float2(saturate(t), 0.5), 0).rgb);
+						o.colour = ApplyHeatMapClipMarker(t, SampleGradientAtlas(t, GradientAtlasHeatRow));
 					}
 
 					else if (debugMode == 5) //temperature
 					{
 						float t = (Temperatures[instanceID] - tempMin) / max(tempMax - tempMin, 0.001);
-						o.colour = ApplyHeatMapClipMarker(t, DebugHeatMap.SampleLevel(linear_clamp_sampler, float2(saturate(t), 0.5), 0).rgb);
+						o.colour = ApplyHeatMapClipMarker(t, SampleGradientAtlas(t, GradientAtlasHeatRow));
 					}
 
 					else if (debugMode == 6) // blob ids

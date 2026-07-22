@@ -24,7 +24,7 @@ namespace Seb.Fluid2D.Rendering
 			return (worldPoint - (Vector2)bounds.center) / Vector2.Max(bounds.size, Vector2.one * 0.0001f) * resolution;
 		}
 
-		static Vector2 WorldToUV(Bounds bounds, Vector2 worldPoint)
+		private static Vector2 WorldToUV(Bounds bounds, Vector2 worldPoint)
 		{
 			return (worldPoint - (Vector2)bounds.min) / bounds.size;
 		}

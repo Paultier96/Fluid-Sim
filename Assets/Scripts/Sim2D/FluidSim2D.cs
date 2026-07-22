@@ -350,7 +350,7 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.Viscosity);
             ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.Cohesion);
             _blobDetector.RecomputeIfDue(compute, _kernels, NumParticles, blobIdUpdateInterval, blobPropagationIterations);
-            bool needsNonCoalescenceDebug = _particleDisplay != null && _particleDisplay.ComputeVectorFieldMode == 2;
+            bool needsNonCoalescenceDebug = _particleDisplay != null && (_particleDisplay.vectorField?.ComputeMode ?? 0) == 2;
             if ((carrierWedgeStrength > 0 && carrierWedgeDistanceMultiplier > 0) || needsNonCoalescenceDebug)
             {
                 ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.CarrierWedge);

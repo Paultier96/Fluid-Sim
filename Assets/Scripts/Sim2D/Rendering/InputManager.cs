@@ -7,10 +7,10 @@ namespace Seb.Fluid2D.Rendering
 	[DisallowMultipleComponent]
 	public sealed class InputManager : MonoBehaviour
 	{
-		[SerializeField] ParticleDisplay2D display;
-		[SerializeField] ParticleFluidLighting2D lighting;
+		[SerializeField] private ParticleDisplay2D display;
+		[SerializeField] private ParticleFluidLighting2D lighting;
 
-		void Awake()
+		private void Awake()
 		{
 			if (display == null)
 			{
@@ -33,7 +33,7 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
-		void Update()
+		private void Update()
 		{
 			if (KeyPressed(Key.Digit0) || KeyPressed(Key.Numpad0))
 			{
@@ -81,12 +81,12 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
-		static bool KeyPressed(Key key)
+		private static bool KeyPressed(Key key)
 		{
 			return Keyboard.current != null && Keyboard.current[key].wasPressedThisFrame;
 		}
 
-		void SetDebugMode(ParticleDisplay2D.DebugVisualization displayMode, ParticleFluidLighting2D.LightingDebugVisualization lightingMode)
+		private void SetDebugMode(ParticleDisplay2D.DebugVisualization displayMode, ParticleFluidLighting2D.LightingDebugVisualization lightingMode)
 		{
 			display.debugMode = displayMode;
 			if (lighting != null)
@@ -94,8 +94,8 @@ namespace Seb.Fluid2D.Rendering
 				lighting.debugMode = lightingMode;
 			}
 		}
-		
-		void OnGUI()
+
+		private void OnGUI()
 		{
 			GUIStyle style = new GUIStyle(GUI.skin.box)
 			{

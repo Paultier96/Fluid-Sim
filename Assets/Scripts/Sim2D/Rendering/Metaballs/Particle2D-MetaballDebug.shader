@@ -24,8 +24,7 @@ sampler2D CombinedTex;
 sampler2D MaterialNormalTex;
 sampler2D MaterialTransportTex;
 sampler2D VelocityTex;
-sampler2D DebugHeatMap;
-sampler2D DebugSignedHeatMap;
+sampler2D GradientAtlas;
 sampler2D DebugTex0;
 int debugMode;
 int debugShowClipping;
@@ -51,9 +50,12 @@ float3 HeatMapClipColour(float t)
 	#endif
 }
 
-float3 SampleDebugHeatMap(sampler2D gradientTex, float value)
+static const float GradientAtlasHeatRow = 0.625;
+static const float GradientAtlasSignedHeatRow = 0.875;
+
+float3 SampleDebugHeatMap(float value, float row)
 {
-	float3 colour = tex2D(gradientTex, float2(saturate(value), 0.5)).rgb;
+	float3 colour = tex2D(GradientAtlas, float2(saturate(value), row)).rgb;
 	if (debugShowClipping != 0 && (value < 0.0 || value > 1.0))
 	{
 		return HeatMapClipColour(value);
@@ -88,13 +90,13 @@ bool ResolveMetaball(v2f i, out float alpha, out float3 litColour)
 
 	if (debugMode == 2) // Curvature
 	{
-		litColour = SampleDebugHeatMap(DebugSignedHeatMap, 0.5 + scalarData * 0.5);
+		litColour = SampleDebugHeatMap(0.5 + scalarData * 0.5, GradientAtlasSignedHeatRow);
 		return true;
 	}
 
 	if (debugMode == 3 || debugMode == 4 || debugMode == 5) // Viscosity / Density / Temperature
 	{
-		litColour = SampleDebugHeatMap(DebugHeatMap, scalarData);
+		litColour = SampleDebugHeatMap(scalarData, GradientAtlasHeatRow);
 		return true;
 	}
 	
@@ -133,7 +135,7 @@ float4 frag(v2f i) : SV_Target
 	{
 		return float4(tex2D(DebugTex0, causticUv).rgb, 1.0);
 	}
-	if (debugMode == 12) // Particle motion
+	if (debugMode == 10) // Particle motion
 	{
 		float2 materialUv = i.uv;
 		float4 packedVelocity = tex2D(VelocityTex, materialUv);

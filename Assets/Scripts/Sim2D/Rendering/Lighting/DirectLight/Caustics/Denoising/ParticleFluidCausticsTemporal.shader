@@ -11,7 +11,6 @@ Shader "Hidden/ParticleFluidCausticsTemporal" {
 		CGINCLUDE
 		#include "UnityCG.cginc"
 		#include "../../../Shared/ParticleFluidCommon.hlsl"
-		#include "../../../Shared/ParticleFluidPhaseAA.cginc"
 
 struct appdata {
 	float4 vertex : POSITION;
@@ -24,11 +23,9 @@ struct v2f {
 };
 
 sampler2D _MainTex;
-sampler2D MaterialTransportTex;
 sampler2D VelocityTex;
 sampler2D CausticHistoryTex;
 float4 _MainTex_TexelSize;
-int debugMode;
 float motionDebugDeltaTime;
 float causticTemporalHistoryWeight;
 float causticTemporalHistoryClampStrength;
@@ -90,6 +87,7 @@ float3 CurrentSpatialFallback(float2 uv)
 float4 fragCausticTemporal(v2f i) : SV_Target
 {
 	float3 current = tex2D(_MainTex, i.uv).rgb;
+	float3 filteredCurrent = lerp(current, CurrentSpatialFallback(i.uv), saturate(causticTemporalRejectedSpatialFilter));
 	float2 worldPos = ParticleFluidDomainWorldFromUv(i.uv);
 	float2 stationaryHistoryUv = (worldPos - causticHistoryWorldCenter) / max(causticHistoryWorldSize, float2(0.0001, 0.0001)) + 0.5;
 	float2 historyUv = stationaryHistoryUv;
@@ -122,13 +120,17 @@ float4 fragCausticTemporal(v2f i) : SV_Target
 
 	float clampDelta = length(history - clampedHistory) / max(length(history), 0.01);
 	float clampAmount = saturate(clampDelta * clampStrength);
-	float clampValidity = rcp(1.0 + clampDelta * max(causticTemporalClampRejection, 0.0) * clampStrength);
-	float historyWeight = saturate(causticTemporalHistoryWeight) * historyInFrame * clampValidity;
 	float baseHistoryWeight = saturate(causticTemporalHistoryWeight) * historyInFrame;
-	float rejectedT = baseHistoryWeight > 0.0001 ? saturate(1.0 - historyWeight / baseHistoryWeight) : 1.0;
-	float reactiveMask = max(1.0 - historyInFrame, saturate((rejectedT - 0.2) / 0.6) * saturate((clampAmount - 0.15) / 0.5));
+	float clampRejection = saturate(clampAmount * max(causticTemporalClampRejection, 0.0));
+	float historyWeight = baseHistoryWeight * (1.0 - clampRejection);
+	float currentLuma = max(dot(current, float3(0.2126, 0.7152, 0.0722)), 0.0);
+	float historyLuma = max(dot(history, float3(0.2126, 0.7152, 0.0722)), 0.0);
+	float brighteningT = saturate((currentLuma - historyLuma) / max(currentLuma, 0.01));
+	float reactiveMask = max(1.0 - historyInFrame, clampRejection);
+	reactiveMask = max(reactiveMask, brighteningT * saturate(causticTemporalClampRejection) * clampStrength);
 	float effectiveHistoryWeight = historyWeight * (1.0 - reactiveMask);
-	return float4(lerp(current, validatedHistory, effectiveHistoryWeight), reactiveMask);
+	float3 currentFallback = lerp(current, filteredCurrent, reactiveMask);
+	return float4(lerp(currentFallback, validatedHistory, effectiveHistoryWeight), reactiveMask);
 }
 
 float4 fragReprojectHistory(v2f i) : SV_Target

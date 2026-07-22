@@ -4,7 +4,7 @@
 #pragma kernel ResolveDistance
 
 Texture2D<float4> MaterialTransportTex;
-Texture2D<float4> ColourMap;
+Texture2D<float4> GradientAtlas;
 RWTexture2D<float4> Result;
 RWTexture2D<float4> ResultPayload;
 Texture2D<float4> _SrcTex;
@@ -40,9 +40,9 @@ int ClassifyPixel(float2 uv, out float3 payloadColour)
 	{
 		uint gradientWidth;
 		uint gradientHeight;
-		ColourMap.GetDimensions(gradientWidth, gradientHeight);
+		GradientAtlas.GetDimensions(gradientWidth, gradientHeight);
 		int gradientX = (int)round(saturate(phaseData) * max((int)gradientWidth - 1, 0));
-		payloadColour = ColourMap.Load(int3(gradientX, 0, 0)).rgb;
+		payloadColour = GradientAtlas.Load(int3(gradientX, 0, 0)).rgb;
 		return 1;
 	}
 

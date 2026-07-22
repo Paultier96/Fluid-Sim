@@ -1,21 +1,94 @@
+using System;
 using Seb.Helpers;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Serialization;
+using Object = UnityEngine.Object;
 
 namespace Seb.Fluid2D.Rendering
 {
-	internal sealed class MetaballRenderer2D
+	[Serializable]
+	public sealed class MetaballRenderer2D
 	{
+		private static readonly int MetaballSharpness = Shader.PropertyToID("metaballSharpness");
+		private static readonly int MetaballIntensity = Shader.PropertyToID("metaballIntensity");
+		private static readonly int DomainWorldCenter = Shader.PropertyToID("domainWorldCenter");
+		private static readonly int DomainWorldSize = Shader.PropertyToID("domainWorldSize");
+		private static readonly int CombinedTex = Shader.PropertyToID("CombinedTex");
+		private static readonly int MaterialNormalTex = Shader.PropertyToID("MaterialNormalTex");
+		private static readonly int MaterialTransportTex = Shader.PropertyToID("MaterialTransportTex");
+		private static readonly int VelocityTex = Shader.PropertyToID("VelocityTex");
+		private static readonly int DebugTex0 = Shader.PropertyToID("DebugTex0");
+		private static readonly int DebugMode = Shader.PropertyToID("debugMode");
+		private static readonly int DebugGradientMax = Shader.PropertyToID("debugGradientMax");
+		private static readonly int MotionDebugDeltaTime = Shader.PropertyToID("motionDebugDeltaTime");
+		private static readonly int DebugShowClipping = Shader.PropertyToID("debugShowClipping");
+		private static readonly int ParticleCausticDebugExposure = Shader.PropertyToID("particleCausticDebugExposure");
+
+		private const int DebugModeCaustics = 7;
+		private const int DebugModeSoftLight = 8;
+		private const int DebugModeRadianceCascadeRaw = 9;
+
+		[Header("Shaders")]
+		[FormerlySerializedAs("compositeShader")]
+		[Tooltip("Shader used only for metaball debug visualizations.")]
+		public Shader debugShader;
+		[Tooltip("Shader used by the separated material-map pass. If left empty, Hidden/Particle2DMetaballMaterial is used as a fallback.")]
+		public Shader materialShader;
+		[Tooltip("Shader used for the separable Gaussian blur applied to the accumulation texture.")]
+		public Shader blurShader;
+
+		[Header("Shape - Surface")]
+		[Tooltip("Resolution of the metaball render textures relative to the screen. Lower values improve performance at the cost of sharpness.")]
+		[Range(0.25f, 1f)] public float renderTextureScale = 0.5f;
+		[Tooltip("Resolution of the particle motion texture relative to the screen. Lower values improve performance for temporal reprojection and motion debug at the cost of motion detail.")]
+		[Range(0.125f, 1f)] public float velocityTextureScale = 0.5f;
+		[Tooltip("Radius in pixels at resolution factor 1 of the Gaussian blur. Larger values make particles merge at greater distances.")]
+		[Min(0)] public float blurRadius = 6;
+		[Tooltip("Blurred density value at which the fluid surface appears. Increase to shrink the visible fluid; decrease to expand it.")]
+		[Min(0)] public float densityThreshold = 0.18f;
+		[Tooltip("Width of the density falloff around the surface threshold. Larger values give a softer, more transparent edge. Clamped so the fade never starts below zero density.")]
+		[Min(0.0001f)] public float edgeSoftness = 0.06f;
+
+		[Header("Shape - Phase Boundary")]
+		[Tooltip("Screen-space width in pixels for anti-aliased blending between fluid phases.")]
+		[Min(0.0001f)] public float phaseBlendWidth = 1f;
+		[Tooltip("Separate screen-space width in pixels for the transport map phase blending used by ray marched lighting. Increase to soften transport-derived phase gradients without changing the visible surface transition.")]
+		[Min(0.0001f)] public float transportPhaseBlendWidth = 1f;
+		[Tooltip("Render-only phase boundary bias. 0 is neutral, positive values make phase 0 visually expand, negative values make phase 1 expand.")]
+		[Range(-0.99f, 0.99f)] public float phase0RenderBias;
+		[Tooltip("How strongly phase boundary bias redistributes normal strength. The compressed phase is boosted strongly while the visually expanded phase is weakened mildly.")]
+		[Range(0f, 10f)] public float phaseBiasNormalStrength = 0.5f;
+
+		[Header("Shape - Particle Kernel")]
+		[Tooltip("Steepness of each particle's density kernel. Higher values make particles contribute a tighter, more localised density spike.")]
+		[Min(0.01f)] public float sharpness = 3.5f;
+		[Tooltip("Uniform scale applied to each particle's density contribution. Increase if particles are too sparse to merge.")]
+		[Min(0)] public float intensity = 1.0f;
+
+		[Header("Lighting - Normals")]
+		[Tooltip("Multiplier applied to reconstructed normal XY before rebuilding Z. Higher values make blurred normals look steeper.")]
+		[Min(0f)] public float normalStrength = 1f;
+		[Tooltip("Curves the reconstructed normal magnitude before rebuilding Z. Values above 1 keep the surface flatter for longer and push the steep falloff closer to the silhouette.")]
+		[Min(0.0001f)] public float normalProfileCurve = 1f;
+		[Tooltip("Exponent used to increase normal strength with effective blur radius. 0 disables automatic compensation, 1 is linear.")]
+		[Min(0f)] public float normalBlurCompensation = 0.5f;
+
+		[Header("Ghost Boundary Normals")]
+		[Tooltip("Strength of the analytic ellipse/cut-boundary normals in the metaball composite. Values above 1 make the boundary normal ramp steeper; negative values flip the direction.")]
+		[Range(-4f, 4f)] public float ghostBoundaryNormalStrength = 1f;
+
 		private Material _metaballMaterial;
 		private Material _debugMaterial;
-		internal Material blurMaterial;
-		internal readonly MetaballMaterialRenderer2D materialRenderer = new ();
-		internal RenderTexture combinedAccumulationTexture;
-		internal RenderTexture combinedBlurTexture;
-		internal RenderTexture normalAccumulationTexture;
-		internal RenderTexture normalBlurTexture;
-		internal RenderTexture velocityTexture;
-		internal RenderTexture velocityBlurTexture;
+		[NonSerialized] internal Material blurMaterial;
+		 private MetaballMaterialRenderer2D _materialRenderer;
+		internal MetaballMaterialRenderer2D MaterialRenderer => _materialRenderer ??= new MetaballMaterialRenderer2D();
+		[NonSerialized] internal RenderTexture combinedAccumulationTexture;
+		[NonSerialized] internal RenderTexture combinedBlurTexture;
+		[NonSerialized] internal RenderTexture normalAccumulationTexture;
+		[NonSerialized] internal RenderTexture normalBlurTexture;
+		[NonSerialized] internal RenderTexture velocityTexture;
+		[NonSerialized] internal RenderTexture velocityBlurTexture;
 
 		private Bounds _currentRenderRegion;
 		private Vector2Int _currentSourceSize;
@@ -26,60 +99,55 @@ namespace Seb.Fluid2D.Rendering
 		private Camera _currentCamera;
 		private ParticleFluidLighting2D _lighting;
 
-		public bool PrepareForRender(ParticleDisplay2D display, Camera cam)
+		public void PrepareForRender(ParticleDisplay2D display, Camera cam)
 		{
 			_currentDisplay = display;
 			_currentCamera = cam;
-			_lighting = ResolveActiveLighting(display);
-			EnsureMaterials(display);
-			if (_metaballMaterial == null || blurMaterial == null || cam == null || display == null || display.mesh == null || display.argsBuffer == null)
-			{
-				return false;
-			}
-
-			EnsureRenderTextures(display);
-			ApplyMetaballMaterialSettings(display);
-			ApplyDebugSettings(display, cam);
-			materialRenderer.ApplySharedSettings(display.sim.analyticBoundary.analyticBoundaryExpansion);
-			return true;
+			_lighting = display.ActiveLighting;
+			ParticleFluidRenderUtils.EnsureMaterial(ref _metaballMaterial, display.metaballShader);
+			ParticleFluidRenderUtils.EnsureMaterial(ref _debugMaterial, debugShader);
+			ParticleFluidRenderUtils.EnsureMaterial(ref blurMaterial, blurShader);
+			MaterialRenderer.EnsureMaterial(materialShader);
+			EnsureRenderTextures();
+			ApplyMetaballMaterialSettings();
+			ApplyDebugSettings();
 		}
 
 		public void RecordAccumulationTarget(ParticleDisplay2D display, IRasterCommandBuffer targetCommandBuffer, int shaderPass)
 		{
-			if (targetCommandBuffer == null || display == null)
-			{
-				return;
-			}
-
+			targetCommandBuffer.SetGlobalVector(DomainWorldCenter, _currentRenderRegion.center);
+			targetCommandBuffer.SetGlobalVector(DomainWorldSize, _currentRenderRegion.size);
 			targetCommandBuffer.ClearRenderTarget(false, true, Color.clear);
-			targetCommandBuffer.DrawMeshInstancedIndirect(display.mesh, 0, _metaballMaterial, shaderPass, display.argsBuffer);
+			targetCommandBuffer.DrawMeshInstancedIndirect(display.particleMesh, 0, _metaballMaterial, shaderPass, display.argsBuffer);
 		}
 
 		public void RecordComposite(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
 		{
-			if (targetCommandBuffer == null)
+			bool useMaterialPipeline = ShouldUseMaterialPipeline(display);
+			if (useMaterialPipeline && MaterialRenderer.materialMaps.IsAllocated)
 			{
-				return;
+				ParticleFluidRenderBindings.ApplyMetaballMaterialGlobals(targetCommandBuffer, display, cam, _lighting, _currentRenderRegion);
+				MaterialRenderer.RenderMaterialMaps(targetCommandBuffer, _currentRenderRegion, cam);
+				RecordPreparedMaterialAndLighting(display, cam, targetCommandBuffer, finalTarget);
 			}
-			RecordMaterialAndLighting(display, cam, targetCommandBuffer, finalTarget);
+			else if (_debugMaterial != null)
+			{
+				targetCommandBuffer.BeginSample("Metaballs/Debug Composite");
+				ParticleFluidRenderBindings.ApplyMetaballDebugGlobals(targetCommandBuffer, display, cam, _lighting);
+				targetCommandBuffer.SetRenderTarget(finalTarget);
+				targetCommandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _currentRenderRegion.CreateRegionMatrix(), _debugMaterial, 0, 0);
+				targetCommandBuffer.EndSample("Metaballs/Debug Composite");
+			}
+
 			RecordVectorField(display, targetCommandBuffer);
 		}
 
-		public void RecordMaterialMaps(CommandBuffer targetCommandBuffer, bool renderVelocityMap = true)
+		public void RecordMaterialMaps(CommandBuffer targetCommandBuffer)
 		{
-			if (targetCommandBuffer == null || _currentDisplay == null)
-			{
-				return;
-			}
-
-			float effectiveNormalStrength = _currentDisplay.GetEffectiveNormalStrength(_currentDisplay.EffectiveConfiguredBlurRadius);
-			materialRenderer.SetSourceTextures(combinedAccumulationTexture, normalAccumulationTexture);
-			ParticleFluidPassBindings.ApplyMetaballMaterialGlobals(targetCommandBuffer, _currentDisplay, _currentCamera, _lighting, _currentRenderRegion, effectiveNormalStrength);
-			materialRenderer.RenderMaterialMaps(targetCommandBuffer, _currentRenderRegion, _currentCamera);
-			if (_lighting != null)
-			{
-				_lighting.ApplyLightingInputs(materialRenderer.MaterialMaps.CreateLightingInputs(_currentRenderRegion, _currentMaterialSize, velocityTexture));
-			}
+			MaterialRenderer.SetSourceTextures(combinedAccumulationTexture, normalAccumulationTexture);
+			ParticleFluidRenderBindings.ApplyMetaballMaterialGlobals(targetCommandBuffer, _currentDisplay, _currentCamera, _lighting, _currentRenderRegion);
+			MaterialRenderer.RenderMaterialMaps(targetCommandBuffer, _currentRenderRegion, _currentCamera);
+			_lighting.ApplyMaterialMaps(MaterialRenderer.materialMaps);
 		}
 
 		public void RecordCompositeWithPreparedMaterialMaps(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
@@ -92,26 +160,6 @@ namespace Seb.Fluid2D.Rendering
 			RecordVectorField(display, targetCommandBuffer);
 		}
 
-		public bool ShouldRenderVelocityTextures(ParticleDisplay2D display)
-		{
-			if (display.debugMode == ParticleDisplay2D.DebugVisualization.ParticleMotion)
-			{
-				return true;
-			}
-
-			if (_lighting == null)
-			{
-				return false;
-			}
-
-			if (_lighting.directLight.temporalSettings.denoisingEnabled && _lighting.directLight.temporalSettings.temporalMotionSource == ParticleFluidCausticsTemporal.TemporalMotionSource.ParticleMotion)
-			{
-				return true;
-			}
-
-			return false;
-		}
-
 		public ParticleFluidLighting2D.FrameContext CreateLightingContext(ParticleDisplay2D display, Camera cam)
 		{
 			return new ParticleFluidLighting2D.FrameContext(display, cam, _currentRenderRegion, _currentMaterialSize);
@@ -121,67 +169,38 @@ namespace Seb.Fluid2D.Rendering
 		{
 			ComputeHelper.Release(combinedAccumulationTexture, combinedBlurTexture);
 			ComputeHelper.Release(normalAccumulationTexture, normalBlurTexture, velocityTexture, velocityBlurTexture);
-			materialRenderer.Release();
-
-			if (_metaballMaterial != null)
-			{
-				Object.DestroyImmediate(_metaballMaterial);
-				_metaballMaterial = null;
-			}
-
-			if (_debugMaterial != null)
-			{
-				Object.DestroyImmediate(_debugMaterial);
-				_debugMaterial = null;
-			}
-
-
-			if (blurMaterial != null)
-			{
-				Object.DestroyImmediate(blurMaterial);
-				blurMaterial = null;
-			}
-
-		}
-
-		void EnsureMaterials(ParticleDisplay2D display)
-		{
-			ParticleFluidRenderUtils.EnsureMaterial(ref _metaballMaterial, display.metaballShader);
-			ParticleFluidRenderUtils.EnsureMaterial(ref _debugMaterial, display.metaballs.debugShader);
-			materialRenderer.EnsureMaterial(display.metaballs.materialShader);
-			if (_lighting != null)
-			{
-				_lighting.EnsureMaterials(_lighting.lightingShader);
-			}
-			ParticleFluidRenderUtils.EnsureMaterial(ref blurMaterial, display.metaballs.blurShader);
+			MaterialRenderer.Release();
+			Object.DestroyImmediate(_metaballMaterial);
+			_metaballMaterial = null;
+			Object.DestroyImmediate(_debugMaterial);
+			_debugMaterial = null;
+			Object.DestroyImmediate(blurMaterial);
+			blurMaterial = null;
 		}
 
 
-
-		void ApplyMetaballMaterialSettings(ParticleDisplay2D display)
+		private void ApplyMetaballMaterialSettings()
 		{
-			ParticleDisplay2D.MetaballSettings settings = display.metaballs;
-			display.BindSimulationBuffers(_metaballMaterial);
-			display.ApplyCommonParticleSettings(_metaballMaterial);
-			_metaballMaterial.SetFloat("metaballSharpness", settings.sharpness);
-			_metaballMaterial.SetFloat("metaballIntensity", settings.intensity);
-			_metaballMaterial.SetVector("metaballRenderWorldCenter", _currentRenderRegion.center);
-			_metaballMaterial.SetVector("metaballRenderWorldSize", _currentRenderRegion.size);
-			_metaballMaterial.SetInt("useEllipticalBounds", display.sim.analyticBoundary.useEllipticalBounds ? 1 : 0);
-			_metaballMaterial.SetVector("ellipseBoundsCenter", display.sim.analyticBoundary.BoundsCenter);
-			_metaballMaterial.SetVector("ellipseBoundsSize", display.sim.analyticBoundary.boundsSize);
-			_metaballMaterial.SetFloat("obstacleY", display.sim.analyticBoundary.obstacleY);
-			_metaballMaterial.SetFloat("metaballGhostBoundaryNormalStrength", settings.ghostBoundaryNormalStrength);
+			_currentDisplay.BindSimulationBuffers(_metaballMaterial);
+			_currentDisplay.ApplyCommonParticleSettings(_metaballMaterial);
+			_metaballMaterial.SetFloat(MetaballSharpness, sharpness);
+			_metaballMaterial.SetFloat(MetaballIntensity, intensity);
 		}
 
-		void EnsureRenderTextures(ParticleDisplay2D display)
+		private void EnsureRenderTextures()
 		{
-			Bounds cropRegion = GetRenderRegion(display, out Vector2Int baseResolution);
+			bool crop = _currentDisplay.sim.analyticBoundary.useEllipticalBounds && ((_currentDisplay != null && _currentDisplay.debugMode == ParticleDisplay2D.DebugVisualization.ParticleMotion)
+				|| ShouldUseMaterialPipeline(_currentDisplay) || (_lighting != null && _lighting.debugMode is
+					ParticleFluidLighting2D.LightingDebugVisualization.Caustics
+					or ParticleFluidLighting2D.LightingDebugVisualization.SoftLight
+					or ParticleFluidLighting2D.LightingDebugVisualization.RadianceCascadeRaw));
+			Bounds? cropBounds = crop ? _currentDisplay.sim.analyticBoundary.CropBounds : null;
+			Bounds cropRegion = ParticleFluidRenderBounds2D.GetCameraRenderRegion(_currentCamera, cropBounds, crop, out Vector2Int baseResolution);
 			float materialScale = _lighting.materialMapTextureScale;
 			float causticScale = _lighting.directLight.textureScale;
 			_currentRenderRegion = cropRegion;
-			_currentSourceSize = ParticleFluidRenderBounds2D.ScaleSize(baseResolution, Mathf.Max(display.metaballs.renderTextureScale, 0.0001f));
-			_currentVelocitySize = ParticleFluidRenderBounds2D.ScaleSize(baseResolution, Mathf.Max(display.metaballs.velocityTextureScale, 0.0001f));
+			_currentSourceSize = ParticleFluidRenderBounds2D.ScaleSize(baseResolution, Mathf.Max(renderTextureScale, 0.0001f));
+			_currentVelocitySize = ParticleFluidRenderBounds2D.ScaleSize(baseResolution, Mathf.Max(velocityTextureScale, 0.0001f));
 			_currentMaterialSize = ParticleFluidRenderBounds2D.ScaleSize(baseResolution, materialScale);
 			_currentCausticSize = ParticleFluidRenderBounds2D.ScaleSize(baseResolution, causticScale);
 
@@ -189,7 +208,7 @@ namespace Seb.Fluid2D.Rendering
 			ComputeHelper.CreateRenderTexture(ref combinedBlurTexture, _currentSourceSize);
 			ComputeHelper.CreateRenderTexture(ref normalAccumulationTexture, _currentSourceSize);
 			ComputeHelper.CreateRenderTexture(ref normalBlurTexture, _currentSourceSize);
-			if (ShouldRenderVelocityTextures(display))
+			if (_lighting.directLight.temporalCaustics.ShouldRenderVelocityTextures(_currentDisplay))
 			{
 				ComputeHelper.CreateRenderTexture(ref velocityTexture, _currentVelocitySize);
 				ComputeHelper.CreateRenderTexture(ref velocityBlurTexture, _currentVelocitySize);
@@ -198,192 +217,108 @@ namespace Seb.Fluid2D.Rendering
 			{
 				ComputeHelper.Release(velocityTexture, velocityBlurTexture);
 			}
-			if (ShouldUseMaterialPipeline(display))
+			if (ShouldUseMaterialPipeline(_currentDisplay))
 			{
-				materialRenderer.EnsureRenderTextures(_currentMaterialSize);
+				MaterialRenderer.materialMaps.EnsureRenderTextures(_currentMaterialSize, "Particle2D");
 			}
 			else
 			{
-				materialRenderer.MaterialMaps.Release();
+				MaterialRenderer.materialMaps.Release();
 			}
 			_lighting.EnsureLightingResources(_currentRenderRegion, _currentCausticSize);
 		}
 
-		void ApplyDebugSettings(ParticleDisplay2D display, Camera cam)
+		private void ApplyDebugSettings()
 		{
-			if (_debugMaterial == null)
-			{
-				return;
-			}
-
-			int debugShaderMode = GetDebugShaderMode(display, _lighting);
-			_debugMaterial.SetTexture("CombinedTex", combinedAccumulationTexture);
-			Texture normalDebugTexture = debugShaderMode == (int)ParticleDisplay2D.DebugVisualization.Gradient && materialRenderer.MaterialMaps.normalTexture != null
-				? materialRenderer.MaterialMaps.normalTexture
+			int debugShaderMode = GetDebugShaderMode(_currentDisplay, _lighting);
+			_debugMaterial.SetTexture(CombinedTex, combinedAccumulationTexture);
+			Texture normalDebugTexture = debugShaderMode == (int)ParticleDisplay2D.DebugVisualization.Gradient && MaterialRenderer.materialMaps.normalTexture != null
+				? MaterialRenderer.materialMaps.normalTexture
 				: Texture2D.blackTexture;
-			_debugMaterial.SetTexture("MaterialNormalTex", normalDebugTexture);
-			_debugMaterial.SetTexture("MaterialTransportTex", materialRenderer.MaterialMaps.transportTexture != null ? materialRenderer.MaterialMaps.transportTexture : Texture2D.blackTexture);
-			_debugMaterial.SetTexture("VelocityTex", velocityTexture != null ? velocityTexture : Texture2D.blackTexture);
-			float effectiveBlurRadius = display.GetEffectiveBlurRadius(cam);
-			_debugMaterial.SetVector("domainWorldCenter", _currentRenderRegion.center);
-			_debugMaterial.SetVector("domainWorldSize", _currentRenderRegion.size);
+			_debugMaterial.SetTexture(MaterialNormalTex, normalDebugTexture);
+			_debugMaterial.SetTexture(MaterialTransportTex, MaterialRenderer.materialMaps.transportTexture != null ? MaterialRenderer.materialMaps.transportTexture : Texture2D.blackTexture);
+			_debugMaterial.SetTexture(VelocityTex, velocityTexture != null ? velocityTexture : Texture2D.blackTexture);
+			_debugMaterial.SetVector(DomainWorldCenter, _currentRenderRegion.center);
+			_debugMaterial.SetVector(DomainWorldSize, _currentRenderRegion.size);
 			Texture causticDebugTexture =
 				_lighting == null ? Texture2D.blackTexture :
-				_lighting.directLight.temporalSettings.denoisingEnabled ? _lighting.directLight.temporalCaustics.causticTemporalTexture : _lighting.directLight.causticResolvedTexture;
+				_lighting.directLight.temporalCaustics.denoisingEnabled ? _lighting.directLight.temporalCaustics.causticTemporalTexture : _lighting.directLight.causticResolvedTexture;
 			Texture softLightPhase1Tex = _lighting != null && _lighting.currentSoftLightPhase1Texture != null
 				? _lighting.currentSoftLightPhase1Texture
 				: Texture2D.blackTexture;
-			Texture debugTex0 = Texture2D.blackTexture;
+			Texture debugTex = Texture2D.blackTexture;
 			switch (debugShaderMode)
 			{
-				case 7:
-				case 11:
-					debugTex0 = causticDebugTexture != null ? causticDebugTexture : Texture2D.blackTexture;
+				case DebugModeCaustics: debugTex = causticDebugTexture != null ? causticDebugTexture : Texture2D.blackTexture;
 					break;
-				case 8:
-					debugTex0 = _lighting != null && _lighting.currentGaussianBlurTexture != null
-						? _lighting.currentGaussianBlurTexture
-						: Texture2D.blackTexture;
+				case DebugModeSoftLight: debugTex = _lighting != null && _lighting.currentGaussianBlurTexture != null ? _lighting.currentGaussianBlurTexture : Texture2D.blackTexture;
 					break;
-				case 9:
-					debugTex0 = softLightPhase1Tex;
+				case DebugModeRadianceCascadeRaw: debugTex = softLightPhase1Tex;
 					break;
 			}
-			_debugMaterial.SetTexture("DebugTex0", debugTex0);
-			_debugMaterial.SetInt("debugMode", debugShaderMode);
-			_debugMaterial.SetFloat("debugGradientMax", display.debugGradientMax);
-			_debugMaterial.SetFloat("motionDebugDeltaTime", display.sim.CurrentSimulationDeltaTime);
-			display.ApplyDebugClipSettings(_debugMaterial);
-			_debugMaterial.SetFloat("particleCausticDebugExposure", _lighting != null ? _lighting.lightManager.GetCausticDebugExposure() : 1f);
-			_debugMaterial.SetVector("domainWorldCenter", _lighting != null ? _lighting.currentCausticWorldCenter : _currentRenderRegion.center);
-			_debugMaterial.SetVector("domainWorldSize", _lighting != null ? _lighting.currentCausticWorldSize : _currentRenderRegion.size);
-			blurMaterial.SetFloat("blurRadius", effectiveBlurRadius);
+			_debugMaterial.SetTexture(DebugTex0, debugTex);
+			_debugMaterial.SetInt(DebugMode, debugShaderMode);
+			_debugMaterial.SetFloat(DebugGradientMax, _currentDisplay.debugGradientMax);
+			_debugMaterial.SetFloat(MotionDebugDeltaTime, _currentDisplay.sim.CurrentSimulationDeltaTime);
+			_debugMaterial.SetInt(DebugShowClipping, _currentDisplay.debugShowClipping ? 1 : 0);
+			_debugMaterial.SetFloat(ParticleCausticDebugExposure, _lighting != null ? _lighting.lightManager.GetCausticDebugExposure() : 1f);
+			_debugMaterial.SetVector(DomainWorldCenter, _lighting != null ? _lighting.currentCausticWorldCenter : _currentRenderRegion.center);
+			_debugMaterial.SetVector(DomainWorldSize, _lighting != null ? _lighting.currentCausticWorldSize : _currentRenderRegion.size);
 		}
 
-		public void RecordVelocityGaussianBlur(CommandBuffer targetCommandBuffer, float effectiveMotionBlurRadius)
+		public void RecordVelocityGaussianBlur(CommandBuffer targetCommandBuffer)
 		{
 			if (blurMaterial == null || velocityTexture == null || velocityBlurTexture == null)
 			{
 				return;
 			}
-			ParticleFluidRenderUtils.GaussianBlur(targetCommandBuffer, effectiveMotionBlurRadius, blurMaterial, velocityTexture, velocityBlurTexture, "Metaballs/Blur Particle Motion");
+			ParticleFluidRenderUtils.GaussianBlur(targetCommandBuffer, EffectiveVelocityBlurRadius, blurMaterial, velocityTexture, velocityBlurTexture, "Metaballs/Blur Particle Motion");
 		}
 
-		public float GetEffectiveMotionBlurRadius(ParticleDisplay2D display, Camera cam)
-		{
-			return display.GetEffectiveMotionBlurRadius(cam, _lighting != null ? _lighting.directLight.temporalSettings.motionBlurRadius : 0f);
-		}
+		public float EffectiveVelocityBlurRadius => _lighting != null ? _currentDisplay.GetEffectiveMotionBlurRadius(_currentCamera, _lighting.directLight.temporalCaustics.motionBlurRadius) : 0f;
 
-		void RecordMaterialAndLighting(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
+		private void RecordPreparedMaterialAndLighting(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
 		{
 			bool useMaterialPipeline = ShouldUseMaterialPipeline(display);
-			if (useMaterialPipeline && materialRenderer.IsReady)
-			{
-				float effectiveNormalStrength = display.GetEffectiveNormalStrength(display.EffectiveConfiguredBlurRadius);
-				ParticleFluidPassBindings.ApplyMetaballMaterialGlobals(targetCommandBuffer, display, cam, _lighting, _currentRenderRegion, effectiveNormalStrength);
-				materialRenderer.RenderMaterialMaps(targetCommandBuffer, _currentRenderRegion, cam);
-				RecordPreparedMaterialAndLighting(display, cam, targetCommandBuffer, finalTarget);
-			}
-			else if (_debugMaterial != null)
-			{
-				targetCommandBuffer.BeginSample("Metaballs/Debug Composite");
-				float effectiveNormalStrength = display.GetEffectiveNormalStrength(display.EffectiveConfiguredBlurRadius);
-				ParticleFluidPassBindings.ApplyMetaballDebugGlobals(targetCommandBuffer, display, cam, _lighting, effectiveNormalStrength);
-				targetCommandBuffer.SetRenderTarget(finalTarget);
-				targetCommandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _currentRenderRegion.CreateRegionMatrix(), _debugMaterial, 0, 0);
-				targetCommandBuffer.EndSample("Metaballs/Debug Composite");
-			}
-		}
-
-		void RecordPreparedMaterialAndLighting(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
-		{
-			bool useMaterialPipeline = ShouldUseMaterialPipeline(display);
-			if (!useMaterialPipeline || !materialRenderer.IsReady)
+			if (!useMaterialPipeline || !MaterialRenderer.materialMaps.IsAllocated)
 			{
 				return;
 			}
 
 			targetCommandBuffer.BeginSample("Metaballs/Material Pipeline");
-			ParticleFluidLayoutBindings.ApplyBoundaryGlobals(targetCommandBuffer, display.sim.analyticBoundary);
 			if ((display.debugMode != ParticleDisplay2D.DebugVisualization.None || _lighting != null && _lighting.debugMode != ParticleFluidLighting2D.LightingDebugVisualization.None) && _debugMaterial != null)
 			{
-				ApplyDebugSettings(display, cam);
-				ParticleFluidPassBindings.ApplyMetaballDebugGlobals(targetCommandBuffer, display, cam, _lighting, display.GetEffectiveNormalStrength(display.EffectiveConfiguredBlurRadius));
+				ApplyDebugSettings();
+				ParticleFluidRenderBindings.ApplyMetaballDebugGlobals(targetCommandBuffer, display, cam, _lighting);
 				targetCommandBuffer.SetRenderTarget(finalTarget);
 				targetCommandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _currentRenderRegion.CreateRegionMatrix(), _debugMaterial, 0, 0);
 			}
-			else if (_lighting != null && _lighting.lightingMaterial != null)
+			else if (_lighting != null)
 			{
-				ParticleFluidLightingInputSet lightingInputs = materialRenderer.MaterialMaps.CreateLightingInputs(_currentRenderRegion, _currentMaterialSize, velocityTexture);
-				ParticleFluidLighting2D.FrameContext lightingContext = _lighting.PrepareLighting(cam, lightingInputs);
-				_lighting.RenderLit(targetCommandBuffer, finalTarget, cam, lightingContext, lightingInputs.transportTexture);
+				_lighting.Render(targetCommandBuffer, finalTarget);
 			}
 			else
 			{
-				materialRenderer.RenderUnlit(targetCommandBuffer, finalTarget, _currentRenderRegion);
+				MaterialRenderer.RenderUnlit(targetCommandBuffer, finalTarget, _currentRenderRegion);
 			}
 			targetCommandBuffer.EndSample("Metaballs/Material Pipeline");
 		}
 
-		void RecordVectorField(ParticleDisplay2D display, CommandBuffer targetCommandBuffer)
+		private void RecordVectorField(ParticleDisplay2D display, CommandBuffer targetCommandBuffer)
 		{
 			targetCommandBuffer.BeginSample("Particle Fluid/Vector Field");
-			display.AppendVectorFieldDraw(targetCommandBuffer);
+			display.vectorField.AppendDraw(display, targetCommandBuffer);
 			targetCommandBuffer.EndSample("Particle Fluid/Vector Field");
-		}
-
-		Bounds GetRenderRegion(ParticleDisplay2D display, out Vector2Int resolution)
-		{
-			bool crop = display.sim.analyticBoundary.useEllipticalBounds && ShouldUseCroppedRenderRegion(display);
-			Bounds? cropBounds = crop ? display.sim.analyticBoundary.CropBounds : null;
-			return ParticleFluidRenderBounds2D.GetCameraRenderRegion(_currentCamera, cropBounds, crop, out resolution);
-		}
-
-		static ParticleFluidLighting2D ResolveActiveLighting(ParticleDisplay2D display)
-		{
-			return display != null ? display.ActiveLighting : null;
 		}
 
 		public bool ShouldUseMaterialPipeline(ParticleDisplay2D display)
 		{
-			return display != null
-			       && (display.debugMode == ParticleDisplay2D.DebugVisualization.None || UsesMaterialMapDebugMode(display.debugMode))
-			       && _lighting != null;
-		}
-
-		static bool UsesMaterialMapDebugMode(ParticleDisplay2D.DebugVisualization debugMode)
-		{
-			return debugMode is ParticleDisplay2D.DebugVisualization.Gradient
-			       or ParticleDisplay2D.DebugVisualization.Curvature
-			       or ParticleDisplay2D.DebugVisualization.Viscosity
-			       or ParticleDisplay2D.DebugVisualization.Density
-			       or ParticleDisplay2D.DebugVisualization.Temperature;
-		}
-
-		bool ShouldUseCroppedRenderRegion(ParticleDisplay2D display)
-		{
-			if (display != null && display.debugMode == ParticleDisplay2D.DebugVisualization.ParticleMotion)
-			{
-				return true;
-			}
-
-			if (ShouldUseMaterialPipeline(display))
-			{
-				return true;
-			}
-
-			if (_lighting == null)
-			{
-				return false;
-			}
-
-			ParticleFluidLighting2D.LightingDebugVisualization lightingDebug = _lighting.debugMode;
-			return lightingDebug is ParticleFluidLighting2D.LightingDebugVisualization.Caustics or ParticleFluidLighting2D.LightingDebugVisualization.SoftLight or ParticleFluidLighting2D.LightingDebugVisualization.RadianceCascadeRaw;
+			return _lighting != null && display != null && display.debugMode <= ParticleDisplay2D.DebugVisualization.Temperature;
 		}
 
 		public static int GetDebugShaderMode(ParticleDisplay2D display, ParticleFluidLighting2D settings)
 		{
-			if (display != null && display.debugMode != ParticleDisplay2D.DebugVisualization.None)
+			if (display.debugMode != ParticleDisplay2D.DebugVisualization.None)
 			{
 				return (int)display.debugMode;
 			}
@@ -395,12 +330,11 @@ namespace Seb.Fluid2D.Rendering
 
 			return settings.debugMode switch
 			{
-				ParticleFluidLighting2D.LightingDebugVisualization.Caustics => 7,
-				ParticleFluidLighting2D.LightingDebugVisualization.SoftLight => 8,
-				ParticleFluidLighting2D.LightingDebugVisualization.RadianceCascadeRaw => 9,
+				ParticleFluidLighting2D.LightingDebugVisualization.Caustics => DebugModeCaustics,
+				ParticleFluidLighting2D.LightingDebugVisualization.SoftLight => DebugModeSoftLight,
+				ParticleFluidLighting2D.LightingDebugVisualization.RadianceCascadeRaw => DebugModeRadianceCascadeRaw,
 				_ => 0,
 			};
 		}
 	}
 }
-

@@ -14,6 +14,11 @@ float2 ParticleFluidUvFromWorld(float2 worldPos, float2 worldCenter, float2 worl
 	return (worldPos - worldCenter) / max(worldSize, float2(0.0001, 0.0001)) + 0.5;
 }
 
+float2 ParticleFluidClipFromWorld(float2 worldPos, float2 worldCenter, float2 worldSize)
+{
+	return (worldPos - worldCenter) / max(worldSize, float2(0.0001, 0.0001)) * 2.0;
+}
+
 float2 ParticleFluidDomainWorldFromUv(float2 uv)
 {
 	return ParticleFluidWorldFromUv(uv, domainWorldCenter, domainWorldSize);
@@ -22,6 +27,11 @@ float2 ParticleFluidDomainWorldFromUv(float2 uv)
 float2 ParticleFluidDomainUvFromWorld(float2 worldPos)
 {
 	return ParticleFluidUvFromWorld(worldPos, domainWorldCenter, domainWorldSize);
+}
+
+float2 ParticleFluidDomainClipFromWorld(float2 worldPos)
+{
+	return ParticleFluidClipFromWorld(worldPos, domainWorldCenter, domainWorldSize);
 }
 
 float ParticleFluidPhaseRatio(float density0, float density1)

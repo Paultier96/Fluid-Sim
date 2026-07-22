@@ -9,14 +9,14 @@ namespace Seb.Fluid2D.Rendering
 	[DisallowMultipleComponent]
 	internal sealed class ParticleFluidLightManager : MonoBehaviour
 	{
-		const int LightSlotCount = 3;
-		const int PointLightBoundaryEllipseSamples = 128;
-		const int PointLightBoundaryCutSamples = 31;
-		readonly ParticleFluidLight2D[] lightSlots = new ParticleFluidLight2D[LightSlotCount];
-		readonly CausticsLightGpuData[] causticsLightGpuData = new CausticsLightGpuData[LightSlotCount];
+		private const int LightSlotCount = 3;
+		private const int PointLightBoundaryEllipseSamples = 128;
+		private const int PointLightBoundaryCutSamples = 31;
+		private readonly ParticleFluidLight2D[] _lightSlots = new ParticleFluidLight2D[LightSlotCount];
+		private readonly CausticsLightGpuData[] _causticsLightGpuData = new CausticsLightGpuData[LightSlotCount];
 
 		[StructLayout(LayoutKind.Sequential)]
-		readonly struct CausticsLightGpuData
+		private readonly struct CausticsLightGpuData
 		{
 			public readonly Vector4 launchDirectionAndEnabled;
 			public readonly Vector4 multiplierAndLaunchMode;
@@ -37,33 +37,33 @@ namespace Seb.Fluid2D.Rendering
 		}
 
 		internal readonly float[] pointLightBoundaryAngles = new float[PointLightBoundaryEllipseSamples + PointLightBoundaryCutSamples + 2];
-		internal ParticleFluidLight2D[] LightSlots => lightSlots;
+		internal ParticleFluidLight2D[] LightSlots => _lightSlots;
 
-		void Awake()
+		private void Awake()
 		{
 			RefreshLightSlots();
 		}
 
-		void OnValidate()
+		private void OnValidate()
 		{
 			RefreshLightSlots();
 		}
 
-		void OnTransformChildrenChanged()
+		private void OnTransformChildrenChanged()
 		{
 			RefreshLightSlots();
 		}
 
 		internal void RefreshLightSlots()
 		{
-			Array.Clear(lightSlots, 0, lightSlots.Length);
+			Array.Clear(_lightSlots, 0, _lightSlots.Length);
 			ParticleFluidLight2D[] discoveredLights = GetComponentsInChildren<ParticleFluidLight2D>(true);
-			Array.Copy(discoveredLights, lightSlots, Math.Min(discoveredLights.Length, lightSlots.Length));
+			Array.Copy(discoveredLights, _lightSlots, Math.Min(discoveredLights.Length, _lightSlots.Length));
 		}
 
 		internal bool AnyEnabledCausticPointLight()
 		{
-			foreach (ParticleFluidLight2D light in lightSlots)
+			foreach (ParticleFluidLight2D light in _lightSlots)
 			{
 				if (light is ParticleFluidPointLight2D pointLight && pointLight.GetCausticSampleWeight() > 0f)
 				{
@@ -78,7 +78,7 @@ namespace Seb.Fluid2D.Rendering
 			ParticleFluidDirectionalLight2D directionalLight = null;
 			float brightestExposure = 0f;
 
-			foreach (ParticleFluidLight2D light in lightSlots)
+			foreach (ParticleFluidLight2D light in _lightSlots)
 			{
 				if (light is not ParticleFluidDirectionalLight2D candidate
 				    || !candidate.isActiveAndEnabled
@@ -109,7 +109,7 @@ namespace Seb.Fluid2D.Rendering
 
 			for (int i = 0; i < LightSlotCount; i++)
 			{
-				ParticleFluidLight2D light = lightSlots[i];
+				ParticleFluidLight2D light = _lightSlots[i];
 				ParticleFluidDirectionalLight2D directionalLight = light as ParticleFluidDirectionalLight2D;
 				bool lightEnabled = light != null && light.isActiveAndEnabled && light.intensity > 0f;
 				lightBaseDirections[i] = directionalLight != null ? directionalLight.Direction : Vector3.down;
@@ -134,17 +134,17 @@ namespace Seb.Fluid2D.Rendering
 
 		internal int UploadCausticsLightGpuData(ComputeBuffer buffer, ParticleFluidLighting2D.FrameContext context, Vector2Int resolution, int raysPerPixel)
 		{
-			Vector3[] launchDirections = new Vector3[lightSlots.Length];
-			bool[] lightEnabled = new bool[lightSlots.Length];
-			float[] launchAngularRadiusDegrees = new float[lightSlots.Length];
-			float[] launchSpanOffsets = new float[lightSlots.Length];
-			int[] launchSpanRayCounts = new int[lightSlots.Length];
-			float[] launchSpanStarts = new float[lightSlots.Length];
-			float[] launchSpanLengths = new float[lightSlots.Length];
-			float[] lightWeights = new float[lightSlots.Length];
-			for (int i = 0; i < lightSlots.Length; i++)
+			Vector3[] launchDirections = new Vector3[_lightSlots.Length];
+			bool[] lightEnabled = new bool[_lightSlots.Length];
+			float[] launchAngularRadiusDegrees = new float[_lightSlots.Length];
+			float[] launchSpanOffsets = new float[_lightSlots.Length];
+			int[] launchSpanRayCounts = new int[_lightSlots.Length];
+			float[] launchSpanStarts = new float[_lightSlots.Length];
+			float[] launchSpanLengths = new float[_lightSlots.Length];
+			float[] lightWeights = new float[_lightSlots.Length];
+			for (int i = 0; i < _lightSlots.Length; i++)
 			{
-				ParticleFluidLight2D light = lightSlots[i];
+				ParticleFluidLight2D light = _lightSlots[i];
 				lightEnabled[i] = light != null && light.SupportsCausticRaymarch();
 				if (light is ParticleFluidDirectionalLight2D directionalLight)
 				{
@@ -178,7 +178,7 @@ namespace Seb.Fluid2D.Rendering
 			);
 			int totalRayBudget = enabledRangeRayCount > 0 ? Mathf.Max(1, Mathf.Min(enabledRangeRayCount, maxRayCount)) : 1;
 			float[] lightShares = GetLightRayShares(lightWeights);
-			int[] lightSubRaysPerPixel = new int[lightSlots.Length];
+			int[] lightSubRaysPerPixel = new int[_lightSlots.Length];
 			lightSubRaysPerPixel[1] = lightShares[1] > 0f && raysPerPixel > 1 ? Mathf.RoundToInt(raysPerPixel * lightShares[1]) : 0;
 			lightSubRaysPerPixel[1] = Mathf.Clamp(lightSubRaysPerPixel[1], 0, raysPerPixel);
 			lightSubRaysPerPixel[2] = lightShares[2] > 0f && raysPerPixel > 1 ? Mathf.RoundToInt(raysPerPixel * lightShares[2]) : 0;
@@ -191,15 +191,15 @@ namespace Seb.Fluid2D.Rendering
 
 			lightSubRaysPerPixel[0] = lightShares[0] > 0f ? Mathf.Max(0, raysPerPixel - lightSubRaysPerPixel[1] - lightSubRaysPerPixel[2]) : 0;
 			bool splitBySubRay = lightSubRaysPerPixel[1] > 0 || lightSubRaysPerPixel[2] > 0;
-			int[] lightRayBudgets = new int[lightSlots.Length];
+			int[] lightRayBudgets = new int[_lightSlots.Length];
 			lightRayBudgets[1] = lightShares[1] > 0f && !splitBySubRay ? Mathf.RoundToInt(totalRayBudget * lightShares[1]) : 0;
 			lightRayBudgets[1] = Mathf.Clamp(lightRayBudgets[1], 0, Mathf.Min(totalRayBudget, launchSpanRayCounts[1]));
 			lightRayBudgets[2] = lightShares[2] > 0f && !splitBySubRay ? Mathf.RoundToInt(totalRayBudget * lightShares[2]) : 0;
 			lightRayBudgets[2] = Mathf.Clamp(lightRayBudgets[2], 0, Mathf.Min(totalRayBudget - lightRayBudgets[1], launchSpanRayCounts[2]));
 			lightRayBudgets[0] = lightShares[0] > 0f ? splitBySubRay ? totalRayBudget : Mathf.Max(0, totalRayBudget - lightRayBudgets[1] - lightRayBudgets[2]) : 0;
 			lightRayBudgets[0] = Mathf.Clamp(lightRayBudgets[0], 0, launchSpanRayCounts[0]);
-			float[] lightRaySpacings = new float[lightSlots.Length];
-			for (int i = 0; i < lightSlots.Length; i++)
+			float[] lightRaySpacings = new float[_lightSlots.Length];
+			for (int i = 0; i < _lightSlots.Length; i++)
 			{
 				int spacingRayCount = i == 0 || !splitBySubRay ? lightRayBudgets[i] : totalRayBudget;
 				lightRaySpacings[i] = launchSpanRayCounts[i] > 1 && spacingRayCount > 1 ? (launchSpanRayCounts[i] - 1f) / (spacingRayCount - 1f) : 1f;
@@ -207,9 +207,9 @@ namespace Seb.Fluid2D.Rendering
 
 			for (int i = 0; i < LightSlotCount; i++)
 			{
-				ParticleFluidLight2D light = lightSlots[i];
+				ParticleFluidLight2D light = _lightSlots[i];
 				ParticleFluidPointLight2D pointLight = light as ParticleFluidPointLight2D;
-				causticsLightGpuData[i] = new CausticsLightGpuData(
+				_causticsLightGpuData[i] = new CausticsLightGpuData(
 					launchDirections[i],
 					i == 0 || lightSubRaysPerPixel[i] > 0 || lightRayBudgets[i] > 0,
 					lightWeights[i] > 0f && light != null ? light.GetCausticMultiplier() : Vector4.zero,
@@ -221,7 +221,7 @@ namespace Seb.Fluid2D.Rendering
 				);
 			}
 
-			buffer.SetData(causticsLightGpuData);
+			buffer.SetData(_causticsLightGpuData);
 			return totalRayBudget;
 		}
 
@@ -243,7 +243,7 @@ namespace Seb.Fluid2D.Rendering
 			return lightShares;
 		}
 
-		static float GetSaturationDispersionScale(Color color)
+		private static float GetSaturationDispersionScale(Color color)
 		{
 			float maxChannel = Mathf.Max(color.r, Mathf.Max(color.g, color.b));
 			float minChannel = Mathf.Min(color.r, Mathf.Min(color.g, color.b));

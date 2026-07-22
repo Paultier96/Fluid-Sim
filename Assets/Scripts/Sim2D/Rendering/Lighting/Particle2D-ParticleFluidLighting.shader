@@ -28,8 +28,6 @@ sampler2D MaterialTransportTex;
 sampler2D CausticTex;
 sampler2D SoftLightTex;
 sampler2D SoftLightTexPhase1;
-sampler2D ColourMap;
-sampler2D ColourMap2;
 #include "Shared/ParticleFluidGradientSampling.cginc"
 float4 MaterialAlbedoTex_TexelSize;
 #include "Shared/ParticleFluidAnalyticBoundary.hlsl"

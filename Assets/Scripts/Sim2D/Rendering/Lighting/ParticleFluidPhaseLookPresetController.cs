@@ -1,8 +1,10 @@
+using UnityEngine;
+
 namespace Seb.Fluid2D.Rendering
 {
 	internal sealed class ParticleFluidPhaseLookPresetController
 	{
-		readonly ParticleFluidLighting2D _lighting;
+		private readonly ParticleFluidLighting2D _lighting;
 
 		public ParticleFluidPhaseLookPresetController(ParticleFluidLighting2D lighting)
 		{
@@ -45,14 +47,14 @@ namespace Seb.Fluid2D.Rendering
 			_lighting.gaussianSss?.ApplyPhaseLookPreset(preset);
 			_lighting.SyncMaterialSlots();
 
-			ParticleDisplay2D display = _lighting.Display;
+			ParticleDisplay2D display = _lighting.display;
 			if (display != null)
 			{
-				display.SetPhaseColourMaps(preset.phase0ColourMap, preset.phase1ColourMap);
+				display.SetPhaseColourMaps(CloneGradient(preset.phase0ColourMap), CloneGradient(preset.phase1ColourMap));
 			}
 		}
 
-		void OnPresetChanged(ParticleFluidPhaseLookPreset changedPreset)
+		private void OnPresetChanged(ParticleFluidPhaseLookPreset changedPreset)
 		{
 			if (!_lighting.applyPhaseLookPresetOnValidate || changedPreset != _lighting.phaseLookPreset)
 			{
@@ -62,7 +64,7 @@ namespace Seb.Fluid2D.Rendering
 			Apply();
 		}
 
-		static void CopyPhaseMaterialSettings(ParticleFluidLighting2D.PhaseMaterialSettings source, ParticleFluidLighting2D.PhaseMaterialSettings destination)
+		private static void CopyPhaseMaterialSettings(ParticleFluidLighting2D.PhaseMaterialSettings source, ParticleFluidLighting2D.PhaseMaterialSettings destination)
 		{
 			if (source == null || destination == null)
 			{
@@ -80,6 +82,19 @@ namespace Seb.Fluid2D.Rendering
 			destination.causticAdditiveBlend = source.causticAdditiveBlend;
 			destination.diffuseAdditiveBlend = source.diffuseAdditiveBlend;
 			destination.diffuseNormalInfluence = source.diffuseNormalInfluence;
+		}
+
+		private static Gradient CloneGradient(Gradient source)
+		{
+			if (source == null)
+			{
+				return null;
+			}
+
+			Gradient clone = new Gradient();
+			clone.SetKeys(source.colorKeys, source.alphaKeys);
+			clone.mode = source.mode;
+			return clone;
 		}
 	}
 }

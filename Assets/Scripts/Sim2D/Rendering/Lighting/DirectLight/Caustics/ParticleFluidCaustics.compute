@@ -3,8 +3,7 @@
 #pragma kernel Resolve
 
 Texture2D<float4> MaterialTransportTex;
-Texture2D<float4> ColourMap;
-Texture2D<float4> ColourMap2;
+Texture2D<float4> GradientAtlas;
 RWStructuredBuffer<uint> CausticAccum;
 StructuredBuffer<float4> CausticsLights;
 StructuredBuffer<float4> CausticsMaterials;
@@ -136,8 +135,8 @@ float3 RayColourFromTransport(float4 transport, int phase)
 {
 	float scalarData = transport.r;
 	return phase == 0
-		? ParticleFluidSampleColourMap(ColourMap, scalarData)
-		: ParticleFluidSampleColourMap(ColourMap2, scalarData);
+		? ParticleFluidSampleGradientAtlas(GradientAtlas, scalarData, ParticleFluidGradientAtlasPhase0Row)
+		: ParticleFluidSampleGradientAtlas(GradientAtlas, scalarData, ParticleFluidGradientAtlasPhase1Row);
 }
 
 float3 AbsorptionColourFromTransport(float4 transport, int phase)

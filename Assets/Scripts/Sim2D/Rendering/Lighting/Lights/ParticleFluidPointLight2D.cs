@@ -10,10 +10,10 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0.0001f)] public float range = 20f;
 		[Min(0.1f)] public float falloff = 2f;
 		[Min(0f)] public float sourceRadius = 0f;
-		
-		const float TwoPi = 2f * Mathf.PI;
-		const int BoundaryEllipseSamples = 128;
-		const int BoundaryCutSamples = 31;
+
+		private const float TwoPi = 2f * Mathf.PI;
+		private const int BoundaryEllipseSamples = 128;
+		private const int BoundaryCutSamples = 31;
 
 		public Vector4 GetPointLightVector()
 		{
@@ -86,7 +86,7 @@ namespace Seb.Fluid2D.Rendering
 			angleRange = Mathf.Clamp(TwoPi - largestGap + padding * 2f, 0.0001f, TwoPi);
 		}
 
-		static void AddBoundaryAngle(float[] scratchAngles, Vector2 lightPoint, Vector2 boundaryPoint, ref int angleCount)
+		private static void AddBoundaryAngle(float[] scratchAngles, Vector2 lightPoint, Vector2 boundaryPoint, ref int angleCount)
 		{
 			if (angleCount >= scratchAngles.Length)
 			{

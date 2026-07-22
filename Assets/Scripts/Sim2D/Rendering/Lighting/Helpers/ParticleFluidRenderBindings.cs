@@ -5,8 +5,28 @@ using UnityEngine.Rendering;
 namespace Seb.Fluid2D.Rendering
 {
 
-	internal static class ParticleFluidLayoutBindings
+	internal static class ParticleFluidRenderBindings
 	{
+		private static readonly int DomainWorldCenter = Shader.PropertyToID("domainWorldCenter");
+		private static readonly int DomainWorldSize = Shader.PropertyToID("domainWorldSize");
+		private static readonly int UseEllipticalBounds = Shader.PropertyToID("useEllipticalBounds");
+		private static readonly int EllipseBoundsCenter = Shader.PropertyToID("ellipseBoundsCenter");
+		private static readonly int EllipseBoundsSize = Shader.PropertyToID("ellipseBoundsSize");
+		private static readonly int ObstacleY = Shader.PropertyToID("obstacleY");
+		private static readonly int AnalyticBoundaryExpansion = Shader.PropertyToID("analyticBoundaryExpansion");
+		private static readonly int DensityThreshold = Shader.PropertyToID("densityThreshold");
+		private static readonly int EdgeSoftness = Shader.PropertyToID("edgeSoftness");
+		private static readonly int PhaseBlendWidth = Shader.PropertyToID("phaseBlendWidth");
+		private static readonly int TransportPhaseBlendWidth = Shader.PropertyToID("transportPhaseBlendWidth");
+		private static readonly int Phase0RenderBias = Shader.PropertyToID("phase0RenderBias");
+		private static readonly int PhaseBiasNormalStrength = Shader.PropertyToID("phaseBiasNormalStrength");
+		private static readonly int MetaballGhostBoundaryNormalStrength = Shader.PropertyToID("metaballGhostBoundaryNormalStrength");
+		private static readonly int MetaballRefractionStrength = Shader.PropertyToID("metaballRefractionStrength");
+		private static readonly int MetaballRefractionEdgeFade = Shader.PropertyToID("metaballRefractionEdgeFade");
+		private static readonly int ScreenSpaceRefractionCanCrossPhases = Shader.PropertyToID("screenSpaceRefractionCanCrossPhases");
+		private static readonly int ParticleNormalStrength = Shader.PropertyToID("particleNormalStrength");
+		private static readonly int ParticleNormalProfileCurve = Shader.PropertyToID("particleNormalProfileCurve");
+		private static readonly int GradientAtlas = Shader.PropertyToID("GradientAtlas");
 
 		internal static void ApplyLayoutGlobals(CommandBuffer targetCommandBuffer, ParticleFluidAnalyticBoundary2D boundary, Bounds domainRegion)
 		{
@@ -16,97 +36,52 @@ namespace Seb.Fluid2D.Rendering
 
 		internal static void ApplyDomainGlobals(CommandBuffer commandBuffer, Bounds domainRegion)
 		{
-			commandBuffer.SetGlobalVector("domainWorldCenter", domainRegion.center);
-			commandBuffer.SetGlobalVector("domainWorldSize", domainRegion.size);
+			commandBuffer.SetGlobalVector(DomainWorldCenter, domainRegion.center);
+			commandBuffer.SetGlobalVector(DomainWorldSize, domainRegion.size);
 		}
 
 		internal static void ApplyBoundaryGlobals(CommandBuffer commandBuffer, ParticleFluidAnalyticBoundary2D boundary)
 		{
-			commandBuffer.SetGlobalInt("useEllipticalBounds", boundary.useEllipticalBounds ? 1 : 0);
-			commandBuffer.SetGlobalVector("ellipseBoundsCenter", boundary.BoundsCenter);
-			commandBuffer.SetGlobalVector("ellipseBoundsSize", boundary.boundsSize);
-			commandBuffer.SetGlobalFloat("obstacleY", boundary.obstacleY);
-			commandBuffer.SetGlobalFloat("analyticBoundaryExpansion", boundary.analyticBoundaryExpansion);
+			commandBuffer.SetGlobalInt(UseEllipticalBounds, boundary.useEllipticalBounds ? 1 : 0);
+			commandBuffer.SetGlobalVector(EllipseBoundsCenter, boundary.BoundsCenter);
+			commandBuffer.SetGlobalVector(EllipseBoundsSize, boundary.boundsSize);
+			commandBuffer.SetGlobalFloat(ObstacleY, boundary.obstacleY);
+			commandBuffer.SetGlobalFloat(AnalyticBoundaryExpansion, boundary.analyticBoundaryExpansion);
 		}
 
-		internal static void ApplyPhaseSplitGlobals(CommandBuffer commandBuffer, ParticleDisplay2D.MetaballSettings settings)
+		internal static void ApplyPhaseSplitGlobals(CommandBuffer commandBuffer, MetaballRenderer2D settings)
 		{
-			commandBuffer.SetGlobalFloat("densityThreshold", settings.densityThreshold);
-			commandBuffer.SetGlobalFloat("edgeSoftness", settings.edgeSoftness);
-			commandBuffer.SetGlobalFloat("phaseBlendWidth", settings.phaseBlendWidth);
-			commandBuffer.SetGlobalFloat("transportPhaseBlendWidth", settings.transportPhaseBlendWidth);
-			commandBuffer.SetGlobalFloat("phase0RenderBias", settings.phase0RenderBias);
-		}
-	}
-
-	internal static class ParticleFluidRasterTextureBindings
-	{
-		private static readonly int ColourMap = Shader.PropertyToID("ColourMap");
-		private static readonly int ColourMap2 = Shader.PropertyToID("ColourMap2");
-		private static readonly int DebugHeatMap = Shader.PropertyToID("DebugHeatMap");
-		private static readonly int DebugSignedHeatMap = Shader.PropertyToID("DebugSignedHeatMap");
-
-		internal static void ApplyGradientGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display)
-		{
-			commandBuffer.SetGlobalTexture(ColourMap, display.gradientTexture != null ? display.gradientTexture : Texture2D.blackTexture);
-			commandBuffer.SetGlobalTexture(ColourMap2, display.gradientTexture2 != null ? display.gradientTexture2 : Texture2D.blackTexture);
+			commandBuffer.SetGlobalFloat(DensityThreshold, settings.densityThreshold);
+			commandBuffer.SetGlobalFloat(EdgeSoftness, settings.edgeSoftness);
+			commandBuffer.SetGlobalFloat(PhaseBlendWidth, settings.phaseBlendWidth);
+			commandBuffer.SetGlobalFloat(TransportPhaseBlendWidth, settings.transportPhaseBlendWidth);
+			commandBuffer.SetGlobalFloat(Phase0RenderBias, settings.phase0RenderBias);
 		}
 
-		internal static void ApplyDebugGradientGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display)
-		{
-			commandBuffer.SetGlobalTexture(DebugHeatMap, display.debugHeatMapTexture != null ? display.debugHeatMapTexture : Texture2D.blackTexture);
-			commandBuffer.SetGlobalTexture(DebugSignedHeatMap, display.debugSignedHeatMapTexture != null ? display.debugSignedHeatMapTexture : Texture2D.blackTexture);
-		}
-	}
-
-	internal static class ParticleFluidMetaballScalarBindings
-	{
-		internal static void ApplyScalarGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting, float effectiveNormalStrength)
-		{
-			ParticleDisplay2D.MetaballSettings settings = display.metaballs;
-			commandBuffer.SetGlobalFloat("phaseBiasNormalStrength", settings.phaseBiasNormalStrength);
-			commandBuffer.SetGlobalFloat("metaballGhostBoundaryNormalStrength", settings.ghostBoundaryNormalStrength);
-			commandBuffer.SetGlobalFloat("metaballRefractionStrength", (lighting != null ? lighting.refractionStrength : 0f) * display.GetZoomScale(cam));
-			commandBuffer.SetGlobalFloat("metaballRefractionEdgeFade", lighting != null ? lighting.refractionEdgeFade : 0f);
-			commandBuffer.SetGlobalInt("screenSpaceRefractionCanCrossPhases", lighting != null && lighting.screenSpaceRefractionCanCrossPhases ? 1 : 0);
-			commandBuffer.SetGlobalFloat("particleNormalStrength", effectiveNormalStrength);
-			commandBuffer.SetGlobalFloat("particleNormalProfileCurve", settings.normalProfileCurve);
-		}
-	}
-
-	internal static class ParticleFluidPassBindings
-	{
-		internal static void ApplyMetaballMaterialGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting, Bounds domainRegion, float effectiveNormalStrength)
-		{
-			ParticleFluidLayoutBindings.ApplyPhaseSplitGlobals(commandBuffer, display.metaballs);
-			ParticleFluidLayoutBindings.ApplyLayoutGlobals(commandBuffer, display.sim.analyticBoundary, domainRegion);
-			ParticleFluidRasterTextureBindings.ApplyGradientGlobals(commandBuffer, display);
-			ParticleFluidMetaballScalarBindings.ApplyScalarGlobals(commandBuffer, display, cam, lighting, effectiveNormalStrength);
+		internal static void ApplyMetaballMaterialGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting, Bounds domainRegion)
+		{			
+			ApplyLayoutGlobals(commandBuffer, display.sim.analyticBoundary, domainRegion);
+			ApplyPhaseSplitGradientAndScalarGlobals(commandBuffer, display, cam, lighting);
 		}
 
-		internal static void ApplyMetaballDebugGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting, float effectiveNormalStrength)
+		internal static void ApplyMetaballDebugGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting)
 		{
-			ParticleFluidLayoutBindings.ApplyBoundaryGlobals(commandBuffer, display.sim.analyticBoundary);
-			ParticleFluidLayoutBindings.ApplyPhaseSplitGlobals(commandBuffer, display.metaballs);
-			ParticleFluidRasterTextureBindings.ApplyGradientGlobals(commandBuffer, display);
-			ParticleFluidRasterTextureBindings.ApplyDebugGradientGlobals(commandBuffer, display);
-			ParticleFluidMetaballScalarBindings.ApplyScalarGlobals(commandBuffer, display, cam, lighting, effectiveNormalStrength);
+			ApplyBoundaryGlobals(commandBuffer, display.sim.analyticBoundary);
+			ApplyPhaseSplitGradientAndScalarGlobals(commandBuffer, display, cam, lighting);
 		}
 
-		internal static void ApplyFinalLightingGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Bounds domainRegion)
+		private static void ApplyPhaseSplitGradientAndScalarGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting)
 		{
-			ParticleFluidLayoutBindings.ApplyLayoutGlobals(commandBuffer, display.sim.analyticBoundary, domainRegion);
-			ParticleFluidLayoutBindings.ApplyPhaseSplitGlobals(commandBuffer, display.metaballs);
-			ParticleFluidRasterTextureBindings.ApplyGradientGlobals(commandBuffer, display);
-		}
-
-		internal static void ApplyCausticTemporalGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Bounds domainRegion, Vector2 historyWorldCenter, Vector2 historyWorldSize)
-		{
-			ParticleFluidLayoutBindings.ApplyPhaseSplitGlobals(commandBuffer, display.metaballs);
-			ParticleFluidLayoutBindings.ApplyDomainGlobals(commandBuffer, domainRegion);
-			commandBuffer.SetGlobalVector("causticHistoryWorldCenter", historyWorldCenter);
-			commandBuffer.SetGlobalVector("causticHistoryWorldSize", historyWorldSize);
+			ApplyPhaseSplitGlobals(commandBuffer, display.metaballs);
+			commandBuffer.SetGlobalTexture(GradientAtlas, display.gradientAtlasTexture != null ? display.gradientAtlasTexture : Texture2D.blackTexture);
+			MetaballRenderer2D settings = display.metaballs;
+			commandBuffer.SetGlobalFloat(PhaseBiasNormalStrength, settings.phaseBiasNormalStrength);
+			commandBuffer.SetGlobalFloat(MetaballGhostBoundaryNormalStrength, settings.ghostBoundaryNormalStrength);
+			commandBuffer.SetGlobalFloat(MetaballRefractionStrength, lighting.refractionStrength * display.GetZoomScale(cam));
+			commandBuffer.SetGlobalFloat(MetaballRefractionEdgeFade, lighting.refractionEdgeFade);
+			commandBuffer.SetGlobalInt(ScreenSpaceRefractionCanCrossPhases, lighting != null && lighting.screenSpaceRefractionCanCrossPhases ? 1 : 0);
+			commandBuffer.SetGlobalFloat(ParticleNormalStrength, display.EffectiveNormalStrength);
+			commandBuffer.SetGlobalFloat(ParticleNormalProfileCurve, settings.normalProfileCurve);
 		}
 	}
 }
-

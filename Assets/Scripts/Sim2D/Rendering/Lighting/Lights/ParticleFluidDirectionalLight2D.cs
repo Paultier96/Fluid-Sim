@@ -109,7 +109,7 @@ namespace Seb.Fluid2D.Rendering
 			return new Vector3(refractedLightXY.x, refractedLightXY.y, lightDirection.z).normalized;
 		}
 
-		static Vector2 Refract2D(Vector2 rayDirection, Vector2 normal, float eta)
+		private static Vector2 Refract2D(Vector2 rayDirection, Vector2 normal, float eta)
 		{
 			if (Vector2.Dot(rayDirection, normal) > 0f)
 			{
