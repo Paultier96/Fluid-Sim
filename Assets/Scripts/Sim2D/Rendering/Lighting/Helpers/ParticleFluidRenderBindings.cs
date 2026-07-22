@@ -55,7 +55,7 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.SetGlobalFloat(EdgeSoftness, settings.edgeSoftness);
 			commandBuffer.SetGlobalFloat(PhaseBlendWidth, settings.phaseBlendWidth);
 			commandBuffer.SetGlobalFloat(TransportPhaseBlendWidth, settings.transportPhaseBlendWidth);
-			commandBuffer.SetGlobalFloat(Phase0RenderBias, settings.phase0RenderBias);
+			commandBuffer.SetGlobalFloat(Phase0RenderBias, settings.renderBias);
 		}
 
 		internal static void ApplyMetaballMaterialGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting, Bounds domainRegion)

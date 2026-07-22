@@ -291,7 +291,7 @@ using UnityEngine.Rendering;
 			lightingMaterial.SetFloat(ScreenSpaceReflectionEdgePower, screenSpaceReflectionEdgePower);
 			lightingMaterial.SetFloat(ParticleSpecularCausticSampleOffset, specularCausticSampleOffset * currentZoomScale);
 			lightingMaterial.SetFloat(ParticleSpecularAntiAliasingStrength, specularAntiAliasingStrength);
-			float phaseBoundary = Mathf.Clamp01(0.5f + Mathf.Clamp(display.metaballs.phase0RenderBias, -1f, 1f) * 0.5f);
+			float phaseBoundary = Mathf.Clamp01(0.5f + Mathf.Clamp(display.metaballs.renderBias, -1f, 1f) * 0.5f);
 			float phase0Scale = Mathf.Sqrt(Mathf.Max(phaseBoundary * 2f, 0.0001f));
 			float phase1Scale = Mathf.Sqrt(Mathf.Max((1f - phaseBoundary) * 2f, 0.0001f));
 			Vector4 phaseRadiusScale = new Vector4(phase0Scale, phase1Scale, 0f, 0f);

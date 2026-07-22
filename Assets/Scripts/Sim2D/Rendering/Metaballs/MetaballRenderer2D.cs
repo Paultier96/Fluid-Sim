@@ -30,48 +30,34 @@ namespace Seb.Fluid2D.Rendering
 		private const int DebugModeRadianceCascadeRaw = 9;
 
 		[Header("Shaders")]
-		[FormerlySerializedAs("compositeShader")]
-		[Tooltip("Shader used only for metaball debug visualizations.")]
 		public Shader debugShader;
-		[Tooltip("Shader used by the separated material-map pass. If left empty, Hidden/Particle2DMetaballMaterial is used as a fallback.")]
 		public Shader materialShader;
-		[Tooltip("Shader used for the separable Gaussian blur applied to the accumulation texture.")]
 		public Shader blurShader;
 
 		[Header("Shape - Surface")]
-		[Tooltip("Resolution of the metaball render textures relative to the screen. Lower values improve performance at the cost of sharpness.")]
 		[Range(0.25f, 1f)] public float renderTextureScale = 0.5f;
-		[Tooltip("Resolution of the particle motion texture relative to the screen. Lower values improve performance for temporal reprojection and motion debug at the cost of motion detail.")]
 		[Range(0.125f, 1f)] public float velocityTextureScale = 0.5f;
-		[Tooltip("Radius in pixels at resolution factor 1 of the Gaussian blur. Larger values make particles merge at greater distances.")]
 		[Min(0)] public float blurRadius = 6;
-		[Tooltip("Blurred density value at which the fluid surface appears. Increase to shrink the visible fluid; decrease to expand it.")]
 		[Min(0)] public float densityThreshold = 0.18f;
-		[Tooltip("Width of the density falloff around the surface threshold. Larger values give a softer, more transparent edge. Clamped so the fade never starts below zero density.")]
 		[Min(0.0001f)] public float edgeSoftness = 0.06f;
 
 		[Header("Shape - Phase Boundary")]
 		[Tooltip("Screen-space width in pixels for anti-aliased blending between fluid phases.")]
 		[Min(0.0001f)] public float phaseBlendWidth = 1f;
-		[Tooltip("Separate screen-space width in pixels for the transport map phase blending used by ray marched lighting. Increase to soften transport-derived phase gradients without changing the visible surface transition.")]
+		[Tooltip("for the transport map phase blending used by ray marched lighting")]
 		[Min(0.0001f)] public float transportPhaseBlendWidth = 1f;
-		[Tooltip("Render-only phase boundary bias. 0 is neutral, positive values make phase 0 visually expand, negative values make phase 1 expand.")]
-		[Range(-0.99f, 0.99f)] public float phase0RenderBias;
-		[Tooltip("How strongly phase boundary bias redistributes normal strength. The compressed phase is boosted strongly while the visually expanded phase is weakened mildly.")]
+		[FormerlySerializedAs("phase0RenderBias")] [Range(-0.99f, 0.99f)] public float renderBias;
+		[Tooltip("How strongly phase boundary bias redistributes normal strength.")]
 		[Range(0f, 10f)] public float phaseBiasNormalStrength = 0.5f;
 
 		[Header("Shape - Particle Kernel")]
-		[Tooltip("Steepness of each particle's density kernel. Higher values make particles contribute a tighter, more localised density spike.")]
 		[Min(0.01f)] public float sharpness = 3.5f;
-		[Tooltip("Uniform scale applied to each particle's density contribution. Increase if particles are too sparse to merge.")]
 		[Min(0)] public float intensity = 1.0f;
 
 		[Header("Lighting - Normals")]
-		[Tooltip("Multiplier applied to reconstructed normal XY before rebuilding Z. Higher values make blurred normals look steeper.")]
 		[Min(0f)] public float normalStrength = 1f;
 		[Tooltip("Curves the reconstructed normal magnitude before rebuilding Z. Values above 1 keep the surface flatter for longer and push the steep falloff closer to the silhouette.")]
 		[Min(0.0001f)] public float normalProfileCurve = 1f;
-		[Tooltip("Exponent used to increase normal strength with effective blur radius. 0 disables automatic compensation, 1 is linear.")]
 		[Min(0f)] public float normalBlurCompensation = 0.5f;
 
 		[Header("Ghost Boundary Normals")]
@@ -121,16 +107,9 @@ namespace Seb.Fluid2D.Rendering
 			targetCommandBuffer.DrawMeshInstancedIndirect(display.particleMesh, 0, _metaballMaterial, shaderPass, display.argsBuffer);
 		}
 
-		public void RecordComposite(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
+		public void RecordFallbackComposite(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
 		{
-			bool useMaterialPipeline = ShouldUseMaterialPipeline(display);
-			if (useMaterialPipeline && MaterialRenderer.materialMaps.IsAllocated)
-			{
-				ParticleFluidRenderBindings.ApplyMetaballMaterialGlobals(targetCommandBuffer, display, cam, _lighting, _currentRenderRegion);
-				MaterialRenderer.RenderMaterialMaps(targetCommandBuffer, _currentRenderRegion, cam);
-				RecordPreparedMaterialAndLighting(display, cam, targetCommandBuffer, finalTarget);
-			}
-			else if (_debugMaterial != null)
+			if (_debugMaterial != null)
 			{
 				targetCommandBuffer.BeginSample("Metaballs/Debug Composite");
 				ParticleFluidRenderBindings.ApplyMetaballDebugGlobals(targetCommandBuffer, display, cam, _lighting);
@@ -152,10 +131,6 @@ namespace Seb.Fluid2D.Rendering
 
 		public void RecordCompositeWithPreparedMaterialMaps(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
 		{
-			if (targetCommandBuffer == null)
-			{
-				return;
-			}
 			RecordPreparedMaterialAndLighting(display, cam, targetCommandBuffer, finalTarget);
 			RecordVectorField(display, targetCommandBuffer);
 		}
@@ -279,12 +254,6 @@ namespace Seb.Fluid2D.Rendering
 
 		private void RecordPreparedMaterialAndLighting(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
 		{
-			bool useMaterialPipeline = ShouldUseMaterialPipeline(display);
-			if (!useMaterialPipeline || !MaterialRenderer.materialMaps.IsAllocated)
-			{
-				return;
-			}
-
 			targetCommandBuffer.BeginSample("Metaballs/Material Pipeline");
 			if ((display.debugMode != ParticleDisplay2D.DebugVisualization.None || _lighting != null && _lighting.debugMode != ParticleFluidLighting2D.LightingDebugVisualization.None) && _debugMaterial != null)
 			{

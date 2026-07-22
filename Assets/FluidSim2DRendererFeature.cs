@@ -118,22 +118,22 @@ namespace Seb.Fluid2D.Simulation
             TextureHandle materialTransportHandle = _materialTransport.Import(renderGraph, metaballRenderer.MaterialRenderer.materialMaps.transportTexture, "FluidSim2D Material Transport");
             TextureHandle gradientAtlasHandle = _gradientAtlas.Import(renderGraph, _display.gradientAtlasTexture != null ? _display.gradientAtlasTexture : Texture2D.blackTexture, "FluidSim2D Gradient Atlas");
 
-            RecordMetaballAccumulationPass(renderGraph, "Fluid Sim 2D Combined Accumulation", _display, metaballRenderer, combinedHandle, 0);
-            RecordMetaballAccumulationPass(renderGraph, "Fluid Sim 2D Normal Accumulation", _display, metaballRenderer, normalHandle, 1);
+            RecordMetaballAccumulationPass(renderGraph, "Combined Accumulation", _display, metaballRenderer, combinedHandle, 0);
+            RecordMetaballAccumulationPass(renderGraph, "Normal Accumulation", _display, metaballRenderer, normalHandle, 1);
             if (renderVelocityTextures)
             {
-                RecordMetaballAccumulationPass(renderGraph, "Fluid Sim 2D Velocity Accumulation", _display, metaballRenderer, velocityHandle, 2);
+                RecordMetaballAccumulationPass(renderGraph, "Velocity Accumulation", _display, metaballRenderer, velocityHandle, 2);
             }
 
             float surfaceBlurRadius = _display.EffectiveConfiguredBlurRadius * _display.GetZoomScale(camera) * metaballRenderer.renderTextureScale;
-            RecordBlurPass(renderGraph, "Fluid Sim 2D Combined Blur Horizontal", combinedHandle, combinedBlurHandle, metaballRenderer.combinedAccumulationTexture, metaballRenderer.combinedBlurTexture, metaballRenderer.blurMaterial, surfaceBlurRadius, new Vector2(1f, 0f));
-            RecordBlurPass(renderGraph, "Fluid Sim 2D Combined Blur Vertical", combinedBlurHandle, combinedHandle, metaballRenderer.combinedBlurTexture, metaballRenderer.combinedAccumulationTexture, metaballRenderer.blurMaterial, surfaceBlurRadius, new Vector2(0f, 1f));
-            RecordBlurPass(renderGraph, "Fluid Sim 2D Normal Blur Horizontal", normalHandle, normalBlurHandle, metaballRenderer.normalAccumulationTexture, metaballRenderer.normalBlurTexture, metaballRenderer.blurMaterial, surfaceBlurRadius, new Vector2(1f, 0f));
-            RecordBlurPass(renderGraph, "Fluid Sim 2D Normal Blur Vertical", normalBlurHandle, normalHandle, metaballRenderer.normalBlurTexture, metaballRenderer.normalAccumulationTexture, metaballRenderer.blurMaterial, surfaceBlurRadius, new Vector2(0f, 1f));
+            RecordBlurPass(renderGraph, "Combined Blur Horizontal", combinedHandle, combinedBlurHandle, metaballRenderer.combinedAccumulationTexture, metaballRenderer.combinedBlurTexture, metaballRenderer.blurMaterial, surfaceBlurRadius, new Vector2(1f, 0f));
+            RecordBlurPass(renderGraph, "Combined Blur Vertical", combinedBlurHandle, combinedHandle, metaballRenderer.combinedBlurTexture, metaballRenderer.combinedAccumulationTexture, metaballRenderer.blurMaterial, surfaceBlurRadius, new Vector2(0f, 1f));
+            RecordBlurPass(renderGraph, "Normal Blur Horizontal", normalHandle, normalBlurHandle, metaballRenderer.normalAccumulationTexture, metaballRenderer.normalBlurTexture, metaballRenderer.blurMaterial, surfaceBlurRadius, new Vector2(1f, 0f));
+            RecordBlurPass(renderGraph, "Normal Blur Vertical", normalBlurHandle, normalHandle, metaballRenderer.normalBlurTexture, metaballRenderer.normalAccumulationTexture, metaballRenderer.blurMaterial, surfaceBlurRadius, new Vector2(0f, 1f));
 
             if (useMaterialPipeline && materialAlbedoHandle.IsValid() && materialNormalHandle.IsValid() && materialTransportHandle.IsValid())
             {
-                using var builder = renderGraph.AddUnsafePass<MaterialMapPassData>("Fluid Sim 2D Material Maps", out var passData);
+                using IUnsafeRenderGraphBuilder builder = renderGraph.AddUnsafePass("Material Maps", out MaterialMapPassData passData);
                 passData.metaballRenderer = metaballRenderer;
                 passData.combined = combinedHandle;
                 passData.normal = normalHandle;
@@ -157,17 +157,14 @@ namespace Seb.Fluid2D.Simulation
 
             if (renderVelocityTextures && metaballRenderer.EffectiveVelocityBlurRadius > 0.001f)
             {
-                using var builder = renderGraph.AddUnsafePass<VelocityBlurPassData>("Fluid Sim 2D Velocity Gaussian Blur", out var passData);
-                passData.metaballRenderer = metaballRenderer;
-                passData.velocity = velocityHandle;
-                passData.velocityScratch = velocityBlurHandle;
-                UseIfValid(builder, passData.velocity, AccessFlags.ReadWrite);
-                UseIfValid(builder, passData.velocityScratch, AccessFlags.ReadWrite);
+                using IUnsafeRenderGraphBuilder builder = renderGraph.AddUnsafePass<EmptyPassData>("Velocity Gaussian Blur", out _);
+                UseIfValid(builder, velocityHandle, AccessFlags.ReadWrite);
+                UseIfValid(builder, velocityBlurHandle, AccessFlags.ReadWrite);
                 builder.AllowPassCulling(false);
-                builder.SetRenderFunc(static (VelocityBlurPassData data, UnsafeGraphContext context) =>
+                builder.SetRenderFunc((EmptyPassData _, UnsafeGraphContext context) =>
                 {
                     CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-                    data.metaballRenderer.RecordVelocityGaussianBlur(nativeCommandBuffer);
+                    metaballRenderer.RecordVelocityGaussianBlur(nativeCommandBuffer);
                 });
             }
 
@@ -200,15 +197,15 @@ namespace Seb.Fluid2D.Simulation
 
             if (renderCaustics)
             {
-                RecordCausticsPasses(renderGraph, "Fluid Sim 2D", lighting, lightingContext, lightingInputs, lightingResources, causticsFrameIndex);
+                RecordCausticsPasses(renderGraph, lighting, lightingContext, lightingInputs, lightingResources, causticsFrameIndex);
             }
 
             if (renderSoftLight)
             {
-                RecordSoftLightPass(renderGraph, "Fluid Sim 2D", lighting, lightingContext, lightingInputs, lightingResources);
+                RecordSoftLightPass(renderGraph, lighting, lightingContext, lightingInputs, lightingResources);
             }
 
-            using (var builder = renderGraph.AddUnsafePass<CompositePassData>("Fluid Sim 2D Composite", out var passData))
+            using (IUnsafeRenderGraphBuilder builder = renderGraph.AddUnsafePass("Composite", out CompositePassData passData))
             {
                 passData.display = _display;
                 passData.metaballRenderer = metaballRenderer;
@@ -261,7 +258,7 @@ namespace Seb.Fluid2D.Simulation
                     }
                     else
                     {
-                        data.metaballRenderer.RecordComposite(data.display, data.camera, nativeCommandBuffer, data.color);
+                        data.metaballRenderer.RecordFallbackComposite(data.display, data.camera, nativeCommandBuffer, data.color);
                     }
                 });
             }
@@ -339,9 +336,9 @@ namespace Seb.Fluid2D.Simulation
             return handles;
         }
 
-        private static void RecordCausticsPasses(RenderGraph renderGraph, string prefix, ParticleFluidLighting2D lighting, ParticleFluidLighting2D.FrameContext context, LightingInputHandles inputs, LightingResourceHandles resources, int frameIndex)
+        private static void RecordCausticsPasses(RenderGraph renderGraph, ParticleFluidLighting2D lighting, ParticleFluidLighting2D.FrameContext context, LightingInputHandles inputs, LightingResourceHandles resources, int frameIndex)
         {
-            using (var builder = renderGraph.AddComputePass<CausticsComputePassData>($"{prefix} Caustics Clear", out var passData))
+            using (var builder = renderGraph.AddComputePass<CausticsComputePassData>("Caustics Clear", out var passData))
             {
                 passData.lighting = lighting;
                 passData.context = context;
@@ -355,7 +352,7 @@ namespace Seb.Fluid2D.Simulation
                 });
             }
 
-            using (var builder = renderGraph.AddComputePass<CausticsComputePassData>($"{prefix} Caustics Trace", out var passData))
+            using (var builder = renderGraph.AddComputePass<CausticsComputePassData>("Caustics Trace", out var passData))
             {
                 passData.lighting = lighting;
                 passData.context = context;
@@ -373,7 +370,7 @@ namespace Seb.Fluid2D.Simulation
 				});
 			}
 
-            using (var builder = renderGraph.AddComputePass<CausticsComputePassData>($"{prefix} Caustics Resolve", out var passData))
+            using (var builder = renderGraph.AddComputePass<CausticsComputePassData>("Caustics Resolve", out var passData))
             {
                 passData.lighting = lighting;
                 passData.context = context;
@@ -387,7 +384,7 @@ namespace Seb.Fluid2D.Simulation
                 });
             }
 
-            using (var builder = renderGraph.AddUnsafePass<CausticsBlurPassData>($"{prefix} Caustics Blur", out var passData))
+            using (var builder = renderGraph.AddUnsafePass<CausticsBlurPassData>("Caustics Blur", out var passData))
             {
                 passData.lighting = lighting;
                 passData.context = context;
@@ -403,7 +400,7 @@ namespace Seb.Fluid2D.Simulation
                 });
             }
 
-            using (var builder = renderGraph.AddUnsafePass<CausticsTemporalPassData>($"{prefix} Caustics Temporal", out var passData))
+            using (var builder = renderGraph.AddUnsafePass<CausticsTemporalPassData>("Caustics Temporal", out var passData))
             {
                 passData.lighting = lighting;
                 passData.context = context;
@@ -424,9 +421,9 @@ namespace Seb.Fluid2D.Simulation
             }
         }
 
-        private static void RecordSoftLightPass(RenderGraph renderGraph, string prefix, ParticleFluidLighting2D lighting, ParticleFluidLighting2D.FrameContext context, LightingInputHandles inputs, LightingResourceHandles resources)
+        private static void RecordSoftLightPass(RenderGraph renderGraph, ParticleFluidLighting2D lighting, ParticleFluidLighting2D.FrameContext context, LightingInputHandles inputs, LightingResourceHandles resources)
         {
-            using var builder = renderGraph.AddUnsafePass<CausticsSoftLightPassData>($"{prefix} Caustics Soft Light", out var passData);
+            using var builder = renderGraph.AddUnsafePass<CausticsSoftLightPassData>("Caustics Soft Light", out var passData);
             passData.lighting = lighting;
             passData.context = context;
             passData.transport = inputs.transport;
@@ -611,11 +608,8 @@ namespace Seb.Fluid2D.Simulation
             public Vector2 direction;
         }
 
-        private class VelocityBlurPassData
+        private sealed class EmptyPassData
         {
-            public MetaballRenderer2D metaballRenderer;
-            public TextureHandle velocity;
-            public TextureHandle velocityScratch;
         }
 
         private class CompositePassData
