@@ -1,7 +1,9 @@
 using Seb.Helpers;
+using Seb.Fluid2D.Simulation;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.RenderGraphModule;
 
 namespace Seb.Fluid2D.Rendering
 {
@@ -42,21 +44,7 @@ namespace Seb.Fluid2D.Rendering
 			Release();
 		}
 
-		internal void ApplyPhaseLookPreset(ParticleFluidPhaseLookPreset preset)
-		{
-			if (preset == null)
-			{
-				return;
-			}
-
-			gaussianDiffuseScatterStrength = preset.gaussianDiffuseScatterStrength;
-			gaussianDiffuseRadius = preset.gaussianDiffuseRadius;
-		}
-
-		internal bool ShouldRender()
-		{
-			return isActiveAndEnabled && gaussianDiffuseScatterStrength > 0f && gaussianDiffuseRadius > 0f;
-		}
+		internal bool ShouldRender => isActiveAndEnabled && gaussianDiffuseScatterStrength > 0f && gaussianDiffuseRadius > 0f;
 
 		internal void EnsureMaterials()
 		{
@@ -64,9 +52,9 @@ namespace Seb.Fluid2D.Rendering
 			ParticleFluidRenderUtils.EnsureMaterial(ref _gaussianDiffuseBlurMaterial, gaussianDiffuseBlurShader);
 		}
 
-		internal void EnsureResources(Vector2Int causticSize, bool renderGaussian)
+		internal void EnsureResources(Vector2Int causticSize)
 		{
-			if (renderGaussian)
+			if (ShouldRender)
 			{
 				int width = Mathf.Max(1, Mathf.RoundToInt(causticSize.x * gaussianDiffuseTextureScale));
 				int height = Mathf.Max(1, Mathf.RoundToInt(causticSize.y * gaussianDiffuseTextureScale));
@@ -78,29 +66,55 @@ namespace Seb.Fluid2D.Rendering
 			ComputeHelper.Release(gaussianSoftLightTexture0, gaussianSoftLightTexture1);
 		}
 
-		internal Texture Render(ParticleFluidLighting2D.FrameContext context, CommandBuffer targetCommandBuffer, Texture sharpCaustics, Texture transportTexture, float directLightTextureScale)
+		internal void RecordRenderGraph(
+			RenderGraph renderGraph,
+			ParticleFluidLighting2D.FrameContext context,
+			LightingInputHandles inputs,
+			LightingResourceHandles resources,
+			Texture sharpCaustics,
+			Texture transportTexture,
+			float directLightTextureScale)
 		{
-			MetaballRenderer2D metaballSettings = context.display.metaballs;
-			targetCommandBuffer.BeginSample("Metaballs/Phase Diffuse Light");
-			if (_phaseDiffuseLightInitMaterial == null || _gaussianDiffuseBlurMaterial == null || gaussianSoftLightTexture0 == null || gaussianSoftLightTexture1 == null)
+			using IUnsafeRenderGraphBuilder builder = renderGraph.AddUnsafePass("Gaussian SSS", out GaussianSssPassData passData);
+			passData.context = context;
+			passData.sharpCaustics = sharpCaustics != null ? sharpCaustics : Texture2D.blackTexture;
+			passData.transportTexture = transportTexture != null ? transportTexture : Texture2D.blackTexture;
+			passData.directLightTextureScale = directLightTextureScale;
+			UseIfValid(builder, inputs.transport, AccessFlags.Read);
+			UseIfValid(builder, resources.causticResolved, AccessFlags.Read);
+			UseIfValid(builder, resources.causticTemporal, AccessFlags.Read);
+			UseIfValid(builder, resources.gaussianSoftLight0, AccessFlags.ReadWrite);
+			UseIfValid(builder, resources.gaussianSoftLight1, AccessFlags.ReadWrite);
+			builder.AllowPassCulling(false);
+			builder.SetRenderFunc((GaussianSssPassData data, UnsafeGraphContext context) =>
 			{
-				targetCommandBuffer.EndSample("Metaballs/Phase Diffuse Light");
-				return Texture2D.blackTexture;
-			}
-			ParticleFluidRenderBindings.ApplyPhaseSplitGlobals(targetCommandBuffer, metaballSettings);
-			ParticleFluidRenderBindings.ApplyLayoutGlobals(targetCommandBuffer, context.display.sim.analyticBoundary, context.renderRegion);
+				CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+				MetaballRenderer2D metaballSettings = data.context.display.metaballs;
+				nativeCommandBuffer.BeginSample("Metaballs/Phase Diffuse Light");
+				if (_phaseDiffuseLightInitMaterial == null || _gaussianDiffuseBlurMaterial == null || gaussianSoftLightTexture0 == null || gaussianSoftLightTexture1 == null)
+				{
+					nativeCommandBuffer.EndSample("Metaballs/Phase Diffuse Light");
+					return;
+				}
+				ParticleFluidRenderBindings.ApplyPhaseSplitGlobals(nativeCommandBuffer, metaballSettings);
+				ParticleFluidRenderBindings.ApplyLayoutGlobals(nativeCommandBuffer, data.context.display.sim.analyticBoundary, data.context.renderRegion);
 
-			_phaseDiffuseLightInitMaterial.SetTexture(SharpCausticsTex, sharpCaustics);
-			_phaseDiffuseLightInitMaterial.SetTexture(MaterialTransportTex, transportTexture != null ? transportTexture : Texture2D.blackTexture);
-			_phaseDiffuseLightInitMaterial.SetVector(SoftLightSize, new Vector4(gaussianSoftLightTexture0.width, gaussianSoftLightTexture0.height));
-			_phaseDiffuseLightInitMaterial.SetFloat(ScatterStrengthA, gaussianDiffuseScatterStrength);
-			_phaseDiffuseLightInitMaterial.SetFloat(LightIntensity, 1f);
-			_phaseDiffuseLightInitMaterial.SetInt(MaskInputToPhase0, gaussianDiffuseMaskInputToPhase0 ? 1 : 0);
-			ParticleFluidRenderUtils.DrawRegionQuad(targetCommandBuffer, gaussianSoftLightTexture0, _phaseDiffuseLightInitMaterial, 0, context.renderRegion, context.cam, true, Color.clear);
+				_phaseDiffuseLightInitMaterial.SetTexture(SharpCausticsTex, data.sharpCaustics);
+				_phaseDiffuseLightInitMaterial.SetTexture(MaterialTransportTex, data.transportTexture != null ? data.transportTexture : Texture2D.blackTexture);
+				_phaseDiffuseLightInitMaterial.SetVector(SoftLightSize, new Vector4(gaussianSoftLightTexture0.width, gaussianSoftLightTexture0.height));
+				_phaseDiffuseLightInitMaterial.SetFloat(ScatterStrengthA, gaussianDiffuseScatterStrength);
+				_phaseDiffuseLightInitMaterial.SetFloat(LightIntensity, 1f);
+				_phaseDiffuseLightInitMaterial.SetInt(MaskInputToPhase0, gaussianDiffuseMaskInputToPhase0 ? 1 : 0);
+				ParticleFluidRenderUtils.DrawRegionQuad(nativeCommandBuffer, gaussianSoftLightTexture0, _phaseDiffuseLightInitMaterial, 0, data.context.renderRegion, data.context.cam, true, Color.clear);
 
-			float blurRadius = gaussianDiffuseRadius * metaballSettings.renderTextureScale * directLightTextureScale * gaussianDiffuseTextureScale;
-			ParticleFluidRenderUtils.GaussianBlur(targetCommandBuffer, blurRadius, _gaussianDiffuseBlurMaterial,gaussianSoftLightTexture0,gaussianSoftLightTexture1, "Metaballs/Phase Diffuse Light");
-			return gaussianSoftLightTexture0;
+				float blurRadius = gaussianDiffuseRadius * metaballSettings.renderTextureScale * data.directLightTextureScale * gaussianDiffuseTextureScale;
+				ParticleFluidRenderUtils.GaussianBlur(nativeCommandBuffer, blurRadius, _gaussianDiffuseBlurMaterial,gaussianSoftLightTexture0,gaussianSoftLightTexture1, "Metaballs/Phase Diffuse Light");
+			});
+		}
+
+		internal Texture GetOutputTexture()
+		{
+			return gaussianSoftLightTexture0 != null ? gaussianSoftLightTexture0 : Texture2D.blackTexture;
 		}
 
 		internal void Release()
@@ -110,6 +124,22 @@ namespace Seb.Fluid2D.Rendering
 			gaussianSoftLightTexture1 = null;
 			ParticleFluidRenderUtils.DestroyMaterial(ref _phaseDiffuseLightInitMaterial);
 			ParticleFluidRenderUtils.DestroyMaterial(ref _gaussianDiffuseBlurMaterial);
+		}
+
+		private static void UseIfValid(IBaseRenderGraphBuilder builder, TextureHandle texture, AccessFlags accessFlags)
+		{
+			if (texture.IsValid())
+			{
+				builder.UseTexture(texture, accessFlags);
+			}
+		}
+
+		private class GaussianSssPassData
+		{
+			public ParticleFluidLighting2D.FrameContext context;
+			public Texture sharpCaustics;
+			public Texture transportTexture;
+			public float directLightTextureScale;
 		}
 	}
 }

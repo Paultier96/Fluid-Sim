@@ -3,6 +3,7 @@ using Seb.Helpers;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.RenderGraphModule;
 using UnityEngine.Serialization;
 
 namespace Seb.Fluid2D.Rendering
@@ -141,6 +142,52 @@ namespace Seb.Fluid2D.Rendering
 			BuildRadianceCascadeSdfField(context, targetCommandBuffer, out RenderTexture sdfResult, out RenderTexture sdfPayload, _lighting.materialTransportTexture);
 			Texture phase1Texture = RenderRadianceCascadePass(context, targetCommandBuffer, sharpCaustics, sdfResult, sdfPayload, _radianceCascadeSdfMaterial, "Metaballs/Radiance Cascades SDF", useGaussianBoundarySource);
 			return phase1Texture;
+		}
+
+		internal void RecordRenderGraph(
+			RenderGraph renderGraph,
+			ParticleFluidLighting2D.FrameContext context,
+			LightingInputHandles inputs,
+			LightingResourceHandles resources,
+			Texture sharpCaustics,
+			bool useGaussianBoundarySource)
+		{
+			using IUnsafeRenderGraphBuilder builder = renderGraph.AddUnsafePass("Radiance Cascades GI", out RadianceCascadePassData passData);
+			passData.radianceCascadeGi = this;
+			passData.context = context;
+			passData.sharpCaustics = sharpCaustics != null ? sharpCaustics : Texture2D.blackTexture;
+			passData.useGaussianBoundarySource = useGaussianBoundarySource;
+			UseIfValid(builder, inputs.transport, AccessFlags.Read);
+			UseIfValid(builder, inputs.gradientAtlas, AccessFlags.Read);
+			UseIfValid(builder, resources.causticResolved, AccessFlags.Read);
+			UseIfValid(builder, resources.causticTemporal, AccessFlags.Read);
+			if (useGaussianBoundarySource)
+			{
+				UseIfValid(builder, resources.gaussianSoftLight0, AccessFlags.Read);
+			}
+			UseIfValid(builder, resources.radianceCascade0, AccessFlags.ReadWrite);
+			UseIfValid(builder, resources.radianceCascade1, AccessFlags.ReadWrite);
+			UseIfValid(builder, resources.radianceCascadeSdfSeedA, AccessFlags.ReadWrite);
+			UseIfValid(builder, resources.radianceCascadeSdfSeedB, AccessFlags.ReadWrite);
+			UseIfValid(builder, resources.radianceCascadeSdfPayloadA, AccessFlags.ReadWrite);
+			UseIfValid(builder, resources.radianceCascadeSdfPayloadB, AccessFlags.ReadWrite);
+			builder.AllowPassCulling(false);
+			builder.SetRenderFunc(static (RadianceCascadePassData data, UnsafeGraphContext context) =>
+			{
+				CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+				data.radianceCascadeGi.Render(data.context, nativeCommandBuffer, data.sharpCaustics, data.useGaussianBoundarySource);
+			});
+		}
+
+		internal Texture GetOutputTexture()
+		{
+			if (radianceCascadeTexture0 == null || radianceCascadeTexture1 == null)
+			{
+				return Texture2D.blackTexture;
+			}
+
+			int cascadeCount = Mathf.Clamp(radianceCascadeCount, 1, 6);
+			return cascadeCount % 2 == 0 ? radianceCascadeTexture0 : radianceCascadeTexture1;
 		}
 
 		internal void Release()
@@ -300,6 +347,22 @@ namespace Seb.Fluid2D.Rendering
 			ParticleFluidRenderBindings.ApplyBoundaryGlobals(commandBuffer, context.display.sim.analyticBoundary);
 			commandBuffer.SetGlobalVector(DomainWorldCenter, context.renderRegion.center);
 			commandBuffer.SetGlobalVector(DomainWorldSize, context.renderRegion.size);
+		}
+
+		private static void UseIfValid(IBaseRenderGraphBuilder builder, TextureHandle texture, AccessFlags accessFlags)
+		{
+			if (texture.IsValid())
+			{
+				builder.UseTexture(texture, accessFlags);
+			}
+		}
+
+		private class RadianceCascadePassData
+		{
+			public ParticleFluidRadianceCascadeGi radianceCascadeGi;
+			public ParticleFluidLighting2D.FrameContext context;
+			public Texture sharpCaustics;
+			public bool useGaussianBoundarySource;
 		}
 	}
 }

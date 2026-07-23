@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace Seb.Fluid2D.Rendering
 {
-	internal sealed class ParticleFluidPhaseLookPresetController
+	public sealed class ParticleFluidPhaseLookPresetController
 	{
 		private readonly ParticleFluidLighting2D _lighting;
 
@@ -44,7 +44,12 @@ namespace Seb.Fluid2D.Rendering
 			CopyPhaseMaterialSettings(preset.phase0Material, _lighting.phase0Material);
 			CopyPhaseMaterialSettings(preset.phase1Material, _lighting.phase1Material);
 			CopyPhaseMaterialSettings(preset.boundaryMaterial, _lighting.boundaryMaterial);
-			_lighting.gaussianSss?.ApplyPhaseLookPreset(preset);
+			if (_lighting.gaussianSss != null)
+			{
+				_lighting.gaussianSss.gaussianDiffuseScatterStrength = preset.gaussianDiffuseScatterStrength;
+				_lighting.gaussianSss.gaussianDiffuseRadius = preset.gaussianDiffuseRadius;
+			}
+
 			_lighting.SyncMaterialSlots();
 
 			ParticleDisplay2D display = _lighting.display;

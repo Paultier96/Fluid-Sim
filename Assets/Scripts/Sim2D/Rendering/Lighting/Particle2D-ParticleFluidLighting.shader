@@ -32,7 +32,8 @@ sampler2D SoftLightTexPhase1;
 float4 MaterialAlbedoTex_TexelSize;
 #include "Shared/ParticleFluidAnalyticBoundary.hlsl"
 int particleFluidCausticsEnabled;
-int particleFluidPhaseDiffuseLightEnabled;
+int particleFluidGaussianSssEnabled;
+int particleFluidRadianceCascadeEnabled;
 int particleGaussianPhase0Only;
 float particleFluidRadianceCascadeDirectCausticStrength;
 float4 particleFluidPhaseDiffuseLightTint[2];
@@ -357,7 +358,7 @@ float4 fragSplitLighting(v2f i) : SV_Target
 	if (particleFluidCausticsEnabled != 0)
 	{
 		float3 lightField = tex2D(CausticTex, materialUv).rgb;
-		float softLightDirectCausticStrength = particleFluidPhaseDiffuseLightEnabled != 0 ? saturate(particleFluidRadianceCascadeDirectCausticStrength) : 1.0;
+		float softLightDirectCausticStrength = particleFluidRadianceCascadeEnabled != 0 ? saturate(particleFluidRadianceCascadeDirectCausticStrength) : 1.0;
 		float phase0DirectCausticStrength = softLightDirectCausticStrength;
 		float phase1DirectCausticStrength = 1.0;
 		directLightIrradiance0 = lightField * phase0DirectCausticStrength;
@@ -397,28 +398,31 @@ float4 fragSplitLighting(v2f i) : SV_Target
 		}
 	}
 
-	if (particleFluidPhaseDiffuseLightEnabled != 0)
+	float2 softLightUv = materialUv;
+	float additiveBlend0 = saturate(ParticlePhaseDiffuseAdditiveBlend(0));
+	float additiveBlend1 = saturate(ParticlePhaseDiffuseAdditiveBlend(1));
+	float lightNormal = saturate(dot(normal, lightDir));
+	float softNormal0 = lerp(1.0, lightNormal, saturate(ParticlePhaseDiffuseNormalInfluence(0)));
+	float softNormal1 = lerp(1.0, lightNormal, saturate(ParticlePhaseDiffuseNormalInfluence(1)));
+	if (particleFluidGaussianSssEnabled != 0)
 	{
-		float2 softLightUv = materialUv;
 		float4 gaussianSoftLight = tex2D(SoftLightTex, softLightUv);
 		float3 softLightPhase0 = gaussianSoftLight.rgb;
-		float3 softLightPhase1 = tex2D(SoftLightTexPhase1, softLightUv).rgb;
 		float3 diffuseAlbedo0 = ParticleFluidSamplePhaseGradientColour(phaseData, false);
 		float3 diffuseAlbedo1 = ParticleFluidSamplePhaseGradientColour(phaseData, true);
-		float additiveBlend0 = saturate(ParticlePhaseDiffuseAdditiveBlend(0));
-		float additiveBlend1 = saturate(ParticlePhaseDiffuseAdditiveBlend(1));
 		float3 gaussianDiffuse0 = lerp(diffuseAlbedo0, 1.0, additiveBlend0) * ParticlePhaseDiffuseLightTint(0);
 		float3 gaussianDiffuse1 = lerp(diffuseAlbedo1, 1.0, additiveBlend1) * ParticlePhaseDiffuseLightTint(1);
-		float3 radianceDiffuse0 = lerp(materialAlbedo.rgb, 1.0, additiveBlend0);
-		float3 radianceDiffuse1 = lerp(materialAlbedo.rgb, 1.0, additiveBlend1);
-		float lightNormal = saturate(dot(normal, lightDir));
-		float softNormal0 = lerp(1.0, lightNormal, saturate(ParticlePhaseDiffuseNormalInfluence(0)));
-		float softNormal1 = lerp(1.0, lightNormal, saturate(ParticlePhaseDiffuseNormalInfluence(1)));
 		lit0 += softLightPhase0 * (1.0 - phaseT) * gaussianDiffuse0 * softNormal0;
 		if (particleGaussianPhase0Only == 0)
 		{
 			lit1 += softLightPhase0 * phaseT * gaussianDiffuse1 * softNormal1;
 		}
+	}
+
+	if (particleFluidRadianceCascadeEnabled != 0)
+	{
+		float3 softLightPhase1 = tex2D(SoftLightTexPhase1, softLightUv).rgb;
+		float3 radianceDiffuse1 = lerp(materialAlbedo.rgb, 1.0, additiveBlend1);
 		lit1 += softLightPhase1 * radianceDiffuse1 * softNormal1;
 	}
 

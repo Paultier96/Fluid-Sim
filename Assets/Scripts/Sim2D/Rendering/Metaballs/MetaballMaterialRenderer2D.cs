@@ -1,11 +1,11 @@
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.RenderGraphModule;
 
 namespace Seb.Fluid2D.Rendering
 {
 	internal sealed class MetaballMaterialRenderer2D
 	{
-		private static readonly int AnalyticBoundaryExpansion = Shader.PropertyToID("analyticBoundaryExpansion");
 		private static readonly int CombinedTex = Shader.PropertyToID("CombinedTex");
 		private static readonly int NormalTex = Shader.PropertyToID("NormalTex");
 		private static readonly int MaterialAlbedoTex = Shader.PropertyToID("MaterialAlbedoTex");
@@ -31,27 +31,56 @@ namespace Seb.Fluid2D.Rendering
 			_material = new Material(shader);
 		}
 
-		public void SetSourceTextures(Texture combinedTexture, Texture normalTexture)
-		{
-			_material.SetTexture(CombinedTex, combinedTexture != null ? combinedTexture : Texture2D.blackTexture);
-			_material.SetTexture(NormalTex, normalTexture != null ? normalTexture : Texture2D.blackTexture);
-		}
 
-
-		public void RenderMaterialMaps(CommandBuffer commandBuffer, Bounds materialRegion, Camera camera)
+		public void RecordRenderGraph(
+			RenderGraph renderGraph,
+			TextureHandle combinedHandle,
+			TextureHandle normalHandle,
+			TextureHandle gradientAtlasHandle,
+			TextureHandle materialAlbedoHandle,
+			TextureHandle materialNormalHandle,
+			TextureHandle materialTransportHandle,
+			ParticleFluidLighting2D.FrameContext frameContext,
+			ParticleFluidLighting2D lighting,
+			Texture combinedTexture,
+			Texture normalTexture)
 		{
-			if (!materialMaps.IsAllocated || commandBuffer == null || _material == null || camera == null)
+			using IUnsafeRenderGraphBuilder builder = renderGraph.AddUnsafePass("Material Maps", out MaterialMapPassData _);
+			UseIfValid(builder, combinedHandle, AccessFlags.Read);
+			UseIfValid(builder, normalHandle, AccessFlags.Read);
+			UseIfValid(builder, gradientAtlasHandle, AccessFlags.Read);
+			UseIfValid(builder, materialAlbedoHandle, AccessFlags.Write);
+			UseIfValid(builder, materialNormalHandle, AccessFlags.Write);
+			UseIfValid(builder, materialTransportHandle, AccessFlags.Write);
+			builder.AllowPassCulling(false);
+			builder.SetRenderFunc((MaterialMapPassData _, UnsafeGraphContext context) =>
 			{
-				return;
-			}
+				CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+				ParticleFluidRenderBindings.ApplyMetaballMaterialGlobals(nativeCommandBuffer, lighting, frameContext);
+				if (!materialMaps.IsAllocated || nativeCommandBuffer == null || _material == null || frameContext.cam == null)
+				{
+					return;
+				}
 
-			_materialMapTargets[0] = materialMaps.albedoTexture;
-			_materialMapTargets[1] = materialMaps.normalTexture;
-			_materialMapTargets[2] = materialMaps.transportTexture;
+				_material.SetTexture(CombinedTex, combinedTexture ?? Texture2D.blackTexture);
+				_material.SetTexture(NormalTex, normalTexture ?? Texture2D.blackTexture);
 
-			commandBuffer.BeginSample("Particle Fluid/Build Material Maps");
-			ParticleFluidRenderUtils.DrawRegionQuad(commandBuffer, _materialMapTargets, _material, MaterialMapsPass, materialRegion, camera, true, Color.clear);
-			commandBuffer.EndSample("Particle Fluid/Build Material Maps");
+				_materialMapTargets[0] = materialMaps.albedoTexture;
+				_materialMapTargets[1] = materialMaps.normalTexture;
+				_materialMapTargets[2] = materialMaps.transportTexture;
+
+				nativeCommandBuffer.BeginSample("Particle Fluid/Build Material Maps");
+				ParticleFluidRenderUtils.DrawRegionQuad(
+					nativeCommandBuffer,
+					_materialMapTargets,
+					_material,
+					MaterialMapsPass,
+					frameContext.renderRegion,
+					frameContext.cam,
+					true,
+					Color.clear);
+				nativeCommandBuffer.EndSample("Particle Fluid/Build Material Maps");
+			});
 		}
 
 		public void RenderUnlit(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, Bounds region)
@@ -76,6 +105,18 @@ namespace Seb.Fluid2D.Rendering
 				Object.DestroyImmediate(_material);
 				_material = null;
 			}
+		}
+
+		private static void UseIfValid(IBaseRenderGraphBuilder builder, TextureHandle texture, AccessFlags accessFlags)
+		{
+			if (texture.IsValid())
+			{
+				builder.UseTexture(texture, accessFlags);
+			}
+		}
+
+		private class MaterialMapPassData
+		{
 		}
 	}
 }

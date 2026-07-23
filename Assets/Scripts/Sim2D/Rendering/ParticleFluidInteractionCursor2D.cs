@@ -249,7 +249,16 @@ namespace Seb.Fluid2D.Rendering
 			}
 
 			activePhaseLookPresetIndex = Mod(activePhaseLookPresetIndex + direction, phaseLookPresets.Length);
-			ApplyActivePhaseLookPreset();
+			ParticleFluidLighting2D targetLighting = ResolvePresetTargetLighting();
+			ParticleFluidPhaseLookPreset preset = GetActivePhaseLookPreset();
+			if (targetLighting == null || preset == null)
+			{
+				return;
+			}
+
+			targetLighting.phaseLookPreset = preset;
+			targetLighting.phaseLookPresetController ??= new ParticleFluidPhaseLookPresetController(targetLighting);
+			targetLighting.phaseLookPresetController.Apply();
 		}
 
 		public void NextPhaseLookPreset()
@@ -260,19 +269,6 @@ namespace Seb.Fluid2D.Rendering
 		public void PreviousPhaseLookPreset()
 		{
 			CyclePhaseLookPreset(-1);
-		}
-
-		public void ApplyActivePhaseLookPreset()
-		{
-			ParticleFluidLighting2D targetLighting = ResolvePresetTargetLighting();
-			ParticleFluidPhaseLookPreset preset = GetActivePhaseLookPreset();
-			if (targetLighting == null || preset == null)
-			{
-				return;
-			}
-
-			targetLighting.phaseLookPreset = preset;
-			targetLighting.ApplyPhaseLookPreset();
 		}
 
 		private ParticleFluidPhaseLookPreset GetActivePhaseLookPreset()

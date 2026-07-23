@@ -1,7 +1,9 @@
 using System;
+using Seb.Fluid2D.Simulation;
 using Seb.Helpers;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.RenderGraphModule;
 using UnityEngine.Serialization;
 using Object = UnityEngine.Object;
 
@@ -99,45 +101,174 @@ namespace Seb.Fluid2D.Rendering
 			ApplyDebugSettings();
 		}
 
-		public void RecordAccumulationTarget(ParticleDisplay2D display, IRasterCommandBuffer targetCommandBuffer, int shaderPass)
+		public void RecordAccumulationRenderGraph(RenderGraph renderGraph, TextureHandle combinedHandle, TextureHandle normalHandle, TextureHandle velocityHandle, bool renderVelocityTextures)
 		{
-			targetCommandBuffer.SetGlobalVector(DomainWorldCenter, _currentRenderRegion.center);
-			targetCommandBuffer.SetGlobalVector(DomainWorldSize, _currentRenderRegion.size);
-			targetCommandBuffer.ClearRenderTarget(false, true, Color.clear);
-			targetCommandBuffer.DrawMeshInstancedIndirect(display.particleMesh, 0, _metaballMaterial, shaderPass, display.argsBuffer);
+			RecordAccumulationPass(renderGraph, "Combined Accumulation", combinedHandle, 0);
+			RecordAccumulationPass(renderGraph, "Normal Accumulation", normalHandle, 1);
+			if (renderVelocityTextures)
+			{
+				RecordAccumulationPass(renderGraph, "Velocity Accumulation", velocityHandle, 2);
+			}
 		}
 
-		public void RecordFallbackComposite(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
+		private void RecordAccumulationPass(RenderGraph renderGraph, string passName, TextureHandle target, int shaderPass)
 		{
-			if (_debugMaterial != null)
+			using IRasterRenderGraphBuilder builder = renderGraph.AddRasterRenderPass(passName, out MetaballAccumulationPassData passData);
+
+			passData.shaderPass = shaderPass;
+			builder.SetRenderAttachment(target, 0);
+			builder.AllowGlobalStateModification(true);
+			builder.AllowPassCulling(false);
+			builder.SetRenderFunc((MetaballAccumulationPassData data, RasterGraphContext context) =>
 			{
-				targetCommandBuffer.BeginSample("Metaballs/Debug Composite");
-				ParticleFluidRenderBindings.ApplyMetaballDebugGlobals(targetCommandBuffer, display, cam, _lighting);
-				targetCommandBuffer.SetRenderTarget(finalTarget);
-				targetCommandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _currentRenderRegion.CreateRegionMatrix(), _debugMaterial, 0, 0);
-				targetCommandBuffer.EndSample("Metaballs/Debug Composite");
+				RasterCommandBuffer cmd = context.cmd;
+				cmd.SetGlobalVector(DomainWorldCenter, _currentRenderRegion.center);
+				cmd.SetGlobalVector(DomainWorldSize, _currentRenderRegion.size);
+				cmd.ClearRenderTarget(false, true, Color.clear);
+				cmd.DrawMeshInstancedIndirect(_currentDisplay.particleMesh, 0, _metaballMaterial, data.shaderPass, _currentDisplay.argsBuffer);
+			});
+		}
+
+		public void RecordSurfaceBlurRenderGraph(RenderGraph renderGraph, TextureHandle combinedHandle, TextureHandle combinedBlurHandle, TextureHandle normalHandle, TextureHandle normalBlurHandle)
+		{
+			float surfaceBlurRadius = _currentDisplay.EffectiveConfiguredBlurRadius * _currentDisplay.GetZoomScale(_currentCamera) * renderTextureScale;
+			RecordGaussianBlurRenderGraph(renderGraph, "Surface Blur Combined", combinedHandle, combinedBlurHandle, combinedAccumulationTexture, combinedBlurTexture, surfaceBlurRadius, "Metaballs/Surface Blur Combined");
+			RecordGaussianBlurRenderGraph(renderGraph, "Surface Blur Normal", normalHandle, normalBlurHandle, normalAccumulationTexture, normalBlurTexture, surfaceBlurRadius, "Metaballs/Surface Blur Normal");
+		}
+
+		private static void UseIfValid(IBaseRenderGraphBuilder builder, TextureHandle texture, AccessFlags accessFlags)
+		{
+			if (texture.IsValid())
+			{
+				builder.UseTexture(texture, accessFlags);
+			}
+		}
+
+		public void RecordVelocityBlurRenderGraph(RenderGraph renderGraph, TextureHandle velocityHandle, TextureHandle velocityBlurHandle, bool renderVelocityTextures)
+		{
+			if (!renderVelocityTextures)
+			{
+				return;
 			}
 
-			RecordVectorField(display, targetCommandBuffer);
+			RecordGaussianBlurRenderGraph(renderGraph, "Velocity Gaussian Blur", velocityHandle, velocityBlurHandle, velocityTexture, velocityBlurTexture, EffectiveVelocityBlurRadius, "Metaballs/Blur Particle Motion");
 		}
 
-		public void RecordMaterialMaps(CommandBuffer targetCommandBuffer)
+		private void RecordGaussianBlurRenderGraph(RenderGraph renderGraph, string passName, TextureHandle sourceHandle, TextureHandle scratchHandle, RenderTexture sourceTexture, RenderTexture scratchTexture, float blurRadius, string sampleName)
 		{
-			MaterialRenderer.SetSourceTextures(combinedAccumulationTexture, normalAccumulationTexture);
-			ParticleFluidRenderBindings.ApplyMetaballMaterialGlobals(targetCommandBuffer, _currentDisplay, _currentCamera, _lighting, _currentRenderRegion);
-			MaterialRenderer.RenderMaterialMaps(targetCommandBuffer, _currentRenderRegion, _currentCamera);
-			_lighting.ApplyMaterialMaps(MaterialRenderer.materialMaps);
+			if (blurRadius < 0.001f || blurMaterial == null || sourceTexture == null || scratchTexture == null)
+			{
+				return;
+			}
+
+			using IUnsafeRenderGraphBuilder builder = renderGraph.AddUnsafePass<GaussianBlurPassData>(passName, out _);
+			UseIfValid(builder, sourceHandle, AccessFlags.ReadWrite);
+			UseIfValid(builder, scratchHandle, AccessFlags.ReadWrite);
+			builder.AllowPassCulling(false);
+			builder.SetRenderFunc((GaussianBlurPassData _, UnsafeGraphContext context) =>
+			{
+				CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+				ParticleFluidRenderUtils.GaussianBlur(nativeCommandBuffer, blurRadius, blurMaterial, sourceTexture, scratchTexture, sampleName);
+			});
 		}
 
-		public void RecordCompositeWithPreparedMaterialMaps(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
+		public void RecordMaterialMapsRenderGraph(
+			RenderGraph renderGraph,
+			TextureHandle combinedHandle,
+			TextureHandle normalHandle,
+			TextureHandle gradientAtlasHandle,
+			TextureHandle materialAlbedoHandle,
+			TextureHandle materialNormalHandle,
+			TextureHandle materialTransportHandle)
 		{
-			RecordPreparedMaterialAndLighting(display, cam, targetCommandBuffer, finalTarget);
-			RecordVectorField(display, targetCommandBuffer);
+			MaterialRenderer.RecordRenderGraph(
+				renderGraph,
+				combinedHandle,
+				normalHandle,
+				gradientAtlasHandle,
+				materialAlbedoHandle,
+				materialNormalHandle,
+				materialTransportHandle,
+				CreateLightingContext(_currentDisplay, _currentCamera),
+				_lighting,
+				combinedAccumulationTexture,
+				normalAccumulationTexture);
+		}
+
+		internal void RecordCompositeRenderGraph(
+			RenderGraph renderGraph,
+			TextureHandle colorHandle,
+			bool useMaterialPipeline,
+			TextureHandle combinedHandle,
+			TextureHandle normalHandle,
+			TextureHandle velocityHandle,
+			TextureHandle materialAlbedoHandle,
+			TextureHandle materialNormalHandle,
+			TextureHandle materialTransportHandle,
+			LightingResourceHandles lightingResources)
+		{
+			using IUnsafeRenderGraphBuilder builder = renderGraph.AddUnsafePass("Composite", out CompositePassData passData);
+			passData.color = colorHandle;
+			passData.useMaterialPipeline = useMaterialPipeline;
+			UseIfValid(builder, colorHandle, AccessFlags.Write);
+			UseIfValid(builder, combinedHandle, AccessFlags.Read);
+			UseIfValid(builder, normalHandle, AccessFlags.Read);
+			UseIfValid(builder, velocityHandle, AccessFlags.Read);
+			UseIfValid(builder, materialAlbedoHandle, AccessFlags.Read);
+			UseIfValid(builder, materialNormalHandle, AccessFlags.Read);
+			UseIfValid(builder, materialTransportHandle, AccessFlags.Read);
+			UseIfValid(builder, lightingResources.causticResolved, AccessFlags.Read);
+			UseIfValid(builder, lightingResources.causticTemporal, AccessFlags.Read);
+			UseIfValid(builder, lightingResources.gaussianSoftLight0, AccessFlags.Read);
+			UseIfValid(builder, lightingResources.gaussianSoftLight1, AccessFlags.Read);
+			UseIfValid(builder, lightingResources.radianceCascade0, AccessFlags.Read);
+			UseIfValid(builder, lightingResources.radianceCascade1, AccessFlags.Read);
+			builder.AllowPassCulling(false);
+			builder.SetRenderFunc((CompositePassData data, UnsafeGraphContext context) =>
+			{
+				context.cmd.SetRenderTarget(data.color);
+
+				CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+				if (data.useMaterialPipeline)
+				{
+					nativeCommandBuffer.BeginSample("Metaballs/Material Pipeline");
+					if ((_currentDisplay.debugMode != ParticleDisplay2D.DebugVisualization.None || _lighting != null && _lighting.debugMode != ParticleFluidLighting2D.LightingDebugVisualization.None) && _debugMaterial != null)
+					{
+						ApplyDebugSettings();
+						ParticleFluidRenderBindings.ApplyMetaballDebugGlobals(nativeCommandBuffer, _currentDisplay, _currentCamera, _lighting);
+						nativeCommandBuffer.SetRenderTarget(data.color);
+						nativeCommandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _currentRenderRegion.CreateRegionMatrix(), _debugMaterial, 0, 0);
+					}
+					else if (_lighting != null)
+					{
+						_lighting.Render(nativeCommandBuffer, data.color);
+					}
+					else
+					{
+						MaterialRenderer.RenderUnlit(nativeCommandBuffer, data.color, _currentRenderRegion);
+					}
+					nativeCommandBuffer.EndSample("Metaballs/Material Pipeline");
+					RecordVectorField(_currentDisplay, nativeCommandBuffer);
+				}
+				else
+				{
+					if (_debugMaterial != null)
+					{
+						nativeCommandBuffer.BeginSample("Metaballs/Debug Composite");
+						ParticleFluidRenderBindings.ApplyMetaballDebugGlobals(nativeCommandBuffer, _currentDisplay, _currentCamera, _lighting);
+						nativeCommandBuffer.SetRenderTarget(data.color);
+						nativeCommandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _currentRenderRegion.CreateRegionMatrix(), _debugMaterial, 0, 0);
+						nativeCommandBuffer.EndSample("Metaballs/Debug Composite");
+					}
+
+					RecordVectorField(_currentDisplay, nativeCommandBuffer);
+				}
+			});
 		}
 
 		public ParticleFluidLighting2D.FrameContext CreateLightingContext(ParticleDisplay2D display, Camera cam)
 		{
-			return new ParticleFluidLighting2D.FrameContext(display, cam, _currentRenderRegion, _currentMaterialSize);
+			return new ParticleFluidLighting2D.FrameContext(display, cam, _currentRenderRegion);
 		}
 
 		public void Release()
@@ -205,7 +336,29 @@ namespace Seb.Fluid2D.Rendering
 
 		private void ApplyDebugSettings()
 		{
-			int debugShaderMode = GetDebugShaderMode(_currentDisplay, _lighting);
+			int debugShaderMode;
+			if (_currentDisplay.debugMode != ParticleDisplay2D.DebugVisualization.None)
+			{
+				debugShaderMode = (int)_currentDisplay.debugMode;
+			}
+			else
+			{
+				if (_lighting == null)
+				{
+					debugShaderMode = 0;
+				}
+				else
+				{
+					debugShaderMode = _lighting.debugMode switch
+					{
+						ParticleFluidLighting2D.LightingDebugVisualization.Caustics => DebugModeCaustics,
+						ParticleFluidLighting2D.LightingDebugVisualization.SoftLight => DebugModeSoftLight,
+						ParticleFluidLighting2D.LightingDebugVisualization.RadianceCascadeRaw => DebugModeRadianceCascadeRaw,
+						_ => 0,
+					};
+				}
+			}
+
 			_debugMaterial.SetTexture(CombinedTex, combinedAccumulationTexture);
 			Texture normalDebugTexture = debugShaderMode == (int)ParticleDisplay2D.DebugVisualization.Gradient && MaterialRenderer.materialMaps.normalTexture != null
 				? MaterialRenderer.materialMaps.normalTexture
@@ -241,37 +394,7 @@ namespace Seb.Fluid2D.Rendering
 			_debugMaterial.SetVector(DomainWorldSize, _lighting != null ? _lighting.currentCausticWorldSize : _currentRenderRegion.size);
 		}
 
-		public void RecordVelocityGaussianBlur(CommandBuffer targetCommandBuffer)
-		{
-			if (blurMaterial == null || velocityTexture == null || velocityBlurTexture == null)
-			{
-				return;
-			}
-			ParticleFluidRenderUtils.GaussianBlur(targetCommandBuffer, EffectiveVelocityBlurRadius, blurMaterial, velocityTexture, velocityBlurTexture, "Metaballs/Blur Particle Motion");
-		}
-
 		public float EffectiveVelocityBlurRadius => _lighting != null ? _currentDisplay.GetEffectiveMotionBlurRadius(_currentCamera, _lighting.directLight.temporalCaustics.motionBlurRadius) : 0f;
-
-		private void RecordPreparedMaterialAndLighting(ParticleDisplay2D display, Camera cam, CommandBuffer targetCommandBuffer, RenderTargetIdentifier finalTarget)
-		{
-			targetCommandBuffer.BeginSample("Metaballs/Material Pipeline");
-			if ((display.debugMode != ParticleDisplay2D.DebugVisualization.None || _lighting != null && _lighting.debugMode != ParticleFluidLighting2D.LightingDebugVisualization.None) && _debugMaterial != null)
-			{
-				ApplyDebugSettings();
-				ParticleFluidRenderBindings.ApplyMetaballDebugGlobals(targetCommandBuffer, display, cam, _lighting);
-				targetCommandBuffer.SetRenderTarget(finalTarget);
-				targetCommandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _currentRenderRegion.CreateRegionMatrix(), _debugMaterial, 0, 0);
-			}
-			else if (_lighting != null)
-			{
-				_lighting.Render(targetCommandBuffer, finalTarget);
-			}
-			else
-			{
-				MaterialRenderer.RenderUnlit(targetCommandBuffer, finalTarget, _currentRenderRegion);
-			}
-			targetCommandBuffer.EndSample("Metaballs/Material Pipeline");
-		}
 
 		private void RecordVectorField(ParticleDisplay2D display, CommandBuffer targetCommandBuffer)
 		{
@@ -285,25 +408,19 @@ namespace Seb.Fluid2D.Rendering
 			return _lighting != null && display != null && display.debugMode <= ParticleDisplay2D.DebugVisualization.Temperature;
 		}
 
-		public static int GetDebugShaderMode(ParticleDisplay2D display, ParticleFluidLighting2D settings)
+		private class MetaballAccumulationPassData
 		{
-			if (display.debugMode != ParticleDisplay2D.DebugVisualization.None)
-			{
-				return (int)display.debugMode;
-			}
+			public int shaderPass;
+		}
 
-			if (settings == null)
-			{
-				return 0;
-			}
+		private class GaussianBlurPassData
+		{
+		}
 
-			return settings.debugMode switch
-			{
-				ParticleFluidLighting2D.LightingDebugVisualization.Caustics => DebugModeCaustics,
-				ParticleFluidLighting2D.LightingDebugVisualization.SoftLight => DebugModeSoftLight,
-				ParticleFluidLighting2D.LightingDebugVisualization.RadianceCascadeRaw => DebugModeRadianceCascadeRaw,
-				_ => 0,
-			};
+		private class CompositePassData
+		{
+			public bool useMaterialPipeline;
+			public TextureHandle color;
 		}
 	}
 }

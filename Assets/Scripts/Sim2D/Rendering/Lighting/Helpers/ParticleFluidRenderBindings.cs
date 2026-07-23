@@ -58,10 +58,10 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.SetGlobalFloat(Phase0RenderBias, settings.renderBias);
 		}
 
-		internal static void ApplyMetaballMaterialGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting, Bounds domainRegion)
+		internal static void ApplyMetaballMaterialGlobals(CommandBuffer commandBuffer,  ParticleFluidLighting2D lighting, ParticleFluidLighting2D.FrameContext frameContext)
 		{			
-			ApplyLayoutGlobals(commandBuffer, display.sim.analyticBoundary, domainRegion);
-			ApplyPhaseSplitGradientAndScalarGlobals(commandBuffer, display, cam, lighting);
+			ApplyLayoutGlobals(commandBuffer, frameContext.display.sim.analyticBoundary, frameContext.renderRegion);
+			ApplyPhaseSplitGradientAndScalarGlobals(commandBuffer, frameContext.display, frameContext.cam, lighting);
 		}
 
 		internal static void ApplyMetaballDebugGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting)
