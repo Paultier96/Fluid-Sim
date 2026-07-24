@@ -3,11 +3,13 @@ Shader "Instanced/Particle2DMetaball" {
 	}
 	SubShader {
 		Tags { "RenderType" = "Transparent" "Queue" = "Transparent" }
-		Blend One One
 		ZWrite Off
 		Cull Off
 
 		Pass {
+			Blend 0 One One
+			Blend 1 One One
+
 			CGPROGRAM
 
 			#pragma vertex vert
@@ -88,13 +90,8 @@ Shader "Instanced/Particle2DMetaball" {
 				return o;
 			}
 
-			float4 frag(v2f i) : SV_Target
+			float4 CalculateCombined(v2f i, float kernel)
 			{
-				float2 p = (i.uv - 0.5) * 2;
-				float r2 = dot(p, p);
-				if (r2 >= 1.0) discard;
-
-				float kernel = exp(-r2 * max(metaballSharpness, 0.01)) * metaballIntensity;
 				float maxAbsValue = max(debugGradientMax, 0.0001);
 
 				// non-water blob IDs contribute colour; water/ignored ID contributes black weight.
@@ -149,70 +146,33 @@ Shader "Instanced/Particle2DMetaball" {
 				return i.phase < 0.5 ? float4(packed, 0, 0) : float4(0, 0, packed);
 			}
 
-			ENDCG
-		}
-
-		Pass {
-			CGPROGRAM
-
-			#pragma vertex vert
-			#pragma fragment frag
-			#pragma target 4.5
-
-			#include "UnityCG.cginc"
-			#include "../Lighting/Shared/ParticleFluidCommon.hlsl"
-
-			StructuredBuffer<float2> Positions2D;
-			StructuredBuffer<int> Phases;
-			StructuredBuffer<float2> DebugData;
-			StructuredBuffer<float> Curvatures;
-
-			float scale;
-			float metaballSharpness;
-			float metaballIntensity;
-
-			struct v2f {
-				float4 pos : SV_POSITION;
-				float2 uv : TEXCOORD0;
-				float2 normalXY : TEXCOORD1;
-				nointerpolation float phase : TEXCOORD2;
-				float curvature : TEXCOORD3;
+			struct AccumulationOutputs
+			{
+				float4 combined : SV_Target0;
+				float4 normal : SV_Target1;
 			};
 
-			v2f vert(appdata_full v, uint instanceID : SV_InstanceID)
+			AccumulationOutputs frag(v2f i)
 			{
-				float2 centre = Positions2D[instanceID];
-				float3 centreWorld = float3(centre, 0);
-				float3 worldVertPos = centreWorld + mul(unity_ObjectToWorld, v.vertex * scale);
-
-				v2f o;
-				float2 clipXY = ParticleFluidDomainClipFromWorld(worldVertPos.xy);
-				clipXY.y = -clipXY.y;
-				o.pos = float4(clipXY, 0.0, 1.0);
-				o.uv = v.texcoord;
-				float2 debugData = DebugData[instanceID];
-				o.normalXY = debugData / 7;
-				o.phase = Phases[instanceID];
-				o.curvature = Curvatures[instanceID];
-				return o;
-			}
-
-			float4 frag(v2f i) : SV_Target
-			{
+				AccumulationOutputs outputs;
 				float2 p = (i.uv - 0.5) * 2;
 				float r2 = dot(p, p);
 				if (r2 >= 1.0) discard;
 
 				float kernel = exp(-r2 * max(metaballSharpness, 0.01)) * metaballIntensity;
-				float2 normalXY = i.normalXY;
+				outputs.combined = CalculateCombined(i, kernel);
+				float2 normalXY = i.csfDebug / 7.0;
 				float2 packedNormal = saturate(normalXY * 0.5 + 0.5) * kernel;
-				return i.phase < 0.5 ? float4(packedNormal, 0, 0) : float4(0, 0, packedNormal);
+				outputs.normal = i.phase < 0.5 ? float4(packedNormal, 0, 0) : float4(0, 0, packedNormal);
+				return outputs;
 			}
 
 			ENDCG
 		}
 
 		Pass {
+			Blend One One
+
 			CGPROGRAM
 
 			#pragma vertex vert

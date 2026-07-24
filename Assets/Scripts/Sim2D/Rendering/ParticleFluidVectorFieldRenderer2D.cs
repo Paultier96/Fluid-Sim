@@ -90,7 +90,7 @@ namespace Seb.Fluid2D.Rendering
 			);
 		}
 
-		internal void AppendDraw(ParticleDisplay2D display, CommandBuffer commandBuffer)
+		internal void AppendDraw(ParticleDisplay2D display, RasterCommandBuffer commandBuffer)
 		{
 			if (!ShouldDraw(display))
 			{

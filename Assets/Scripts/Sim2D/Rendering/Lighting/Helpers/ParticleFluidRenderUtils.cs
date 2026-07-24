@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.RenderGraphModule;
 using Seb.Helpers;
 
 namespace Seb.Fluid2D.Rendering
@@ -8,7 +9,18 @@ namespace Seb.Fluid2D.Rendering
 	{
 		private static readonly int BlurRadius = Shader.PropertyToID("blurRadius");
 		private static readonly int BlurDirection = Shader.PropertyToID("blurDirection");
+		private static readonly int FluidBlurSource = Shader.PropertyToID("_FluidBlurSource");
+		private static readonly int FluidBlurSourceTexelSize = Shader.PropertyToID("_FluidBlurSource_TexelSize");
 		private static Mesh _quadMesh;
+
+		private sealed class GaussianBlurPassData
+		{
+			public TextureHandle source;
+			public Material material;
+			public Vector2 direction;
+			public Vector4 texelSize;
+			public float radius;
+		}
 
 		internal static void EnsureMaterial(ref Material material, Shader shader)
 		{
@@ -30,19 +42,38 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 		
-		public static void GaussianBlur(CommandBuffer targetCommandBuffer, float blurRadius, Material blurMaterial, RenderTexture source, RenderTexture target, string name)
+		public static void RecordGaussianBlur(RenderGraph renderGraph, string passName, float blurRadius, Material blurMaterial, TextureHandle source, TextureHandle scratch, Vector2Int textureSize)
 		{
-			if (blurRadius < 0.001f)
+			if (blurRadius < 0.001f || blurMaterial == null || !source.IsValid() || !scratch.IsValid() || textureSize.x <= 0 || textureSize.y <= 0)
 			{
 				return;
 			}
-			targetCommandBuffer.BeginSample(name);
-			targetCommandBuffer.SetGlobalFloat(BlurRadius, blurRadius);
-			targetCommandBuffer.SetGlobalVector(BlurDirection, new Vector2(1, 0));
-			targetCommandBuffer.Blit(source, target, blurMaterial);
-			targetCommandBuffer.SetGlobalVector(BlurDirection, new Vector2(0, 1));
-			targetCommandBuffer.Blit(target, source, blurMaterial);
-			targetCommandBuffer.EndSample(name);
+
+			Vector4 texelSize = new(1f / textureSize.x, 1f / textureSize.y, textureSize.x, textureSize.y);
+			RecordGaussianBlurDirection(renderGraph, $"{passName} Horizontal", source, scratch, blurMaterial, blurRadius, Vector2.right, texelSize);
+			RecordGaussianBlurDirection(renderGraph, $"{passName} Vertical", scratch, source, blurMaterial, blurRadius, Vector2.up, texelSize);
+		}
+
+		private static void RecordGaussianBlurDirection(RenderGraph renderGraph, string passName, TextureHandle source, TextureHandle destination, Material material, float radius, Vector2 direction, Vector4 texelSize)
+		{
+			using IRasterRenderGraphBuilder builder = renderGraph.AddRasterRenderPass(passName, out GaussianBlurPassData passData);
+			passData.source = source;
+			passData.material = material;
+			passData.direction = direction;
+			passData.texelSize = texelSize;
+			passData.radius = radius;
+			builder.UseTexture(source, AccessFlags.Read);
+			builder.SetRenderAttachment(destination, 0, AccessFlags.WriteAll);
+			builder.AllowGlobalStateModification(true);
+			builder.SetRenderFunc(static (GaussianBlurPassData data, RasterGraphContext context) =>
+			{
+				RasterCommandBuffer cmd = context.cmd;
+				cmd.SetGlobalFloat(BlurRadius, data.radius);
+				cmd.SetGlobalVector(BlurDirection, data.direction);
+				cmd.SetGlobalVector(FluidBlurSourceTexelSize, data.texelSize);
+				cmd.SetGlobalTexture(FluidBlurSource, data.source);
+				cmd.DrawProcedural(Matrix4x4.identity, data.material, 0, MeshTopology.Triangles, 3);
+			});
 		}
 
 		public static void Swap(ref RenderTexture a, ref RenderTexture b)

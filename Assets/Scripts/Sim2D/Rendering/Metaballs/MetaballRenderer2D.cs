@@ -72,11 +72,8 @@ namespace Seb.Fluid2D.Rendering
 		 private MetaballMaterialRenderer2D _materialRenderer;
 		internal MetaballMaterialRenderer2D MaterialRenderer => _materialRenderer ??= new MetaballMaterialRenderer2D();
 		[NonSerialized] internal RenderTexture combinedAccumulationTexture;
-		[NonSerialized] internal RenderTexture combinedBlurTexture;
 		[NonSerialized] internal RenderTexture normalAccumulationTexture;
-		[NonSerialized] internal RenderTexture normalBlurTexture;
 		[NonSerialized] internal RenderTexture velocityTexture;
-		[NonSerialized] internal RenderTexture velocityBlurTexture;
 
 		private Bounds _currentRenderRegion;
 		private Vector2Int _currentSourceSize;
@@ -103,12 +100,32 @@ namespace Seb.Fluid2D.Rendering
 
 		public void RecordAccumulationRenderGraph(RenderGraph renderGraph, TextureHandle combinedHandle, TextureHandle normalHandle, TextureHandle velocityHandle, bool renderVelocityTextures)
 		{
-			RecordAccumulationPass(renderGraph, "Combined Accumulation", combinedHandle, 0);
-			RecordAccumulationPass(renderGraph, "Normal Accumulation", normalHandle, 1);
+			RecordCombinedNormalAccumulationPass(renderGraph, combinedHandle, normalHandle);
 			if (renderVelocityTextures)
 			{
-				RecordAccumulationPass(renderGraph, "Velocity Accumulation", velocityHandle, 2);
+				RecordAccumulationPass(renderGraph, "Velocity Accumulation", velocityHandle, 1);
 			}
+		}
+
+		private void RecordCombinedNormalAccumulationPass(RenderGraph renderGraph, TextureHandle combinedTarget, TextureHandle normalTarget)
+		{
+			using IRasterRenderGraphBuilder builder = renderGraph.AddRasterRenderPass("Combined + Normal Accumulation", out MetaballAccumulationPassData passData);
+
+			passData.shaderPass = 0;
+			passData.renderRegion = _currentRenderRegion;
+			passData.particleMesh = _currentDisplay.particleMesh;
+			passData.argsBuffer = _currentDisplay.argsBuffer;
+			passData.material = _metaballMaterial;
+			builder.SetRenderAttachment(combinedTarget, 0);
+			builder.SetRenderAttachment(normalTarget, 1);
+			builder.AllowGlobalStateModification(true);
+			builder.SetRenderFunc(static (MetaballAccumulationPassData data, RasterGraphContext context) =>
+			{
+				RasterCommandBuffer cmd = context.cmd;
+				cmd.SetGlobalVector(DomainWorldCenter, data.renderRegion.center);
+				cmd.SetGlobalVector(DomainWorldSize, data.renderRegion.size);
+				cmd.DrawMeshInstancedIndirect(data.particleMesh, 0, data.material, data.shaderPass, data.argsBuffer);
+			});
 		}
 
 		private void RecordAccumulationPass(RenderGraph renderGraph, string passName, TextureHandle target, int shaderPass)
@@ -116,24 +133,26 @@ namespace Seb.Fluid2D.Rendering
 			using IRasterRenderGraphBuilder builder = renderGraph.AddRasterRenderPass(passName, out MetaballAccumulationPassData passData);
 
 			passData.shaderPass = shaderPass;
+			passData.renderRegion = _currentRenderRegion;
+			passData.particleMesh = _currentDisplay.particleMesh;
+			passData.argsBuffer = _currentDisplay.argsBuffer;
+			passData.material = _metaballMaterial;
 			builder.SetRenderAttachment(target, 0);
 			builder.AllowGlobalStateModification(true);
-			builder.AllowPassCulling(false);
-			builder.SetRenderFunc((MetaballAccumulationPassData data, RasterGraphContext context) =>
+			builder.SetRenderFunc(static (MetaballAccumulationPassData data, RasterGraphContext context) =>
 			{
 				RasterCommandBuffer cmd = context.cmd;
-				cmd.SetGlobalVector(DomainWorldCenter, _currentRenderRegion.center);
-				cmd.SetGlobalVector(DomainWorldSize, _currentRenderRegion.size);
-				cmd.ClearRenderTarget(false, true, Color.clear);
-				cmd.DrawMeshInstancedIndirect(_currentDisplay.particleMesh, 0, _metaballMaterial, data.shaderPass, _currentDisplay.argsBuffer);
+				cmd.SetGlobalVector(DomainWorldCenter, data.renderRegion.center);
+				cmd.SetGlobalVector(DomainWorldSize, data.renderRegion.size);
+				cmd.DrawMeshInstancedIndirect(data.particleMesh, 0, data.material, data.shaderPass, data.argsBuffer);
 			});
 		}
 
 		public void RecordSurfaceBlurRenderGraph(RenderGraph renderGraph, TextureHandle combinedHandle, TextureHandle combinedBlurHandle, TextureHandle normalHandle, TextureHandle normalBlurHandle)
 		{
 			float surfaceBlurRadius = _currentDisplay.EffectiveConfiguredBlurRadius * _currentDisplay.GetZoomScale(_currentCamera) * renderTextureScale;
-			RecordGaussianBlurRenderGraph(renderGraph, "Surface Blur Combined", combinedHandle, combinedBlurHandle, combinedAccumulationTexture, combinedBlurTexture, surfaceBlurRadius, "Metaballs/Surface Blur Combined");
-			RecordGaussianBlurRenderGraph(renderGraph, "Surface Blur Normal", normalHandle, normalBlurHandle, normalAccumulationTexture, normalBlurTexture, surfaceBlurRadius, "Metaballs/Surface Blur Normal");
+			ParticleFluidRenderUtils.RecordGaussianBlur(renderGraph, "Surface Blur Combined", surfaceBlurRadius, blurMaterial, combinedHandle, combinedBlurHandle, _currentSourceSize);
+			ParticleFluidRenderUtils.RecordGaussianBlur(renderGraph, "Surface Blur Normal", surfaceBlurRadius, blurMaterial, normalHandle, normalBlurHandle, _currentSourceSize);
 		}
 
 		private static void UseIfValid(IBaseRenderGraphBuilder builder, TextureHandle texture, AccessFlags accessFlags)
@@ -151,25 +170,7 @@ namespace Seb.Fluid2D.Rendering
 				return;
 			}
 
-			RecordGaussianBlurRenderGraph(renderGraph, "Velocity Gaussian Blur", velocityHandle, velocityBlurHandle, velocityTexture, velocityBlurTexture, EffectiveVelocityBlurRadius, "Metaballs/Blur Particle Motion");
-		}
-
-		private void RecordGaussianBlurRenderGraph(RenderGraph renderGraph, string passName, TextureHandle sourceHandle, TextureHandle scratchHandle, RenderTexture sourceTexture, RenderTexture scratchTexture, float blurRadius, string sampleName)
-		{
-			if (blurRadius < 0.001f || blurMaterial == null || sourceTexture == null || scratchTexture == null)
-			{
-				return;
-			}
-
-			using IUnsafeRenderGraphBuilder builder = renderGraph.AddUnsafePass<GaussianBlurPassData>(passName, out _);
-			UseIfValid(builder, sourceHandle, AccessFlags.ReadWrite);
-			UseIfValid(builder, scratchHandle, AccessFlags.ReadWrite);
-			builder.AllowPassCulling(false);
-			builder.SetRenderFunc((GaussianBlurPassData _, UnsafeGraphContext context) =>
-			{
-				CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-				ParticleFluidRenderUtils.GaussianBlur(nativeCommandBuffer, blurRadius, blurMaterial, sourceTexture, scratchTexture, sampleName);
-			});
+			ParticleFluidRenderUtils.RecordGaussianBlur(renderGraph, "Velocity Gaussian Blur", EffectiveVelocityBlurRadius, blurMaterial, velocityHandle, velocityBlurHandle, _currentVelocitySize);
 		}
 
 		public void RecordMaterialMapsRenderGraph(
@@ -205,63 +206,65 @@ namespace Seb.Fluid2D.Rendering
 			TextureHandle materialAlbedoHandle,
 			TextureHandle materialNormalHandle,
 			TextureHandle materialTransportHandle,
+			TextureHandle gradientAtlasHandle,
 			LightingResourceHandles lightingResources)
 		{
-			using IUnsafeRenderGraphBuilder builder = renderGraph.AddUnsafePass("Composite", out CompositePassData passData);
-			passData.color = colorHandle;
+			using IRasterRenderGraphBuilder builder = renderGraph.AddRasterRenderPass("Composite", out CompositePassData passData);
 			passData.useMaterialPipeline = useMaterialPipeline;
-			UseIfValid(builder, colorHandle, AccessFlags.Write);
+			passData.renderer = this;
+			passData.display = _currentDisplay;
+			passData.camera = _currentCamera;
+			passData.lighting = _lighting;
+			passData.debugMaterial = _debugMaterial;
+			passData.renderRegion = _currentRenderRegion;
+			passData.materialRenderer = MaterialRenderer;
+			passData.gradientAtlas = gradientAtlasHandle;
+			builder.SetRenderAttachment(colorHandle, 0, AccessFlags.Write);
 			UseIfValid(builder, combinedHandle, AccessFlags.Read);
 			UseIfValid(builder, normalHandle, AccessFlags.Read);
 			UseIfValid(builder, velocityHandle, AccessFlags.Read);
 			UseIfValid(builder, materialAlbedoHandle, AccessFlags.Read);
 			UseIfValid(builder, materialNormalHandle, AccessFlags.Read);
 			UseIfValid(builder, materialTransportHandle, AccessFlags.Read);
-			UseIfValid(builder, lightingResources.causticResolved, AccessFlags.Read);
-			UseIfValid(builder, lightingResources.causticTemporal, AccessFlags.Read);
+			UseIfValid(builder, gradientAtlasHandle, AccessFlags.Read);
+			UseIfValid(builder, lightingResources.selectedCaustics, AccessFlags.Read);
 			UseIfValid(builder, lightingResources.gaussianSoftLight0, AccessFlags.Read);
-			UseIfValid(builder, lightingResources.gaussianSoftLight1, AccessFlags.Read);
-			UseIfValid(builder, lightingResources.radianceCascade0, AccessFlags.Read);
-			UseIfValid(builder, lightingResources.radianceCascade1, AccessFlags.Read);
-			builder.AllowPassCulling(false);
-			builder.SetRenderFunc((CompositePassData data, UnsafeGraphContext context) =>
+			UseIfValid(builder, lightingResources.selectedRadianceCascade, AccessFlags.Read);
+			builder.AllowGlobalStateModification(true);
+			builder.SetRenderFunc(static (CompositePassData data, RasterGraphContext context) =>
 			{
-				context.cmd.SetRenderTarget(data.color);
-
-				CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+				RasterCommandBuffer cmd = context.cmd;
 				if (data.useMaterialPipeline)
 				{
-					nativeCommandBuffer.BeginSample("Metaballs/Material Pipeline");
-					if ((_currentDisplay.debugMode != ParticleDisplay2D.DebugVisualization.None || _lighting != null && _lighting.debugMode != ParticleFluidLighting2D.LightingDebugVisualization.None) && _debugMaterial != null)
+					cmd.BeginSample("Metaballs/Material Pipeline");
+					if ((data.display.debugMode != ParticleDisplay2D.DebugVisualization.None || data.lighting != null && data.lighting.debugMode != ParticleFluidLighting2D.LightingDebugVisualization.None) && data.debugMaterial != null)
 					{
-						ApplyDebugSettings();
-						ParticleFluidRenderBindings.ApplyMetaballDebugGlobals(nativeCommandBuffer, _currentDisplay, _currentCamera, _lighting);
-						nativeCommandBuffer.SetRenderTarget(data.color);
-						nativeCommandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _currentRenderRegion.CreateRegionMatrix(), _debugMaterial, 0, 0);
+						data.renderer.ApplyDebugSettings();
+						ParticleFluidRenderBindings.ApplyMetaballDebugGlobals(cmd, data.display, data.camera, data.lighting, data.gradientAtlas);
+						cmd.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), data.renderRegion.CreateRegionMatrix(), data.debugMaterial, 0, 0);
 					}
-					else if (_lighting != null)
+					else if (data.lighting != null)
 					{
-						_lighting.Render(nativeCommandBuffer, data.color);
+						data.lighting.Render(cmd, data.gradientAtlas);
 					}
 					else
 					{
-						MaterialRenderer.RenderUnlit(nativeCommandBuffer, data.color, _currentRenderRegion);
+						data.materialRenderer.RenderUnlit(cmd, data.renderRegion);
 					}
-					nativeCommandBuffer.EndSample("Metaballs/Material Pipeline");
-					RecordVectorField(_currentDisplay, nativeCommandBuffer);
+					cmd.EndSample("Metaballs/Material Pipeline");
+					data.renderer.RecordVectorField(data.display, cmd);
 				}
 				else
 				{
-					if (_debugMaterial != null)
+					if (data.debugMaterial != null)
 					{
-						nativeCommandBuffer.BeginSample("Metaballs/Debug Composite");
-						ParticleFluidRenderBindings.ApplyMetaballDebugGlobals(nativeCommandBuffer, _currentDisplay, _currentCamera, _lighting);
-						nativeCommandBuffer.SetRenderTarget(data.color);
-						nativeCommandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _currentRenderRegion.CreateRegionMatrix(), _debugMaterial, 0, 0);
-						nativeCommandBuffer.EndSample("Metaballs/Debug Composite");
+						cmd.BeginSample("Metaballs/Debug Composite");
+						ParticleFluidRenderBindings.ApplyMetaballDebugGlobals(cmd, data.display, data.camera, data.lighting, data.gradientAtlas);
+						cmd.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), data.renderRegion.CreateRegionMatrix(), data.debugMaterial, 0, 0);
+						cmd.EndSample("Metaballs/Debug Composite");
 					}
 
-					RecordVectorField(_currentDisplay, nativeCommandBuffer);
+					data.renderer.RecordVectorField(data.display, cmd);
 				}
 			});
 		}
@@ -273,8 +276,8 @@ namespace Seb.Fluid2D.Rendering
 
 		public void Release()
 		{
-			ComputeHelper.Release(combinedAccumulationTexture, combinedBlurTexture);
-			ComputeHelper.Release(normalAccumulationTexture, normalBlurTexture, velocityTexture, velocityBlurTexture);
+			ComputeHelper.Release(combinedAccumulationTexture);
+			ComputeHelper.Release(normalAccumulationTexture, velocityTexture);
 			MaterialRenderer.Release();
 			Object.DestroyImmediate(_metaballMaterial);
 			_metaballMaterial = null;
@@ -302,8 +305,8 @@ namespace Seb.Fluid2D.Rendering
 					or ParticleFluidLighting2D.LightingDebugVisualization.RadianceCascadeRaw));
 			Bounds? cropBounds = crop ? _currentDisplay.sim.analyticBoundary.CropBounds : null;
 			Bounds cropRegion = ParticleFluidRenderBounds2D.GetCameraRenderRegion(_currentCamera, cropBounds, crop, out Vector2Int baseResolution);
-			float materialScale = _lighting.materialMapTextureScale;
-			float causticScale = _lighting.directLight.textureScale;
+			float materialScale = _lighting != null ? _lighting.materialMapTextureScale : 1f;
+			float causticScale = _lighting != null ? _lighting.directLight.textureScale : 1f;
 			_currentRenderRegion = cropRegion;
 			_currentSourceSize = ParticleFluidRenderBounds2D.ScaleSize(baseResolution, Mathf.Max(renderTextureScale, 0.0001f));
 			_currentVelocitySize = ParticleFluidRenderBounds2D.ScaleSize(baseResolution, Mathf.Max(velocityTextureScale, 0.0001f));
@@ -311,17 +314,14 @@ namespace Seb.Fluid2D.Rendering
 			_currentCausticSize = ParticleFluidRenderBounds2D.ScaleSize(baseResolution, causticScale);
 
 			ComputeHelper.CreateRenderTexture(ref combinedAccumulationTexture, _currentSourceSize);
-			ComputeHelper.CreateRenderTexture(ref combinedBlurTexture, _currentSourceSize);
 			ComputeHelper.CreateRenderTexture(ref normalAccumulationTexture, _currentSourceSize);
-			ComputeHelper.CreateRenderTexture(ref normalBlurTexture, _currentSourceSize);
-			if (_lighting.directLight.temporalCaustics.ShouldRenderVelocityTextures(_currentDisplay))
+			if (_lighting != null && _lighting.directLight.temporalCaustics.ShouldRenderVelocityTextures(_currentDisplay))
 			{
 				ComputeHelper.CreateRenderTexture(ref velocityTexture, _currentVelocitySize);
-				ComputeHelper.CreateRenderTexture(ref velocityBlurTexture, _currentVelocitySize);
 			}
 			else
 			{
-				ComputeHelper.Release(velocityTexture, velocityBlurTexture);
+				ComputeHelper.Release(velocityTexture);
 			}
 			if (ShouldUseMaterialPipeline(_currentDisplay))
 			{
@@ -331,7 +331,7 @@ namespace Seb.Fluid2D.Rendering
 			{
 				MaterialRenderer.materialMaps.Release();
 			}
-			_lighting.EnsureLightingResources(_currentRenderRegion, _currentCausticSize);
+			_lighting?.EnsureLightingResources(_currentRenderRegion, _currentCausticSize);
 		}
 
 		private void ApplyDebugSettings()
@@ -396,7 +396,7 @@ namespace Seb.Fluid2D.Rendering
 
 		public float EffectiveVelocityBlurRadius => _lighting != null ? _currentDisplay.GetEffectiveMotionBlurRadius(_currentCamera, _lighting.directLight.temporalCaustics.motionBlurRadius) : 0f;
 
-		private void RecordVectorField(ParticleDisplay2D display, CommandBuffer targetCommandBuffer)
+		private void RecordVectorField(ParticleDisplay2D display, RasterCommandBuffer targetCommandBuffer)
 		{
 			targetCommandBuffer.BeginSample("Particle Fluid/Vector Field");
 			display.vectorField.AppendDraw(display, targetCommandBuffer);
@@ -411,16 +411,23 @@ namespace Seb.Fluid2D.Rendering
 		private class MetaballAccumulationPassData
 		{
 			public int shaderPass;
-		}
-
-		private class GaussianBlurPassData
-		{
+			public Bounds renderRegion;
+			public Mesh particleMesh;
+			public ComputeBuffer argsBuffer;
+			public Material material;
 		}
 
 		private class CompositePassData
 		{
 			public bool useMaterialPipeline;
-			public TextureHandle color;
+			public MetaballRenderer2D renderer;
+			public ParticleDisplay2D display;
+			public Camera camera;
+			public ParticleFluidLighting2D lighting;
+			public Material debugMaterial;
+			public Bounds renderRegion;
+			public MetaballMaterialRenderer2D materialRenderer;
+			public TextureHandle gradientAtlas;
 		}
 	}
 }

@@ -96,11 +96,9 @@ namespace Seb.Fluid2D.Rendering
 			ParticleFluidRenderUtils.DestroyMaterial(ref _causticBlurMaterial);
 		}
 		
-		private ComputeBuffer _causticAccumulationBuffer;
 		private ComputeBuffer _causticLightParamsBuffer;
 		private ComputeBuffer _causticMaterialParamsBuffer;
 		internal RenderTexture causticResolvedTexture;
-		internal RenderTexture causticBlurTexture;
 		private Material _causticBlurMaterial;
 		internal int causticFrameIndex;
 		private int _clearKernel = -1;
@@ -127,22 +125,17 @@ namespace Seb.Fluid2D.Rendering
 		{
 			if (renderCaustics)
 			{
-				int causticAccumulationCount = width * height * 4;
-				ComputeHelper.CreateStructuredBuffer<uint>(ref _causticAccumulationBuffer, causticAccumulationCount);
 				ComputeHelper.CreateStructuredBuffer<Vector4>(ref _causticLightParamsBuffer, 18);
 				ComputeHelper.CreateStructuredBuffer<Vector4>(ref _causticMaterialParamsBuffer, MaterialSlotCount * 2);
 				ComputeHelper.CreateRenderTexture(ref causticResolvedTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Resolved");
-				ComputeHelper.CreateRenderTexture(ref causticBlurTexture, width, height, FilterMode.Bilinear, GraphicsFormat.R16G16B16A16_SFloat, "Particle2D Caustic Blur");
 				return;
 			}
 
-			ComputeHelper.Release(_causticAccumulationBuffer, _causticLightParamsBuffer, _causticMaterialParamsBuffer);
-			ComputeHelper.Release(causticResolvedTexture, causticBlurTexture);
-			_causticAccumulationBuffer = null;
+			ComputeHelper.Release(_causticLightParamsBuffer, _causticMaterialParamsBuffer);
+			ComputeHelper.Release(causticResolvedTexture);
 			_causticLightParamsBuffer = null;
 			_causticMaterialParamsBuffer = null;
 			causticResolvedTexture = null;
-			causticBlurTexture = null;
 		}
 
 		private void ReleaseResources()
@@ -150,22 +143,22 @@ namespace Seb.Fluid2D.Rendering
 			EnsureResources(0, 0, false);
 		}
 
-		public void RecordComputeClear(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, int frameIndex, TextureHandle causticResolvedHandle)
+		public void RecordComputeClear(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, int frameIndex, BufferHandle causticAccumulationHandle, TextureHandle causticResolvedHandle)
 		{
 			CausticsTextureState state = ApplyCausticTextureParams(targetCommandBuffer);
-			BindAccumulationBuffer(targetCommandBuffer, state.compute, _clearKernel);
+			BindAccumulationBuffer(targetCommandBuffer, state.compute, _clearKernel, causticAccumulationHandle);
 			targetCommandBuffer.SetComputeTextureParam(state.compute, _clearKernel, "CausticResult", causticResolvedHandle);
 			DispatchCompute(targetCommandBuffer, state.compute, _clearKernel, state.width, state.height);
 		}
 
-		public void RecordComputeTrace(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, int frameIndex, TextureHandle transportHandle, TextureHandle materialNormalHandle, TextureHandle gradientAtlasHandle)
+		public void RecordComputeTrace(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, int frameIndex, BufferHandle causticAccumulationHandle, TextureHandle transportHandle, TextureHandle materialNormalHandle, TextureHandle gradientAtlasHandle)
 		{
 			CausticsTextureState state = ApplyCausticTextureParams(targetCommandBuffer);
 			int totalRayBudget = ApplyTraceParams(context, targetCommandBuffer, frameIndex, state.width, state.height);
 			targetCommandBuffer.SetComputeTextureParam(state.compute, _traceKernel, "MaterialTransportTex", transportHandle);
 			targetCommandBuffer.SetComputeTextureParam(state.compute, _traceKernel, "MaterialNormalTex", materialNormalHandle);
 			targetCommandBuffer.SetComputeTextureParam(state.compute, _traceKernel, "GradientAtlas", gradientAtlasHandle);
-			BindTraceBuffers(targetCommandBuffer, state.compute, _traceKernel);
+			BindTraceBuffers(targetCommandBuffer, state.compute, _traceKernel, causticAccumulationHandle);
 			int traceThreadCount = Mathf.Min(Mathf.Max(totalRayBudget, 0) * Mathf.Max(raysPerPixel, 1), ParticleFluidLighting2D.MaxCausticTraceThreads);
 			if (traceThreadCount > 0)
 			{
@@ -173,10 +166,10 @@ namespace Seb.Fluid2D.Rendering
 			}
 		}
 
-		public void RecordComputeResolve(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, int frameIndex, TextureHandle causticResolvedHandle)
+		public void RecordComputeResolve(ParticleFluidLighting2D.FrameContext context, IComputeCommandBuffer targetCommandBuffer, int frameIndex, BufferHandle causticAccumulationHandle, TextureHandle causticResolvedHandle)
 		{
 			CausticsTextureState state = ApplyCausticTextureParams(targetCommandBuffer);
-			BindAccumulationBuffer(targetCommandBuffer, state.compute, _resolveKernel);
+			BindAccumulationBuffer(targetCommandBuffer, state.compute, _resolveKernel, causticAccumulationHandle);
 			targetCommandBuffer.SetComputeTextureParam(state.compute, _resolveKernel, "CausticResult", causticResolvedHandle);
 			DispatchCompute(targetCommandBuffer, state.compute, _resolveKernel, state.width, state.height);
 		}
@@ -184,18 +177,26 @@ namespace Seb.Fluid2D.Rendering
 		internal void RecordRenderGraph(RenderGraph renderGraph, ParticleFluidLighting2D.FrameContext context, LightingInputHandles inputs, LightingResourceHandles resources)
 		{
 			int frameIndex = causticFrameIndex++;
+			BufferHandle causticAccumulation = renderGraph.CreateBuffer(new BufferDesc
+			{
+				name = "Caustics Accumulation",
+				count = causticResolvedTexture.width * causticResolvedTexture.height * 4,
+				stride = sizeof(uint),
+				target = GraphicsBuffer.Target.Structured
+			});
 			
 			using (IComputeRenderGraphBuilder builder = renderGraph.AddComputePass("Caustics Clear", out CausticsComputePassData passData))
 			{
 				passData.directLight = this;
 				passData.context = context;
 				passData.frameIndex = frameIndex;
+				passData.causticAccumulation = causticAccumulation;
 				passData.causticResolved = resources.causticResolved;
+				builder.UseBuffer(passData.causticAccumulation, AccessFlags.Write);
 				UseIfValid(builder, passData.causticResolved, AccessFlags.Write);
-				builder.AllowPassCulling(false);
 				builder.SetRenderFunc(static (CausticsComputePassData data, ComputeGraphContext context) =>
 				{
-					data.directLight.RecordComputeClear(data.context, context.cmd, data.frameIndex, data.causticResolved);
+					data.directLight.RecordComputeClear(data.context, context.cmd, data.frameIndex, data.causticAccumulation, data.causticResolved);
 				});
 			}
 
@@ -204,16 +205,17 @@ namespace Seb.Fluid2D.Rendering
 				passData.directLight = this;
 				passData.context = context;
 				passData.frameIndex = frameIndex;
+				passData.causticAccumulation = causticAccumulation;
 				passData.transport = inputs.transport;
 				passData.materialNormal = inputs.materialNormal;
 				passData.gradientAtlas = inputs.gradientAtlas;
+				builder.UseBuffer(passData.causticAccumulation, AccessFlags.ReadWrite);
 				UseIfValid(builder, passData.transport, AccessFlags.Read);
 				UseIfValid(builder, passData.materialNormal, AccessFlags.Read);
 				UseIfValid(builder, passData.gradientAtlas, AccessFlags.Read);
-				builder.AllowPassCulling(false);
 				builder.SetRenderFunc(static (CausticsComputePassData data, ComputeGraphContext context) =>
 				{
-					data.directLight.RecordComputeTrace(data.context, context.cmd, data.frameIndex, data.transport, data.materialNormal, data.gradientAtlas);
+					data.directLight.RecordComputeTrace(data.context, context.cmd, data.frameIndex, data.causticAccumulation, data.transport, data.materialNormal, data.gradientAtlas);
 				});
 			}
 
@@ -222,33 +224,19 @@ namespace Seb.Fluid2D.Rendering
 				passData.directLight = this;
 				passData.context = context;
 				passData.frameIndex = frameIndex;
+				passData.causticAccumulation = causticAccumulation;
 				passData.causticResolved = resources.causticResolved;
+				builder.UseBuffer(passData.causticAccumulation, AccessFlags.Read);
 				UseIfValid(builder, passData.causticResolved, AccessFlags.Write);
-				builder.AllowPassCulling(false);
-				builder.SetRenderFunc((CausticsComputePassData data, ComputeGraphContext context) =>
+				builder.SetRenderFunc(static (CausticsComputePassData data, ComputeGraphContext context) =>
 				{
-					ComputeCommandBuffer commandBuffer = context.cmd;
-					CausticsTextureState state = ApplyCausticTextureParams(commandBuffer);
-					BindAccumulationBuffer(commandBuffer, state.compute, _resolveKernel);
-					((IComputeCommandBuffer)commandBuffer).SetComputeTextureParam(state.compute, _resolveKernel, "CausticResult", data.causticResolved);
-					DispatchCompute(commandBuffer, state.compute, _resolveKernel, state.width, state.height);
+					data.directLight.RecordComputeResolve(data.context, context.cmd, data.frameIndex, data.causticAccumulation, data.causticResolved);
 				});
 			}
 
-			using (IUnsafeRenderGraphBuilder builder = renderGraph.AddUnsafePass("Caustics Blur", out CausticsPassData passData))
-			{
-				passData.directLight = this;
-				passData.context = context;
-				UseIfValid(builder, resources.causticResolved, AccessFlags.ReadWrite);
-				UseIfValid(builder, resources.causticBlur, AccessFlags.Write);
-				builder.AllowPassCulling(false);
-				builder.SetRenderFunc((CausticsPassData data, UnsafeGraphContext context) =>
-				{
-					CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-					float causticBlurRadius = blur * (data.context.display.metaballs.renderTextureScale * textureScale);
-					ParticleFluidRenderUtils.GaussianBlur(nativeCommandBuffer, causticBlurRadius, _causticBlurMaterial, causticResolvedTexture, causticBlurTexture, "Direct Light/Caustic Blur");
-				});
-			}
+			float causticBlurRadius = blur * (context.display.metaballs.renderTextureScale * textureScale);
+			Vector2Int causticTextureSize = new(causticResolvedTexture.width, causticResolvedTexture.height);
+			ParticleFluidRenderUtils.RecordGaussianBlur(renderGraph, "Caustics Blur", causticBlurRadius, _causticBlurMaterial, resources.causticResolved, resources.causticBlur, causticTextureSize);
 
 			using (IUnsafeRenderGraphBuilder builder = renderGraph.AddUnsafePass("Caustics Temporal", out CausticsPassData passData))
 			{
@@ -258,7 +246,6 @@ namespace Seb.Fluid2D.Rendering
 				UseIfValid(builder, resources.causticTemporal, AccessFlags.ReadWrite);
 				UseIfValid(builder, resources.causticHistory, AccessFlags.ReadWrite);
 				UseIfValid(builder, inputs.velocity, AccessFlags.Read);
-				builder.AllowPassCulling(false);
 				builder.SetRenderFunc(static (CausticsPassData data, UnsafeGraphContext context) =>
 				{
 					CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
@@ -341,14 +328,14 @@ namespace Seb.Fluid2D.Rendering
 			_resolveKernel = -1;
 		}
 
-		private void BindAccumulationBuffer(IComputeCommandBuffer targetCommandBuffer, ComputeShader compute, int kernel)
+		private static void BindAccumulationBuffer(IComputeCommandBuffer targetCommandBuffer, ComputeShader compute, int kernel, BufferHandle causticAccumulation)
 		{
-			targetCommandBuffer.SetComputeBufferParam(compute, kernel, "CausticAccum", _causticAccumulationBuffer);
+			targetCommandBuffer.SetComputeBufferParam(compute, kernel, "CausticAccum", causticAccumulation);
 		}
 
-		private void BindTraceBuffers(IComputeCommandBuffer targetCommandBuffer, ComputeShader compute, int kernel)
+		private void BindTraceBuffers(IComputeCommandBuffer targetCommandBuffer, ComputeShader compute, int kernel, BufferHandle causticAccumulation)
 		{
-			BindAccumulationBuffer(targetCommandBuffer, compute, kernel);
+			BindAccumulationBuffer(targetCommandBuffer, compute, kernel, causticAccumulation);
 			targetCommandBuffer.SetComputeBufferParam(compute, kernel, "CausticsLights", _causticLightParamsBuffer);
 			targetCommandBuffer.SetComputeBufferParam(compute, kernel, "CausticsMaterials", _causticMaterialParamsBuffer);
 		}
@@ -385,6 +372,7 @@ namespace Seb.Fluid2D.Rendering
 			public TextureHandle materialNormal;
 			public TextureHandle gradientAtlas;
 			public TextureHandle causticResolved;
+			public BufferHandle causticAccumulation;
 		}
 
 		private class CausticsPassData

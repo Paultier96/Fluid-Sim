@@ -324,14 +324,13 @@ using UnityEngine.Rendering.RenderGraphModule;
 			lightingMaterial.SetFloat(ParticleAmbientOcclusionPower, ambientOcclusionPower);
 		}
 
-		internal void Render(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget)
+		internal void Render(RasterCommandBuffer commandBuffer, TextureHandle gradientAtlas)
 		{
 			BindMaterialTextures();
 			commandBuffer.BeginSample("Particle Fluid/Final Lighting");
 			ParticleFluidRenderBindings.ApplyLayoutGlobals(commandBuffer, display.sim.analyticBoundary, _domainRenderRegion);
 			ParticleFluidRenderBindings.ApplyPhaseSplitGlobals(commandBuffer, display.metaballs);
-			commandBuffer.SetGlobalTexture(GradientAtlas, display.gradientAtlasTexture);
-			commandBuffer.SetRenderTarget(finalTarget);
+			commandBuffer.SetGlobalTexture(GradientAtlas, gradientAtlas);
 			commandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), _domainRenderRegion.CreateRegionMatrix(), lightingMaterial, 0, LightingPass);
 			commandBuffer.EndSample("Particle Fluid/Final Lighting");
 		}

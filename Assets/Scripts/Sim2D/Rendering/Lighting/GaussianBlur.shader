@@ -15,8 +15,7 @@ Shader "Hidden/GaussianBlur" {
 			#include "UnityCG.cginc"
 
 			struct appdata {
-				float4 vertex : POSITION;
-				float2 uv : TEXCOORD0;
+				uint vertexID : SV_VertexID;
 			};
 
 			struct v2f {
@@ -24,16 +23,16 @@ Shader "Hidden/GaussianBlur" {
 				float4 vertex : SV_POSITION;
 			};
 
-			sampler2D _MainTex;
-			float4 _MainTex_TexelSize;
+			sampler2D _FluidBlurSource;
+			float4 _FluidBlurSource_TexelSize;
 			float2 blurDirection;
 			float blurRadius;
 
 			v2f vert(appdata v)
 			{
 				v2f o;
-				o.vertex = UnityObjectToClipPos(v.vertex);
-				o.uv = v.uv;
+				o.uv = float2((v.vertexID << 1) & 2, v.vertexID & 2);
+				o.vertex = float4(o.uv * 2.0 - 1.0, 0.0, 1.0);
 				return o;
 			}
 
@@ -47,18 +46,18 @@ Shader "Hidden/GaussianBlur" {
 				int radius = clamp((int)ceil(blurRadius), 0, 128);
 				if (radius == 0)
 				{
-					return tex2D(_MainTex, i.uv);
+					return tex2D(_FluidBlurSource, i.uv);
 				}
 
 				float sigma = max(blurRadius / 2.5, 0.001);
-				float2 delta = _MainTex_TexelSize.xy * blurDirection;
+				float2 delta = _FluidBlurSource_TexelSize.xy * blurDirection;
 				float4 sum = 0;
 				float weightSum = 0;
 
 				for (int tap = -radius; tap <= radius; tap++)
 				{
 					float w = Gaussian(tap, sigma);
-					sum += tex2D(_MainTex, i.uv + delta * tap) * w;
+					sum += tex2D(_FluidBlurSource, i.uv + delta * tap) * w;
 					weightSum += w;
 				}
 

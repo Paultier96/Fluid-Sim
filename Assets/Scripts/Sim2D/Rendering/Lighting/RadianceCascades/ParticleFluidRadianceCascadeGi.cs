@@ -159,8 +159,7 @@ namespace Seb.Fluid2D.Rendering
 			passData.useGaussianBoundarySource = useGaussianBoundarySource;
 			UseIfValid(builder, inputs.transport, AccessFlags.Read);
 			UseIfValid(builder, inputs.gradientAtlas, AccessFlags.Read);
-			UseIfValid(builder, resources.causticResolved, AccessFlags.Read);
-			UseIfValid(builder, resources.causticTemporal, AccessFlags.Read);
+			UseIfValid(builder, resources.selectedCaustics, AccessFlags.Read);
 			if (useGaussianBoundarySource)
 			{
 				UseIfValid(builder, resources.gaussianSoftLight0, AccessFlags.Read);
@@ -171,7 +170,6 @@ namespace Seb.Fluid2D.Rendering
 			UseIfValid(builder, resources.radianceCascadeSdfSeedB, AccessFlags.ReadWrite);
 			UseIfValid(builder, resources.radianceCascadeSdfPayloadA, AccessFlags.ReadWrite);
 			UseIfValid(builder, resources.radianceCascadeSdfPayloadB, AccessFlags.ReadWrite);
-			builder.AllowPassCulling(false);
 			builder.SetRenderFunc(static (RadianceCascadePassData data, UnsafeGraphContext context) =>
 			{
 				CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);

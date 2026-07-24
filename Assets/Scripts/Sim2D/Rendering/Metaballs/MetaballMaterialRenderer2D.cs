@@ -13,7 +13,6 @@ namespace Seb.Fluid2D.Rendering
 		private const int UnlitPass = 1;
 
 		private Material _material;
-		private readonly RenderTargetIdentifier[] _materialMapTargets = new RenderTargetIdentifier[3];
 		public readonly ParticleFluidMaterialMapSet materialMaps = new ();
 
 		public void EnsureMaterial(Shader shader)
@@ -45,45 +44,39 @@ namespace Seb.Fluid2D.Rendering
 			Texture combinedTexture,
 			Texture normalTexture)
 		{
-			using IUnsafeRenderGraphBuilder builder = renderGraph.AddUnsafePass("Material Maps", out MaterialMapPassData _);
+			using IRasterRenderGraphBuilder builder = renderGraph.AddRasterRenderPass("Material Maps", out MaterialMapPassData passData);
+			passData.lighting = lighting;
+			passData.frameContext = frameContext;
+			passData.material = _material;
+			passData.combinedTexture = combinedTexture;
+			passData.normalTexture = normalTexture;
+			passData.gradientAtlas = gradientAtlasHandle;
 			UseIfValid(builder, combinedHandle, AccessFlags.Read);
 			UseIfValid(builder, normalHandle, AccessFlags.Read);
 			UseIfValid(builder, gradientAtlasHandle, AccessFlags.Read);
-			UseIfValid(builder, materialAlbedoHandle, AccessFlags.Write);
-			UseIfValid(builder, materialNormalHandle, AccessFlags.Write);
-			UseIfValid(builder, materialTransportHandle, AccessFlags.Write);
-			builder.AllowPassCulling(false);
-			builder.SetRenderFunc((MaterialMapPassData _, UnsafeGraphContext context) =>
+			builder.SetRenderAttachment(materialAlbedoHandle, 0, AccessFlags.WriteAll);
+			builder.SetRenderAttachment(materialNormalHandle, 1, AccessFlags.WriteAll);
+			builder.SetRenderAttachment(materialTransportHandle, 2, AccessFlags.WriteAll);
+			builder.AllowGlobalStateModification(true);
+			builder.SetRenderFunc(static (MaterialMapPassData data, RasterGraphContext context) =>
 			{
-				CommandBuffer nativeCommandBuffer = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-				ParticleFluidRenderBindings.ApplyMetaballMaterialGlobals(nativeCommandBuffer, lighting, frameContext);
-				if (!materialMaps.IsAllocated || nativeCommandBuffer == null || _material == null || frameContext.cam == null)
+				RasterCommandBuffer cmd = context.cmd;
+				ParticleFluidRenderBindings.ApplyMetaballMaterialGlobals(cmd, data.lighting, data.frameContext, data.gradientAtlas);
+				if (data.material == null || data.frameContext.cam == null)
 				{
 					return;
 				}
 
-				_material.SetTexture(CombinedTex, combinedTexture ?? Texture2D.blackTexture);
-				_material.SetTexture(NormalTex, normalTexture ?? Texture2D.blackTexture);
+				data.material.SetTexture(CombinedTex, data.combinedTexture ?? Texture2D.blackTexture);
+				data.material.SetTexture(NormalTex, data.normalTexture ?? Texture2D.blackTexture);
 
-				_materialMapTargets[0] = materialMaps.albedoTexture;
-				_materialMapTargets[1] = materialMaps.normalTexture;
-				_materialMapTargets[2] = materialMaps.transportTexture;
-
-				nativeCommandBuffer.BeginSample("Particle Fluid/Build Material Maps");
-				ParticleFluidRenderUtils.DrawRegionQuad(
-					nativeCommandBuffer,
-					_materialMapTargets,
-					_material,
-					MaterialMapsPass,
-					frameContext.renderRegion,
-					frameContext.cam,
-					true,
-					Color.clear);
-				nativeCommandBuffer.EndSample("Particle Fluid/Build Material Maps");
+				cmd.SetViewProjectionMatrices(Matrix4x4.identity, data.frameContext.renderRegion.CreateRegionProjection());
+				cmd.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), data.frameContext.renderRegion.CreateRegionMatrix(), data.material, 0, MaterialMapsPass);
+				cmd.SetViewProjectionMatrices(data.frameContext.cam.worldToCameraMatrix, GL.GetGPUProjectionMatrix(data.frameContext.cam.projectionMatrix, false));
 			});
 		}
 
-		public void RenderUnlit(CommandBuffer commandBuffer, RenderTargetIdentifier finalTarget, Bounds region)
+		public void RenderUnlit(RasterCommandBuffer commandBuffer, Bounds region)
 		{
 			if (!materialMaps.IsAllocated || commandBuffer == null || _material == null)
 			{
@@ -92,7 +85,6 @@ namespace Seb.Fluid2D.Rendering
 
 			_material.SetTexture(MaterialAlbedoTex, materialMaps.albedoTexture);
 			commandBuffer.BeginSample("Particle Fluid/Unlit Fallback");
-			commandBuffer.SetRenderTarget(finalTarget);
 			commandBuffer.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), region.CreateRegionMatrix(), _material, 0, UnlitPass);
 			commandBuffer.EndSample("Particle Fluid/Unlit Fallback");
 		}
@@ -117,6 +109,12 @@ namespace Seb.Fluid2D.Rendering
 
 		private class MaterialMapPassData
 		{
+			public ParticleFluidLighting2D lighting;
+			public ParticleFluidLighting2D.FrameContext frameContext;
+			public Material material;
+			public Texture combinedTexture;
+			public Texture normalTexture;
+			public TextureHandle gradientAtlas;
 		}
 	}
 }

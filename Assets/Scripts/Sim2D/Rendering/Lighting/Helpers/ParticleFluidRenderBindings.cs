@@ -1,6 +1,7 @@
 using Seb.Fluid2D.Simulation;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.RenderGraphModule;
 
 namespace Seb.Fluid2D.Rendering
 {
@@ -34,13 +35,34 @@ namespace Seb.Fluid2D.Rendering
 			ApplyDomainGlobals(targetCommandBuffer, domainRegion);
 		}
 
+		internal static void ApplyLayoutGlobals(RasterCommandBuffer targetCommandBuffer, ParticleFluidAnalyticBoundary2D boundary, Bounds domainRegion)
+		{
+			ApplyBoundaryGlobals(targetCommandBuffer, boundary);
+			ApplyDomainGlobals(targetCommandBuffer, domainRegion);
+		}
+
 		internal static void ApplyDomainGlobals(CommandBuffer commandBuffer, Bounds domainRegion)
 		{
 			commandBuffer.SetGlobalVector(DomainWorldCenter, domainRegion.center);
 			commandBuffer.SetGlobalVector(DomainWorldSize, domainRegion.size);
 		}
 
+		private static void ApplyDomainGlobals(IBaseCommandBuffer commandBuffer, Bounds domainRegion)
+		{
+			commandBuffer.SetGlobalVector(DomainWorldCenter, domainRegion.center);
+			commandBuffer.SetGlobalVector(DomainWorldSize, domainRegion.size);
+		}
+
 		internal static void ApplyBoundaryGlobals(CommandBuffer commandBuffer, ParticleFluidAnalyticBoundary2D boundary)
+		{
+			commandBuffer.SetGlobalInt(UseEllipticalBounds, boundary.useEllipticalBounds ? 1 : 0);
+			commandBuffer.SetGlobalVector(EllipseBoundsCenter, boundary.BoundsCenter);
+			commandBuffer.SetGlobalVector(EllipseBoundsSize, boundary.boundsSize);
+			commandBuffer.SetGlobalFloat(ObstacleY, boundary.obstacleY);
+			commandBuffer.SetGlobalFloat(AnalyticBoundaryExpansion, boundary.analyticBoundaryExpansion);
+		}
+
+		private static void ApplyBoundaryGlobals(IBaseCommandBuffer commandBuffer, ParticleFluidAnalyticBoundary2D boundary)
 		{
 			commandBuffer.SetGlobalInt(UseEllipticalBounds, boundary.useEllipticalBounds ? 1 : 0);
 			commandBuffer.SetGlobalVector(EllipseBoundsCenter, boundary.BoundsCenter);
@@ -58,16 +80,36 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.SetGlobalFloat(Phase0RenderBias, settings.renderBias);
 		}
 
-		internal static void ApplyMetaballMaterialGlobals(CommandBuffer commandBuffer,  ParticleFluidLighting2D lighting, ParticleFluidLighting2D.FrameContext frameContext)
-		{			
+		internal static void ApplyPhaseSplitGlobals(RasterCommandBuffer commandBuffer, MetaballRenderer2D settings)
+		{
+			ApplyPhaseSplitGlobals((IBaseCommandBuffer)commandBuffer, settings);
+		}
+
+		private static void ApplyPhaseSplitGlobals(IBaseCommandBuffer commandBuffer, MetaballRenderer2D settings)
+		{
+			commandBuffer.SetGlobalFloat(DensityThreshold, settings.densityThreshold);
+			commandBuffer.SetGlobalFloat(EdgeSoftness, settings.edgeSoftness);
+			commandBuffer.SetGlobalFloat(PhaseBlendWidth, settings.phaseBlendWidth);
+			commandBuffer.SetGlobalFloat(TransportPhaseBlendWidth, settings.transportPhaseBlendWidth);
+			commandBuffer.SetGlobalFloat(Phase0RenderBias, settings.renderBias);
+		}
+
+		internal static void ApplyMetaballMaterialGlobals(RasterCommandBuffer commandBuffer, ParticleFluidLighting2D lighting, ParticleFluidLighting2D.FrameContext frameContext, TextureHandle gradientAtlas)
+		{
 			ApplyLayoutGlobals(commandBuffer, frameContext.display.sim.analyticBoundary, frameContext.renderRegion);
-			ApplyPhaseSplitGradientAndScalarGlobals(commandBuffer, frameContext.display, frameContext.cam, lighting);
+			ApplyPhaseSplitGradientAndScalarGlobals(commandBuffer, frameContext.display, frameContext.cam, lighting, gradientAtlas);
 		}
 
 		internal static void ApplyMetaballDebugGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting)
 		{
 			ApplyBoundaryGlobals(commandBuffer, display.sim.analyticBoundary);
 			ApplyPhaseSplitGradientAndScalarGlobals(commandBuffer, display, cam, lighting);
+		}
+
+		internal static void ApplyMetaballDebugGlobals(RasterCommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting, TextureHandle gradientAtlas)
+		{
+			ApplyBoundaryGlobals(commandBuffer, display.sim.analyticBoundary);
+			ApplyPhaseSplitGradientAndScalarGlobals(commandBuffer, display, cam, lighting, gradientAtlas);
 		}
 
 		private static void ApplyPhaseSplitGradientAndScalarGlobals(CommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting)
@@ -79,6 +121,20 @@ namespace Seb.Fluid2D.Rendering
 			commandBuffer.SetGlobalFloat(MetaballGhostBoundaryNormalStrength, settings.ghostBoundaryNormalStrength);
 			commandBuffer.SetGlobalFloat(MetaballRefractionStrength, lighting.refractionStrength * display.GetZoomScale(cam));
 			commandBuffer.SetGlobalFloat(MetaballRefractionEdgeFade, lighting.refractionEdgeFade);
+			commandBuffer.SetGlobalInt(ScreenSpaceRefractionCanCrossPhases, lighting != null && lighting.screenSpaceRefractionCanCrossPhases ? 1 : 0);
+			commandBuffer.SetGlobalFloat(ParticleNormalStrength, display.EffectiveNormalStrength);
+			commandBuffer.SetGlobalFloat(ParticleNormalProfileCurve, settings.normalProfileCurve);
+		}
+
+		private static void ApplyPhaseSplitGradientAndScalarGlobals(IBaseCommandBuffer commandBuffer, ParticleDisplay2D display, Camera cam, ParticleFluidLighting2D lighting, TextureHandle gradientAtlas)
+		{
+			ApplyPhaseSplitGlobals(commandBuffer, display.metaballs);
+			commandBuffer.SetGlobalTexture(GradientAtlas, gradientAtlas);
+			MetaballRenderer2D settings = display.metaballs;
+			commandBuffer.SetGlobalFloat(PhaseBiasNormalStrength, settings.phaseBiasNormalStrength);
+			commandBuffer.SetGlobalFloat(MetaballGhostBoundaryNormalStrength, settings.ghostBoundaryNormalStrength);
+			commandBuffer.SetGlobalFloat(MetaballRefractionStrength, lighting != null ? lighting.refractionStrength * display.GetZoomScale(cam) : 0f);
+			commandBuffer.SetGlobalFloat(MetaballRefractionEdgeFade, lighting != null ? lighting.refractionEdgeFade : 0f);
 			commandBuffer.SetGlobalInt(ScreenSpaceRefractionCanCrossPhases, lighting != null && lighting.screenSpaceRefractionCanCrossPhases ? 1 : 0);
 			commandBuffer.SetGlobalFloat(ParticleNormalStrength, display.EffectiveNormalStrength);
 			commandBuffer.SetGlobalFloat(ParticleNormalProfileCurve, settings.normalProfileCurve);
