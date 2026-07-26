@@ -87,6 +87,7 @@ namespace Seb.Fluid2D.Rendering
 		[Min(0f)] public float debugDensityMin = 210f;
 		[Min(0.0001f)] public float debugDensityMax = 500f;
 		public bool debugShowClipping = true;
+		public bool showHashGridOverlay;
 		public Gradient heatMap;
 		public Gradient signedHeatMap;
 		

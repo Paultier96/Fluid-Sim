@@ -223,10 +223,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   timeScale: 5
-  unlockedTimeScale: 0
+  unlockedTimeScale: 1
   minSubstepHz: 360
-  autoIterationsPerFrame: 0
-  iterationsPerFrame: 3
+  autoIterationsPerFrame: 1
+  targetFrameRate: 120
+  iterationsPerFrame: 20
   maxAutoIterationsPerFrame: 16
   gravity: -13
   collisionDamping: 0.5
@@ -246,6 +247,7 @@ MonoBehaviour:
   wallPressureRadius: 0
   buoyancyInversionStrength: 8
   buoyancyInversionClamp: 1
+  temperatureUpdateInterval: 1
   particleResolutionFactor: 1
   phases:
   - name: Wax
@@ -275,8 +277,6 @@ MonoBehaviour:
   carrierWedgePhase: 1
   carrierWedgeDistanceMultiplier: 2.5
   carrierWedgeStrength: 650
-  carrierWedgeViscosityMultiplier: 1
-  carrierWedgeInterfaceOnly: 1
   carrierWedgeInterfaceThreshold: 0.001
   carrierWedgeCoilStrengthMultiplier: 0
   carrierWedgeMaxAcceleration: 0
@@ -371,7 +371,7 @@ MonoBehaviour:
     edgeSoftness: 0.05
     phaseBlendWidth: 1
     transportPhaseBlendWidth: 4
-    phase0RenderBias: 0.95
+    renderBias: 0.95
     phaseBiasNormalStrength: 2.25
     sharpness: 1
     intensity: 20
@@ -461,6 +461,7 @@ MonoBehaviour:
   debugDensityMin: 210
   debugDensityMax: 380
   debugShowClipping: 1
+  showHashGridOverlay: 0
   heatMap:
     serializedVersion: 2
     key0: {r: 0, g: 0, b: 0, a: 1}

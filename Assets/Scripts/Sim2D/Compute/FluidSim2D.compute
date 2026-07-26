@@ -4,12 +4,10 @@
 #pragma kernel ReorderCopyback
 #pragma kernel CalculateDensities    // 4
 #pragma kernel CalculatePressureForce // 5
-#pragma kernel CalculateViscosity    // 6
+#pragma kernel CalculateViscosityAndCohesion // 6
 #pragma kernel ApplyThermalBuoyancy  // 7
 #pragma kernel UpdatePositions       // 8
-#pragma kernel UpdateThermalExpansion // 9
 #pragma kernel UpdateTemperature     // 10
-#pragma kernel CalculateCohesion // 17
 #pragma kernel CalculateCSF // 18
 #pragma kernel ComputeColorGradients // 19
 #pragma kernel InitializeBlobIDs // 21
@@ -19,6 +17,7 @@
 #pragma kernel ClearBlobSizes // 27
 #pragma kernel CountBlobSizes // 28
 #pragma kernel MarkSingleParticleBlobs // 29
+#pragma kernel BuildCellBlobSummaries
 #pragma kernel ApplyCarrierWedgeForce // 30
 
 // Includes
@@ -339,6 +338,69 @@ void CopyBlobIDsToPrevious(uint3 id : SV_DispatchThreadID)
 	BlobIDsPrevious[id.x] = BlobIDs[id.x];
 }
 
+[numthreads(NumThreads, 1, 1)]
+void BuildCellBlobSummaries(uint3 id : SV_DispatchThreadID)
+{
+	uint key = id.x;
+	if (key >= numParticles) return;
+
+	uint blobA = IgnoredPhaseBlobID;
+	uint blobB = IgnoredPhaseBlobID;
+	uint currIndex = SpatialOffsetsRO[key];
+
+	// Empty hash buckets have an out-of-range offset. The key check also makes
+	// this safe if an offset buffer contains a stale/default value.
+	while (currIndex < numParticles && SpatialKeysRO[currIndex] == key)
+	{
+		uint particleIndex = currIndex++;
+		if (!IsFluidParticleRO(particleIndex)) continue;
+		if (IsCarrierWedgePhase(PhasesRO[particleIndex])) continue;
+
+		uint blob = BlobIDsRO[particleIndex];
+		if (!IsAssignedBlob(blob)) continue;
+
+		if (!IsAssignedBlob(blobA))
+		{
+			blobA = blob;
+		}
+		else if (!IsSameBlob(blob, blobA))
+		{
+			blobB = blob;
+			break;
+		}
+	}
+
+	CellBlobSummaries[key] = uint2(blobA, blobB);
+}
+
+bool CarrierWedgeRegionMayContainTwoBlobs(int2 originCell, int cellRange)
+{
+	uint firstBlob = IgnoredPhaseBlobID;
+
+	for (int y = -cellRange; y <= cellRange; y++)
+	{
+		for (int x = -cellRange; x <= cellRange; x++)
+		{
+			uint key = KeyFromHash(HashCell2D(originCell + int2(x, y)), numParticles);
+			uint2 summary = CellBlobSummariesRO[key];
+
+			if (IsAssignedBlob(summary.x))
+			{
+				if (!IsAssignedBlob(firstBlob)) firstBlob = summary.x;
+				else if (!IsSameBlob(firstBlob, summary.x)) return true;
+			}
+
+			if (IsAssignedBlob(summary.y))
+			{
+				if (!IsAssignedBlob(firstBlob)) firstBlob = summary.y;
+				else if (!IsSameBlob(firstBlob, summary.y)) return true;
+			}
+		}
+	}
+
+	return false;
+}
+
 bool TryGetCarrierWedge(uint particleIndex, float2 pos, out float2 wedgeDir, out float wedgeAmount)
 {
 	wedgeDir = 0;
@@ -346,7 +408,7 @@ bool TryGetCarrierWedge(uint particleIndex, float2 pos, out float2 wedgeDir, out
 
 	float carrierWedgeDistance = carrierWedgeDistanceMultiplier * smoothingRadius;
 	if (carrierWedgeDistance <= 0) return false;
-	if (carrierWedgeInterfaceOnly && length(ColorGradientsRO[particleIndex]) < carrierWedgeInterfaceThreshold) return false;
+	if (length(ColorGradientsRO[particleIndex]) < carrierWedgeInterfaceThreshold) return false;
 
 	float localStrengthMultiplier = IsInsideBlobMergeCoil(pos) ? saturate(carrierWedgeCoilStrengthMultiplier) : 1.0;
 	if (localStrengthMultiplier <= 0) return false;
@@ -355,6 +417,7 @@ bool TryGetCarrierWedge(uint particleIndex, float2 pos, out float2 wedgeDir, out
 	float sqrSearchDistance = searchDistance * searchDistance;
 	int2 originCell = GetCell2D(pos, smoothingRadius);
 	int cellRange = min((int)ceil(searchDistance / max(smoothingRadius, 1e-6)), 8);
+	if (!CarrierWedgeRegionMayContainTwoBlobs(originCell, cellRange)) return false;
 
 	uint blobA = IgnoredPhaseBlobID;
 	uint blobB = IgnoredPhaseBlobID;
@@ -605,16 +668,15 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
     END_FOR_EACH_HASH_NEIGHBOR
 
     float newTemp = myTemp;
+    float thermalStep = temperatureDeltaTime / max(PhaseSpecificHeatCapacity[myPhase], 0.01);
 
     // Apply diffusion
     if (totalWeight > 0)
-        newTemp += diffusion / totalWeight * PhaseThermalConductivity[myPhase] * deltaTime / PhaseSpecificHeatCapacity[myPhase];
-
-    float heatCapacity = max(PhaseSpecificHeatCapacity[myPhase], 0.01);
+        newTemp += diffusion / totalWeight * PhaseThermalConductivity[myPhase] * thermalStep;
 
     if (ambientCoolingRate > 0)
     {
-        newTemp += (ambientTemperature - newTemp) * ambientCoolingRate * deltaTime / heatCapacity;
+        newTemp += (ambientTemperature - newTemp) * ambientCoolingRate * thermalStep;
     }
 
     if (wallCoolingRate > 0)
@@ -625,7 +687,7 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
         if (wallDist >= 0 && wallDist < coolingRadius)
         {
             float wallT = 1.0 - saturate(wallDist / max(coolingRadius, 1e-6));
-            newTemp += (ambientTemperature - newTemp) * wallCoolingRate * wallT * deltaTime / heatCapacity;
+            newTemp += (ambientTemperature - newTemp) * wallCoolingRate * wallT * thermalStep;
         }
     }
 
@@ -633,60 +695,19 @@ void UpdateTemperature(uint3 id : SV_DispatchThreadID)
     float heatSourceWeight = SampleHeatSourceWeight(pos);
     
     if (heatSourceWeight > 0)
-        newTemp += (heatSourceTemperature - newTemp) * heatSourceTransferRate * heatSourceWeight * deltaTime / heatCapacity;
+        newTemp += (heatSourceTemperature - newTemp) * heatSourceTransferRate * heatSourceWeight * thermalStep;
 
     float cursorBrushWeight = SampleCursorTemperatureBrushWeight(pos);
     if (cursorBrushWeight > 0)
-        newTemp += (cursorTemperatureBrushTarget - newTemp) * cursorTemperatureBrushTransferRate * cursorBrushWeight * deltaTime / heatCapacity;
+        newTemp += (cursorTemperatureBrushTarget - newTemp) * cursorTemperatureBrushTransferRate * cursorBrushWeight * thermalStep;
 
     Temperatures[id.x] = newTemp;
-}
 
-[numthreads(NumThreads, 1, 1)]
-void CalculateCohesion(uint3 id : SV_DispatchThreadID)
-{
-	if (!IsFluidParticle(id.x)) return;
-
-	uint myPhase = Phases[id.x];
-	float2 pos = PredictedPositions[id.x];
-	int2 originCell = GetCell2D(pos, smoothingRadius);
-	float sqrRadius = smoothingRadius * smoothingRadius;
-
-	float2 cohesionForce = 0;
-
-	FOR_EACH_HASH_NEIGHBOR(originCell, numParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
-	{
-			if (neighbourIndex == id.x) continue;
-            if (!IsFluidParticle(neighbourIndex)) continue;
-
-			uint neighbourPhase = Phases[neighbourIndex];
-			bool isOtherBlobSamePhase = IsPhaseValue(neighbourPhase, myPhase) && !IsSameBlob(BlobIDs[neighbourIndex], BlobIDs[id.x]);
-			float cohesionStrength = GetPhaseCohesion(myPhase, neighbourPhase);
-			if (isOtherBlobSamePhase)
-			{
-				cohesionStrength = blobBlobCohesion;
-			}
-
-			float2 neighbourPos = PredictedPositions[neighbourIndex];
-			float2 offsetToNeighbour = neighbourPos - pos;
-			float sqrDst = dot(offsetToNeighbour, offsetToNeighbour);
-
-			if (sqrDst > sqrRadius || sqrDst == 0) continue;
-
-			float dst = sqrt(sqrDst);
-			float2 dirToNeighbour = offsetToNeighbour / dst;
-
-			// Attractive in the mid-range, zero at very close range (near-pressure handles that)
-			float cohesionKernel = SpikyKernelPow2(dst, smoothingRadius);
-			
-			if (cohesionStrength != 0)
-			{
-				cohesionForce += dirToNeighbour * cohesionKernel * cohesionStrength;
-			}
-	}
-	END_FOR_EACH_HASH_NEIGHBOR
-
-	Velocities[id.x] += cohesionForce * deltaTime;
+    // Update the temperature-dependent target density while the new temperature is already available.
+    float baseDensity = PhaseTargetDensities[myPhase];
+    float expansionCoeff = PhaseThermalExpansion[myPhase];
+    float thermalDensity = baseDensity * (1.0 - expansionCoeff * (newTemp - ambientTemperature));
+    ParticleTargetDensities[id.x] = max(thermalDensity, baseDensity * 0.1);
 }
 
 [numthreads(NumThreads, 1, 1)]
@@ -724,61 +745,51 @@ void ApplyCarrierWedgeForce(uint3 id : SV_DispatchThreadID)
 }
 
 [numthreads(NumThreads,1,1)]
-void CalculateViscosity (uint3 id : SV_DispatchThreadID)
+void CalculateViscosityAndCohesion(uint3 id : SV_DispatchThreadID)
 {
 	if (IsInvalidParticle(id.x)) return;
 
-	if (!IsFluidParticle(id.x))
+	if (!IsFluidParticleRO(id.x))
 	{
 		if (debugVisualizationMode == 3)
 			ClearDebugData(id.x);
 		return;
 	}
 	
-	float2 pos = PredictedPositions[id.x];
+	float2 pos = PredictedPositionsRO[id.x];
 	int2 originCell = GetCell2D(pos, smoothingRadius);
 	float sqrRadius = smoothingRadius * smoothingRadius;
 
 	float2 viscosityForce = 0;
+	float2 cohesionForce = 0;
 	float2 velocity = Velocities[id.x];
 
-	uint myPhase = Phases[id.x];
-	float myTemp = Temperatures[id.x];
+	uint myPhase = PhasesRO[id.x];
+	float myTemp = TemperaturesRO[id.x];
 	float myViscosity = GetTemperatureAdjustedViscosity(myPhase, myTemp);
-	float wedgeViscosityMultiplier = 1.0;
-	if (IsCarrierWedgePhase(myPhase) && carrierWedgeViscosityMultiplier > 1.0)
-	{
-		float2 wedgeDir;
-		float wedgeAmount;
-		if (TryGetCarrierWedge(id.x, pos, wedgeDir, wedgeAmount))
-		{
-			wedgeViscosityMultiplier = lerp(1.0, carrierWedgeViscosityMultiplier, wedgeAmount);
-		}
-	}
 	if (debugVisualizationMode == 3)
 	{
-		DebugData[id.x] = (myViscosity * wedgeViscosityMultiplier).xx;
+		DebugData[id.x] = myViscosity.xx;
 	}
 
 
-	FOR_EACH_HASH_NEIGHBOR(originCell, numParticles, SpatialOffsets, SpatialKeys, neighbourIndex)
+	FOR_EACH_HASH_NEIGHBOR(originCell, numParticles, SpatialOffsetsRO, SpatialKeysRO, neighbourIndex)
 	{
 			// Skip if looking at self
 			if (neighbourIndex == id.x) continue;
-            if (!IsFluidParticle(neighbourIndex)) continue;
+            if (!IsFluidParticleRO(neighbourIndex)) continue;
 			
-			float2 neighbourPos = PredictedPositions[neighbourIndex];
+			float2 neighbourPos = PredictedPositionsRO[neighbourIndex];
 			float2 offsetToNeighbour = neighbourPos - pos;
 			float sqrDstToNeighbour = dot(offsetToNeighbour, offsetToNeighbour);
 
 			// Skip if not within radius
 			if (sqrDstToNeighbour > sqrRadius) continue;
 
-			uint neighbourPhase = Phases[neighbourIndex];
-			float neighbourTemp = Temperatures[neighbourIndex];
+			uint neighbourPhase = PhasesRO[neighbourIndex];
+			float neighbourTemp = TemperaturesRO[neighbourIndex];
 			float neighbourViscosity = GetTemperatureAdjustedViscosity(neighbourPhase, neighbourTemp);
 			float blendedViscosity = (myViscosity + neighbourViscosity) * 0.5;
-			blendedViscosity *= wedgeViscosityMultiplier;
 			bool differentPhase = !IsPhaseValue(neighbourPhase, myPhase);
 			bool differentBlobSamePhase = !differentPhase && !IsSameBlob(BlobIDsRO[neighbourIndex], BlobIDsRO[id.x]);
 			if (differentPhase || differentBlobSamePhase)
@@ -789,9 +800,23 @@ void CalculateViscosity (uint3 id : SV_DispatchThreadID)
 			float dst = sqrt(sqrDstToNeighbour);
 			float2 neighbourVelocity = Velocities[neighbourIndex];
 			viscosityForce += (neighbourVelocity - velocity) * ViscosityKernel(dst, smoothingRadius) * blendedViscosity;
+
+			if (sqrDstToNeighbour > 0)
+			{
+				bool isOtherBlobSamePhase = IsPhaseValue(neighbourPhase, myPhase) &&
+					!IsSameBlob(BlobIDsRO[neighbourIndex], BlobIDsRO[id.x]);
+				float cohesionStrength = isOtherBlobSamePhase
+					? blobBlobCohesion
+					: GetPhaseCohesion(myPhase, neighbourPhase);
+				if (cohesionStrength != 0)
+				{
+					float2 dirToNeighbour = offsetToNeighbour / dst;
+					cohesionForce += dirToNeighbour * SpikyKernelPow2(dst, smoothingRadius) * cohesionStrength;
+				}
+			}
 	}
 	END_FOR_EACH_HASH_NEIGHBOR
-	Velocities[id.x] += viscosityForce * deltaTime;
+	Velocities[id.x] += (viscosityForce + cohesionForce) * deltaTime;
 }
 
 [numthreads(NumThreads, 1, 1)]
@@ -827,21 +852,6 @@ void UpdatePositions(uint3 id : SV_DispatchThreadID)
 }
 
 [numthreads(NumThreads, 1, 1)]
-void UpdateThermalExpansion(uint3 id : SV_DispatchThreadID)
-{
-    if (!IsFluidParticle(id.x)) return;
-
-    uint phase = Phases[id.x];
-    float baseDensity = PhaseTargetDensities[phase];
-    float expansionCoeff = PhaseThermalExpansion[phase];
-    float temp = Temperatures[id.x];
-
-    // Density decreases as temperature rises above reference
-    float thermalDensity = baseDensity * (1.0 - expansionCoeff * (temp - ambientTemperature));
-    ParticleTargetDensities[id.x] = max(thermalDensity, baseDensity * 0.1); // prevent negative density
-}
-
-[numthreads(NumThreads, 1, 1)]
 void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
 {
     if (IsInvalidParticle(id.x)) return;
@@ -849,7 +859,6 @@ void ComputeColorGradients(uint3 id : SV_DispatchThreadID)
     uint myPhase = Phases[id.x];
     uint myBlobId = BlobIDsRO[id.x];
     float2 pos = PredictedPositions[id.x];
-    float density_i = max(Densities[id.x][0], 0.0001);
     int2 originCell = GetCell2D(pos, smoothingRadius);
     float sqrRadius = smoothingRadius * smoothingRadius;
 

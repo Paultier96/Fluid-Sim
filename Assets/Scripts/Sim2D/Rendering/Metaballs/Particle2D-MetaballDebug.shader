@@ -31,6 +31,11 @@ int debugShowClipping;
 float debugGradientMax;
 float motionDebugDeltaTime;
 float particleCausticDebugExposure;
+float hashGridCellSize;
+float2 hashGridWorldCenter;
+float2 hashGridWorldSize;
+int showHashGridOverlay;
+int hashGridOverlayOnly;
 
 v2f vert(appdata v)
 {
@@ -66,6 +71,17 @@ float3 SampleDebugHeatMap(float value, float row)
 float BlobColourWeight(float3 blobColourSum)
 {
 	return max(max(blobColourSum.r, blobColourSum.g), blobColourSum.b);
+}
+
+float HashGridLine(float2 uv)
+{
+	float cellSize = max(hashGridCellSize, 0.0001);
+	float2 worldPos = hashGridWorldCenter + (uv - 0.5) * hashGridWorldSize;
+	float2 gridPos = worldPos / cellSize;
+	float2 cellUv = frac(gridPos);
+	float edgeDistance = min(min(cellUv.x, 1.0 - cellUv.x), min(cellUv.y, 1.0 - cellUv.y));
+	float lineWidth = max(fwidth(gridPos.x), fwidth(gridPos.y)) * 1.25;
+	return 1.0 - smoothstep(0.0, lineWidth, edgeDistance);
 }
 
 bool ResolveMetaball(v2f i, out float alpha, out float3 litColour)
@@ -126,6 +142,16 @@ float3 ApplyMotionClipMarker(float rawMotionMagnitude, float3 colour)
 
 float4 frag(v2f i) : SV_Target
 {
+	float gridLine = showHashGridOverlay != 0 ? HashGridLine(i.uv) : 0.0;
+	if (gridLine > 0.001)
+	{
+		return float4(float3(0.15, 0.9, 1.0), gridLine * 0.85);
+	}
+	if (hashGridOverlayOnly != 0)
+	{
+		discard;
+	}
+
 	float2 causticUv = i.uv;
 	if (debugMode == 7) // Caustics
 	{
@@ -157,7 +183,6 @@ float4 frag(v2f i) : SV_Target
 		debugColour = weight > 0.0001 ? ApplyMotionClipMarker(rawMotionMagnitude, debugColour) : debugColour;
 		return float4(debugColour, 1.0);
 	}
-
 	float alpha;
 	float3 colour;
 	if (!ResolveMetaball(i, alpha, colour))

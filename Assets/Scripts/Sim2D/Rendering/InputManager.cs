@@ -79,6 +79,10 @@ namespace Seb.Fluid2D.Rendering
 			{
 				SetDebugMode(ParticleDisplay2D.DebugVisualization.ParticleMotion, ParticleFluidLighting2D.LightingDebugVisualization.None);
 			}
+			else if (KeyPressed(Key.G))
+			{
+				display.showHashGridOverlay = !display.showHashGridOverlay;
+			}
 		}
 
 		private static bool KeyPressed(Key key)

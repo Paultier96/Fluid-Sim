@@ -47,7 +47,8 @@ namespace Seb.Fluid2D.Simulation
             ComputeHelper.Dispatch(compute, particleCount, kernelIndex: kernels.Density);
             ComputeHelper.Dispatch(compute, particleCount, kernelIndex: kernels.ComputeColorGradient);
             ComputeHelper.Dispatch(compute, particleCount, kernelIndex: kernels.ThermalBuoyancy);
-            ComputeHelper.Dispatch(compute, particleCount, kernelIndex: kernels.Viscosity);
+            ComputeHelper.Dispatch(compute, particleCount, kernelIndex: kernels.ViscosityCohesion);
+            ComputeHelper.Dispatch(compute, particleCount, kernelIndex: kernels.BuildCellBlobSummaries);
             ComputeHelper.Dispatch(compute, particleCount, kernelIndex: kernels.CarrierWedge);
             ComputeHelper.Dispatch(compute, particleCount, kernelIndex: kernels.Csf);
         }

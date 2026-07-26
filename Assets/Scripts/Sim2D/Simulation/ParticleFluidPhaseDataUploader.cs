@@ -26,18 +26,6 @@ namespace Seb.Fluid2D.Simulation
             }
 
             _dirty = false;
-            Upload(compute, resources, kernels, phases, targetDensityScale, phaseSeparation, phaseCohesionValues);
-        }
-
-        static void Upload(
-            ComputeShader compute,
-            ParticleFluidSimulationResources resources,
-            ParticleFluidSimulationKernels kernels,
-            FluidSim2D.PhaseConfig[] phases,
-            float targetDensityScale,
-            float phaseSeparation,
-            float[] phaseCohesionValues)
-        {
             int phaseCount = phases.Length;
             resources.EnsurePhaseBuffers(phaseCount);
 

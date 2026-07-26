@@ -17,6 +17,7 @@ namespace Seb.Fluid2D.Simulation
         public ComputeBuffer debugVectorDataBuffer;
         public ComputeBuffer debugVectorSignBuffer;
         public ComputeBuffer colorGradientBuffer;
+        public ComputeBuffer cellBlobSummaryBuffer;
         public ComputeBuffer blobIdScratchBuffer;
         public ComputeBuffer blobIdPreviousBuffer;
         public ComputeBuffer blobSizeBuffer;
@@ -60,6 +61,7 @@ namespace Seb.Fluid2D.Simulation
             debugVectorDataBuffer = ComputeHelper.CreateStructuredBuffer<float2>(particleCount);
             debugVectorSignBuffer = ComputeHelper.CreateStructuredBuffer<float>(particleCount);
             colorGradientBuffer = ComputeHelper.CreateStructuredBuffer<float2>(particleCount);
+            cellBlobSummaryBuffer = ComputeHelper.CreateStructuredBuffer<uint2>(particleCount);
             particleTargetDensityBuffer = ComputeHelper.CreateStructuredBuffer<float>(particleCount);
         }
 
@@ -151,7 +153,8 @@ namespace Seb.Fluid2D.Simulation
                 debugDataBuffer,
                 debugVectorDataBuffer,
                 debugVectorSignBuffer,
-                colorGradientBuffer);
+                colorGradientBuffer,
+                cellBlobSummaryBuffer);
         }
     }
 }

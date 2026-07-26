@@ -35,8 +35,10 @@ namespace Seb.Fluid2D.Simulation
         public bool unlockedTimeScale = false;
         [Tooltip("Minimum simulation substep frequency in Hertz. Higher values mean smaller, more stable substeps.")]
         [Min(1f)] public float minSubstepHz = 360f;
-        [Tooltip("Automatically adjusts simulation iterations per rendered frame from monitor refresh rate, time scale, and measured frame performance.")]
+        [Tooltip("Automatically adjusts simulation iterations per rendered frame from the target frame rate, time scale, and measured frame performance.")]
         public bool autoIterationsPerFrame = true;
+        [Tooltip("Frame rate that automatic iteration budgeting tries to maintain. This is independent of the monitor refresh rate.")]
+        [Min(1f)] public float targetFrameRate = 60f;
         [Tooltip("Manual substep count used when auto mode is disabled. In auto mode this is updated to the current calculated value.")]
         [Min(1)] public int iterationsPerFrame = 1;
         [Tooltip("Upper bound for automatically calculated iterations per frame. In unlocked mode this is the fast-forward work budget.")]
@@ -78,6 +80,8 @@ namespace Seb.Fluid2D.Simulation
         public float buoyancyInversionStrength = 1.0f;
         [Tooltip("Clamp for normalized density contrast used by thermal buoyancy to prevent spikes.")]
         public float buoyancyInversionClamp = 1.0f;
+        [Tooltip("Mechanical substeps between temperature diffusion updates. The skipped time is accumulated, so heating and cooling rates remain approximately unchanged. 1 updates every substep.")]
+        [Min(1)] public int temperatureUpdateInterval = 1;
 
         [Tooltip("Resolution scale relative to the authored values. Scales particle count, target densities, and smoothing radius consistently.")]
         [Range(0.01f, 10f)]
@@ -121,11 +125,7 @@ namespace Seb.Fluid2D.Simulation
         [Range(0f, 8f)] public float carrierWedgeDistanceMultiplier;
         [Tooltip("Acceleration strength that pushes carrier fluid into the gap between two different blob IDs.")]
         [Min(0f)] public float carrierWedgeStrength;
-        [Tooltip("Multiplier applied to carrier viscosity inside a valid wedge. 1 = no local viscosity boost.")]
-        [Min(1f)] public float carrierWedgeViscosityMultiplier = 1f;
-        [Tooltip("When enabled, bulk carrier particles with weak color gradients skip the expensive carrier wedge neighbour scan.")]
-        public bool carrierWedgeInterfaceOnly = true;
-        [Tooltip("Minimum color-gradient magnitude required for carrier wedge when interface-only mode is enabled.")]
+        [Tooltip("Minimum color-gradient magnitude required for carrier wedge processing.")]
         [Min(0f)] public float carrierWedgeInterfaceThreshold = 0.001f;
         [Tooltip("Multiplier applied to carrier wedge strength inside the blob merge coil area. 0 disables the wedge in the coil, 1 leaves it unchanged.")]
         [Range(0f, 1f)] public float carrierWedgeCoilStrengthMultiplier;
@@ -207,6 +207,8 @@ namespace Seb.Fluid2D.Simulation
         private float2[] _velocityReadback;
         private float2[] _densityReadback;
         private float[] _targetDensityReadback;
+        private int _temperatureSubstepsSinceUpdate;
+        private float _accumulatedTemperatureDeltaTime;
 
         public int NumParticles { get; private set; }
         public float CurrentPlaybackSpeed { get; private set; }
@@ -279,6 +281,7 @@ namespace Seb.Fluid2D.Simulation
                     timeScale,
                     unlockedTimeScale,
                     autoIterationsPerFrame,
+                    targetFrameRate,
                     iterationsPerFrame,
                     maxAutoIterationsPerFrame,
                     minSubstepHz);
@@ -333,31 +336,47 @@ namespace Seb.Fluid2D.Simulation
 
             for (int i = 0; i < substepCount; i++)
             {
-                RunSimulationStep();
+                RunSimulationStep(timeStep);
             }
         }
 
-        void RunSimulationStep()
+        void RunSimulationStep(float timeStep)
         {
             ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.ExternalForces);
             RunSpatial();
-            ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.UpdateTemperature);
-            ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.UpdateThermalExpansion);
+            RunTemperatureUpdateIfDue(timeStep);
             ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.Density);
             ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.ComputeColorGradient);
             ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.ThermalBuoyancy);
             ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.Pressure);
-            ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.Viscosity);
-            ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.Cohesion);
+            ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.ViscosityCohesion);
             _blobDetector.RecomputeIfDue(compute, _kernels, NumParticles, blobIdUpdateInterval, blobPropagationIterations);
             bool needsNonCoalescenceDebug = _particleDisplay != null && (_particleDisplay.vectorField?.ComputeMode ?? 0) == 2;
             if ((carrierWedgeStrength > 0 && carrierWedgeDistanceMultiplier > 0) || needsNonCoalescenceDebug)
             {
+                ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.BuildCellBlobSummaries);
                 ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.CarrierWedge);
             }
             ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.Csf);
             ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.UpdatePosition);
 
+        }
+
+        void RunTemperatureUpdateIfDue(float timeStep)
+        {
+            _temperatureSubstepsSinceUpdate++;
+            _accumulatedTemperatureDeltaTime += Mathf.Max(0f, timeStep);
+
+            int interval = Mathf.Max(1, temperatureUpdateInterval);
+            if (_temperatureSubstepsSinceUpdate < interval)
+            {
+                return;
+            }
+
+            _settingsUploader.UploadTemperatureDeltaTime(compute, _accumulatedTemperatureDeltaTime);
+            ComputeHelper.Dispatch(compute, NumParticles, kernelIndex: _kernels.UpdateTemperature);
+            _temperatureSubstepsSinceUpdate = 0;
+            _accumulatedTemperatureDeltaTime = 0f;
         }
 
         public void RefreshDebugBuffers()
@@ -415,6 +434,8 @@ namespace Seb.Fluid2D.Simulation
             resources.temperatureBuffer.SetData(initialData.temperatures);
             resources.particleTargetDensityBuffer.SetData(initialData.targetDensities);
             _blobDetector.Reset(resources, NumParticles);
+            _temperatureSubstepsSinceUpdate = 0;
+            _accumulatedTemperatureDeltaTime = 0f;
         }
 
         void HandlePolledInput()
@@ -430,7 +451,7 @@ namespace Seb.Fluid2D.Simulation
             {
                 isPaused = true;
                 SetInitialBufferData();
-                RunSimulationStep();
+                RunSimulationStep(0f);
                 SetInitialBufferData();
             }
         }

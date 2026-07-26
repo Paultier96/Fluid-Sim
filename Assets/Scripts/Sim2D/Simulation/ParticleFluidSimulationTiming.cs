@@ -6,11 +6,15 @@ namespace Seb.Fluid2D.Simulation
     {
         const float SlowFrameThreshold = 1.05f;
         const float FastFrameThreshold = 0.80f;
-        const int RecoveryFrameCount = 15;
+        const int SlowFrameConfirmationCount = 8;
+        const int RecoveryFrameCount = 30;
+        const int AdjustmentCooldownFrameCount = 30;
 
         int _adaptiveIterations;
         float _smoothedFrameTime;
+        int _slowFrameCount;
         int _headroomFrameCount;
+        int _adjustmentCooldownFrames;
 
         public readonly struct Frame
         {
@@ -38,6 +42,7 @@ namespace Seb.Fluid2D.Simulation
             float timeScale,
             bool unlockedTimeScale,
             bool autoIterationsPerFrame,
+            float targetFrameRate,
             int iterationsPerFrame,
             int maxAutoIterationsPerFrame,
             float minSubstepHz)
@@ -45,7 +50,7 @@ namespace Seb.Fluid2D.Simulation
             float displayRefreshRate = GetDisplayRefreshRate();
             float maxTimestepSeconds = GetMaxTimestepSeconds(minSubstepHz);
             int substepCount = ResolveIterationsPerFrame(
-                displayRefreshRate,
+                targetFrameRate,
                 timeScale,
                 unlockedTimeScale,
                 autoIterationsPerFrame,
@@ -67,7 +72,7 @@ namespace Seb.Fluid2D.Simulation
         }
 
         int ResolveIterationsPerFrame(
-            float displayRefreshRate,
+            float targetFrameRate,
             float timeScale,
             bool unlockedTimeScale,
             bool autoIterationsPerFrame,
@@ -80,12 +85,14 @@ namespace Seb.Fluid2D.Simulation
             {
                 _adaptiveIterations = 0;
                 _smoothedFrameTime = 0f;
+                _slowFrameCount = 0;
                 _headroomFrameCount = 0;
+                _adjustmentCooldownFrames = 0;
                 return Mathf.Max(1, iterationsPerFrame);
             }
 
-            float displayFrameTime = 1f / Mathf.Max(displayRefreshRate, 1f);
-            float requestedSimulationFrameTime = displayFrameTime * Mathf.Max(0f, timeScale);
+            float targetFrameTime = 1f / Mathf.Max(targetFrameRate, 1f);
+            float requestedSimulationFrameTime = targetFrameTime * Mathf.Max(0f, timeScale);
             int idealIterations = Mathf.CeilToInt(requestedSimulationFrameTime / maxTimestepSeconds);
             int maxIterations = Mathf.Max(1, maxAutoIterationsPerFrame);
             int qualityCeiling = unlockedTimeScale
@@ -95,7 +102,7 @@ namespace Seb.Fluid2D.Simulation
                 ? Mathf.Clamp(Mathf.Max(1, iterationsPerFrame), 1, qualityCeiling)
                 : qualityCeiling;
 
-            return ResolveAdaptiveIterationsPerFrame(qualityCeiling, initialIterations, displayFrameTime, unscaledDeltaTime);
+            return ResolveAdaptiveIterationsPerFrame(qualityCeiling, initialIterations, targetFrameTime, unscaledDeltaTime);
         }
 
         int ResolveAdaptiveIterationsPerFrame(int qualityCeiling, int initialIterations, float targetFrameTime, float unscaledDeltaTime)
@@ -103,6 +110,9 @@ namespace Seb.Fluid2D.Simulation
             if (_adaptiveIterations <= 0 || _adaptiveIterations > qualityCeiling)
             {
                 _adaptiveIterations = Mathf.Clamp(initialIterations, 1, qualityCeiling);
+                _slowFrameCount = 0;
+                _headroomFrameCount = 0;
+                _adjustmentCooldownFrames = 0;
             }
 
             if (unscaledDeltaTime <= 0f)
@@ -113,24 +123,36 @@ namespace Seb.Fluid2D.Simulation
             _smoothedFrameTime = _smoothedFrameTime <= 0f
                 ? unscaledDeltaTime
                 : Mathf.Lerp(_smoothedFrameTime, unscaledDeltaTime, 0.15f);
+            _adjustmentCooldownFrames++;
 
             if (_smoothedFrameTime > targetFrameTime * SlowFrameThreshold)
             {
-                float scale = Mathf.Clamp(targetFrameTime / _smoothedFrameTime * 0.95f, 0.25f, 0.95f);
-                _adaptiveIterations = Mathf.Max(1, Mathf.FloorToInt(_adaptiveIterations * scale));
+                _slowFrameCount++;
                 _headroomFrameCount = 0;
+                if (_slowFrameCount >= SlowFrameConfirmationCount &&
+                    _adjustmentCooldownFrames >= AdjustmentCooldownFrameCount &&
+                    _adaptiveIterations > 1)
+                {
+                    _adaptiveIterations--;
+                    _slowFrameCount = 0;
+                    _adjustmentCooldownFrames = 0;
+                }
             }
             else if (_smoothedFrameTime < targetFrameTime * FastFrameThreshold && _adaptiveIterations < qualityCeiling)
             {
+                _slowFrameCount = 0;
                 _headroomFrameCount++;
-                if (_headroomFrameCount >= RecoveryFrameCount)
+                if (_headroomFrameCount >= RecoveryFrameCount &&
+                    _adjustmentCooldownFrames >= AdjustmentCooldownFrameCount)
                 {
                     _adaptiveIterations++;
                     _headroomFrameCount = 0;
+                    _adjustmentCooldownFrames = 0;
                 }
             }
             else
             {
+                _slowFrameCount = 0;
                 _headroomFrameCount = 0;
             }
 

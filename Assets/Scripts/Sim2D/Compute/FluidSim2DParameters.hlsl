@@ -29,8 +29,6 @@ const float blobBlobCohesion;
 const int carrierWedgePhase;
 const float carrierWedgeDistanceMultiplier;
 const float carrierWedgeStrength;
-const float carrierWedgeViscosityMultiplier;
-const bool carrierWedgeInterfaceOnly;
 const float carrierWedgeInterfaceThreshold;
 const float carrierWedgeCoilStrengthMultiplier;
 const float carrierWedgeMaxAcceleration;
@@ -54,6 +52,8 @@ StructuredBuffer<float2> ColorGradientsRO;
 StructuredBuffer<float2> DensitiesRO;
 StructuredBuffer<uint> PhasesRO;
 StructuredBuffer<uint> BlobIDsRO;
+RWStructuredBuffer<uint2> CellBlobSummaries;
+StructuredBuffer<uint2> CellBlobSummariesRO;
 
 // Spatial hashing
 RWStructuredBuffer<uint> SpatialKeys;
@@ -67,6 +67,7 @@ const uint numParticles;
 const int numFluidParticles;  // Only first numFluidParticles are actual fluid
 const float gravity;
 const float deltaTime;
+const float temperatureDeltaTime;
 const float collisionDamping;
 const float smoothingRadius;
 const float edgeForce;      // magnitude of repulsive acceleration at zero distance
@@ -141,6 +142,11 @@ bool IsInvalidParticle(uint particleIndex)
 bool IsFluidParticle(uint particleIndex)
 {
 	return !IsInvalidParticle(particleIndex) && IsGhost[particleIndex] == 0;
+}
+
+bool IsFluidParticleRO(uint particleIndex)
+{
+	return !IsInvalidParticle(particleIndex) && IsGhostRO[particleIndex] == 0;
 }
 
 bool IsGhostParticle(uint particleIndex)

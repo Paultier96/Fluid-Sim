@@ -11,12 +11,11 @@ namespace Seb.Fluid2D.Simulation
         public int Copyback { get; private set; }
         public int Density { get; private set; }
         public int Pressure { get; private set; }
-        public int Viscosity { get; private set; }
+        public int ViscosityCohesion { get; private set; }
         public int ThermalBuoyancy { get; private set; }
         public int UpdatePosition { get; private set; }
-        public int UpdateThermalExpansion { get; private set; }
         public int UpdateTemperature { get; private set; }
-        public int Cohesion { get; private set; }
+        public int BuildCellBlobSummaries { get; private set; }
         public int CarrierWedge { get; private set; }
         public int Csf { get; private set; }
         public int ComputeColorGradient { get; private set; }
@@ -36,12 +35,11 @@ namespace Seb.Fluid2D.Simulation
             Copyback = compute.FindKernel("ReorderCopyback");
             Density = compute.FindKernel("CalculateDensities");
             Pressure = compute.FindKernel("CalculatePressureForce");
-            Viscosity = compute.FindKernel("CalculateViscosity");
+            ViscosityCohesion = compute.FindKernel("CalculateViscosityAndCohesion");
             ThermalBuoyancy = compute.FindKernel("ApplyThermalBuoyancy");
             UpdatePosition = compute.FindKernel("UpdatePositions");
-            UpdateThermalExpansion = compute.FindKernel("UpdateThermalExpansion");
             UpdateTemperature = compute.FindKernel("UpdateTemperature");
-            Cohesion = compute.FindKernel("CalculateCohesion");
+            BuildCellBlobSummaries = compute.FindKernel("BuildCellBlobSummaries");
             CarrierWedge = compute.FindKernel("ApplyCarrierWedgeForce");
             Csf = compute.FindKernel("CalculateCSF");
             ComputeColorGradient = compute.FindKernel("ComputeColorGradients");
@@ -58,22 +56,24 @@ namespace Seb.Fluid2D.Simulation
         {
             ComputeHelper.SetBuffer(compute, resources.positionBuffer, "Positions", ExternalForces, UpdatePosition, Copyback);
             ComputeHelper.SetBuffer(compute, resources.positionBuffer, "PositionsRO", Reorder);
-            ComputeHelper.SetBuffer(compute, resources.predictedPositionBuffer, "PredictedPositions", ExternalForces, SpatialHash, Density, Pressure, Viscosity, ThermalBuoyancy, UpdateTemperature, Cohesion, CarrierWedge, ComputeColorGradient, Csf, Copyback, InitializeBlobIds, PropagateBlobIds);
-            ComputeHelper.SetBuffer(compute, resources.predictedPositionBuffer, "PredictedPositionsRO", Reorder);
-            ComputeHelper.SetBuffer(compute, resources.velocityBuffer, "Velocities", ExternalForces, Pressure, Viscosity, ThermalBuoyancy, Cohesion, CarrierWedge, Csf, UpdatePosition, Copyback);
+            ComputeHelper.SetBuffer(compute, resources.predictedPositionBuffer, "PredictedPositions", ExternalForces, SpatialHash, Density, Pressure, ThermalBuoyancy, UpdateTemperature, CarrierWedge, ComputeColorGradient, Csf, Copyback, InitializeBlobIds, PropagateBlobIds);
+            ComputeHelper.SetBuffer(compute, resources.predictedPositionBuffer, "PredictedPositionsRO", Reorder, ViscosityCohesion);
+            ComputeHelper.SetBuffer(compute, resources.velocityBuffer, "Velocities", ExternalForces, Pressure, ViscosityCohesion, ThermalBuoyancy, CarrierWedge, Csf, UpdatePosition, Copyback);
             ComputeHelper.SetBuffer(compute, resources.velocityBuffer, "VelocitiesRO", Reorder);
             ComputeHelper.SetBuffer(compute, resources.densityBuffer, "Densities", Density, Pressure, ComputeColorGradient);
             ComputeHelper.SetBuffer(compute, resources.densityBuffer, "DensitiesRO", Csf);
-            ComputeHelper.SetBuffer(compute, resources.phaseBuffer, "Phases", ExternalForces, Density, Pressure, Viscosity, ThermalBuoyancy, UpdateTemperature, Cohesion, CarrierWedge, ComputeColorGradient, UpdatePosition, Copyback, UpdateThermalExpansion, CountBlobSizes, MarkSingleParticleBlobs, InitializeBlobIds, PropagateBlobIds);
-            ComputeHelper.SetBuffer(compute, resources.phaseBuffer, "PhasesRO", Reorder, Csf);
-            ComputeHelper.SetBuffer(compute, resources.ghostFlagBuffer, "IsGhost", ExternalForces, Pressure, Viscosity, ThermalBuoyancy, UpdateTemperature, UpdatePosition, Cohesion, CarrierWedge, Csf, UpdateThermalExpansion, Copyback);
-            ComputeHelper.SetBuffer(compute, resources.ghostFlagBuffer, "IsGhostRO", Reorder);
-            ComputeHelper.SetBuffer(compute, resources.temperatureBuffer, "Temperatures", Viscosity, UpdateTemperature, UpdateThermalExpansion, Copyback);
-            ComputeHelper.SetBuffer(compute, resources.temperatureBuffer, "TemperaturesRO", Reorder);
-            ComputeHelper.SetBuffer(compute, resources.particleTargetDensityBuffer, "ParticleTargetDensities", Pressure, ThermalBuoyancy, UpdateThermalExpansion, Copyback);
+            ComputeHelper.SetBuffer(compute, resources.phaseBuffer, "Phases", ExternalForces, Density, Pressure, ThermalBuoyancy, UpdateTemperature, CarrierWedge, ComputeColorGradient, UpdatePosition, Copyback, CountBlobSizes, MarkSingleParticleBlobs, InitializeBlobIds, PropagateBlobIds);
+            ComputeHelper.SetBuffer(compute, resources.phaseBuffer, "PhasesRO", Reorder, ViscosityCohesion, BuildCellBlobSummaries, Csf);
+            ComputeHelper.SetBuffer(compute, resources.ghostFlagBuffer, "IsGhost", ExternalForces, Pressure, ThermalBuoyancy, UpdateTemperature, UpdatePosition, CarrierWedge, Csf, Copyback);
+            ComputeHelper.SetBuffer(compute, resources.ghostFlagBuffer, "IsGhostRO", Reorder, ViscosityCohesion, BuildCellBlobSummaries);
+            ComputeHelper.SetBuffer(compute, resources.temperatureBuffer, "Temperatures", UpdateTemperature, Copyback);
+            ComputeHelper.SetBuffer(compute, resources.temperatureBuffer, "TemperaturesRO", Reorder, ViscosityCohesion);
+            ComputeHelper.SetBuffer(compute, resources.particleTargetDensityBuffer, "ParticleTargetDensities", Pressure, ThermalBuoyancy, UpdateTemperature, Copyback);
             ComputeHelper.SetBuffer(compute, resources.particleTargetDensityBuffer, "ParticleTargetDensitiesRO", Reorder);
-            ComputeHelper.SetBuffer(compute, resources.blobIdBuffer, "BlobIDs", InitializeBlobIds, PropagateBlobIds, CopyBlobIds, Pressure, Cohesion, CopyBlobIdsToPrevious, CountBlobSizes, MarkSingleParticleBlobs, Copyback);
-            ComputeHelper.SetBuffer(compute, resources.blobIdBuffer, "BlobIDsRO", Reorder, Viscosity, CarrierWedge, Csf, ComputeColorGradient);
+            ComputeHelper.SetBuffer(compute, resources.blobIdBuffer, "BlobIDs", InitializeBlobIds, PropagateBlobIds, CopyBlobIds, Pressure, CopyBlobIdsToPrevious, CountBlobSizes, MarkSingleParticleBlobs, Copyback);
+            ComputeHelper.SetBuffer(compute, resources.blobIdBuffer, "BlobIDsRO", Reorder, ViscosityCohesion, BuildCellBlobSummaries, CarrierWedge, Csf, ComputeColorGradient);
+            ComputeHelper.SetBuffer(compute, resources.cellBlobSummaryBuffer, "CellBlobSummaries", BuildCellBlobSummaries);
+            ComputeHelper.SetBuffer(compute, resources.cellBlobSummaryBuffer, "CellBlobSummariesRO", CarrierWedge);
             ComputeHelper.SetBuffer(compute, resources.blobIdScratchBuffer, "BlobIDsScratch", PropagateBlobIds, CopyBlobIds);
             ComputeHelper.SetBuffer(compute, resources.blobSizeBuffer, "BlobSizes", ClearBlobSizes, CountBlobSizes, MarkSingleParticleBlobs);
             ComputeHelper.SetBuffer(compute, resources.blobIdPreviousBuffer, "BlobIDsPrevious", InitializeBlobIds, PropagateBlobIds, CopyBlobIdsToPrevious);
@@ -82,10 +82,10 @@ namespace Seb.Fluid2D.Simulation
         public void BindSpatialHashBuffers(ComputeShader compute, SpatialHash spatialHash)
         {
             ComputeHelper.SetBuffer(compute, spatialHash.SpatialIndices, "SortedIndices", Reorder);
-            ComputeHelper.SetBuffer(compute, spatialHash.SpatialOffsets, "SpatialOffsets", Density, Pressure, Viscosity, ThermalBuoyancy, UpdateTemperature, Cohesion, CarrierWedge, ComputeColorGradient, PropagateBlobIds);
-            ComputeHelper.SetBuffer(compute, spatialHash.SpatialKeys, "SpatialKeys", SpatialHash, Density, Pressure, Viscosity, ThermalBuoyancy, UpdateTemperature, Cohesion, CarrierWedge, ComputeColorGradient, PropagateBlobIds);
-            ComputeHelper.SetBuffer(compute, spatialHash.SpatialOffsets, "SpatialOffsetsRO", Csf);
-            ComputeHelper.SetBuffer(compute, spatialHash.SpatialKeys, "SpatialKeysRO", Csf);
+            ComputeHelper.SetBuffer(compute, spatialHash.SpatialOffsets, "SpatialOffsets", Density, Pressure, ThermalBuoyancy, UpdateTemperature, CarrierWedge, ComputeColorGradient, PropagateBlobIds);
+            ComputeHelper.SetBuffer(compute, spatialHash.SpatialKeys, "SpatialKeys", SpatialHash, Density, Pressure, ThermalBuoyancy, UpdateTemperature, CarrierWedge, ComputeColorGradient, PropagateBlobIds);
+            ComputeHelper.SetBuffer(compute, spatialHash.SpatialOffsets, "SpatialOffsetsRO", ViscosityCohesion, BuildCellBlobSummaries, Csf);
+            ComputeHelper.SetBuffer(compute, spatialHash.SpatialKeys, "SpatialKeysRO", ViscosityCohesion, BuildCellBlobSummaries, Csf);
         }
 
         public void BindSortBuffers(ComputeShader compute, ParticleFluidSimulationResources resources)
@@ -110,25 +110,25 @@ namespace Seb.Fluid2D.Simulation
 
         public void BindDebugBuffers(ComputeShader compute, ParticleFluidSimulationResources resources)
         {
-            ComputeHelper.SetBuffer(compute, resources.debugDataBuffer, "DebugData", ExternalForces, Viscosity, ThermalBuoyancy, Cohesion, ComputeColorGradient, Csf);
+            ComputeHelper.SetBuffer(compute, resources.debugDataBuffer, "DebugData", ExternalForces, ViscosityCohesion, ThermalBuoyancy, ComputeColorGradient, Csf);
             ComputeHelper.SetBuffer(compute, resources.debugVectorDataBuffer, "DebugVectorData", ThermalBuoyancy, CarrierWedge, Csf);
             ComputeHelper.SetBuffer(compute, resources.debugVectorSignBuffer, "DebugVectorSign", Csf);
             ComputeHelper.SetBuffer(compute, resources.colorGradientBuffer, "ColorGradients", ComputeColorGradient);
-            ComputeHelper.SetBuffer(compute, resources.colorGradientBuffer, "ColorGradientsRO", Viscosity, CarrierWedge, Csf);
+            ComputeHelper.SetBuffer(compute, resources.colorGradientBuffer, "ColorGradientsRO", CarrierWedge, Csf);
         }
 
         public void BindPhaseBuffers(ComputeShader compute, ParticleFluidSimulationResources resources)
         {
-            ComputeHelper.SetBuffer(compute, resources.phaseTargetDensityBuffer, "PhaseTargetDensities", ThermalBuoyancy, UpdateThermalExpansion);
-            ComputeHelper.SetBuffer(compute, resources.phaseViscosityBuffer, "PhaseViscosities", Viscosity);
-            ComputeHelper.SetBuffer(compute, resources.phaseViscosityTemperatureSensitivityBuffer, "PhaseViscosityTemperatureSensitivity", Viscosity);
+            ComputeHelper.SetBuffer(compute, resources.phaseTargetDensityBuffer, "PhaseTargetDensities", ThermalBuoyancy, UpdateTemperature);
+            ComputeHelper.SetBuffer(compute, resources.phaseViscosityBuffer, "PhaseViscosities", ViscosityCohesion);
+            ComputeHelper.SetBuffer(compute, resources.phaseViscosityTemperatureSensitivityBuffer, "PhaseViscosityTemperatureSensitivity", ViscosityCohesion);
             ComputeHelper.SetBuffer(compute, resources.phaseInteractionBuffer, "PhaseInteractionMatrix", Pressure);
-            ComputeHelper.SetBuffer(compute, resources.phaseThermalExpansionBuffer, "PhaseThermalExpansion", UpdateThermalExpansion);
+            ComputeHelper.SetBuffer(compute, resources.phaseThermalExpansionBuffer, "PhaseThermalExpansion", UpdateTemperature);
             ComputeHelper.SetBuffer(compute, resources.phaseThermalConductivityBuffer, "PhaseThermalConductivity", UpdateTemperature);
             ComputeHelper.SetBuffer(compute, resources.phaseSpecificHeatCapacityBuffer, "PhaseSpecificHeatCapacity", UpdateTemperature);
             ComputeHelper.SetBuffer(compute, resources.phaseNonCoalescenceRadiusMultiplierBuffer, "PhaseNonCoalescenceRadiusMultiplier", Csf);
             ComputeHelper.SetBuffer(compute, resources.phaseNonCoalescenceStrengthBuffer, "PhaseNonCoalescenceStrength", Csf);
-            ComputeHelper.SetBuffer(compute, resources.phaseCohesionBuffer, "PhaseCohesionMatrix", Cohesion);
+            ComputeHelper.SetBuffer(compute, resources.phaseCohesionBuffer, "PhaseCohesionMatrix", ViscosityCohesion);
         }
     }
 }

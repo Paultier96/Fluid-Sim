@@ -26,6 +26,11 @@ namespace Seb.Fluid2D.Rendering
 		private static readonly int MotionDebugDeltaTime = Shader.PropertyToID("motionDebugDeltaTime");
 		private static readonly int DebugShowClipping = Shader.PropertyToID("debugShowClipping");
 		private static readonly int ParticleCausticDebugExposure = Shader.PropertyToID("particleCausticDebugExposure");
+		private static readonly int HashGridCellSize = Shader.PropertyToID("hashGridCellSize");
+		private static readonly int HashGridWorldCenter = Shader.PropertyToID("hashGridWorldCenter");
+		private static readonly int HashGridWorldSize = Shader.PropertyToID("hashGridWorldSize");
+		private static readonly int ShowHashGridOverlay = Shader.PropertyToID("showHashGridOverlay");
+		private static readonly int HashGridOverlayOnly = Shader.PropertyToID("hashGridOverlayOnly");
 
 		private const int DebugModeCaustics = 7;
 		private const int DebugModeSoftLight = 8;
@@ -237,7 +242,9 @@ namespace Seb.Fluid2D.Rendering
 				if (data.useMaterialPipeline)
 				{
 					cmd.BeginSample("Metaballs/Material Pipeline");
-					if ((data.display.debugMode != ParticleDisplay2D.DebugVisualization.None || data.lighting != null && data.lighting.debugMode != ParticleFluidLighting2D.LightingDebugVisualization.None) && data.debugMaterial != null)
+					bool hasDebugView = data.display.debugMode != ParticleDisplay2D.DebugVisualization.None ||
+						data.lighting != null && data.lighting.debugMode != ParticleFluidLighting2D.LightingDebugVisualization.None;
+					if (hasDebugView && data.debugMaterial != null)
 					{
 						data.renderer.ApplyDebugSettings();
 						ParticleFluidRenderBindings.ApplyMetaballDebugGlobals(cmd, data.display, data.camera, data.lighting, data.gradientAtlas);
@@ -250,6 +257,13 @@ namespace Seb.Fluid2D.Rendering
 					else
 					{
 						data.materialRenderer.RenderUnlit(cmd, data.renderRegion);
+					}
+					if (!hasDebugView && data.display.showHashGridOverlay && data.debugMaterial != null)
+					{
+						data.renderer.ApplyDebugSettings();
+						data.debugMaterial.SetInt(HashGridOverlayOnly, 1);
+						ParticleFluidRenderBindings.ApplyMetaballDebugGlobals(cmd, data.display, data.camera, data.lighting, data.gradientAtlas);
+						cmd.DrawMesh(ParticleFluidRenderUtils.GetQuadMesh(), data.renderRegion.CreateRegionMatrix(), data.debugMaterial, 0, 0);
 					}
 					cmd.EndSample("Metaballs/Material Pipeline");
 					data.renderer.RecordVectorField(data.display, cmd);
@@ -392,6 +406,11 @@ namespace Seb.Fluid2D.Rendering
 			_debugMaterial.SetFloat(ParticleCausticDebugExposure, _lighting != null ? _lighting.lightManager.GetCausticDebugExposure() : 1f);
 			_debugMaterial.SetVector(DomainWorldCenter, _lighting != null ? _lighting.currentCausticWorldCenter : _currentRenderRegion.center);
 			_debugMaterial.SetVector(DomainWorldSize, _lighting != null ? _lighting.currentCausticWorldSize : _currentRenderRegion.size);
+			_debugMaterial.SetFloat(HashGridCellSize, _currentDisplay.sim.EffectiveSmoothingRadius);
+			_debugMaterial.SetVector(HashGridWorldCenter, _currentRenderRegion.center);
+			_debugMaterial.SetVector(HashGridWorldSize, _currentRenderRegion.size);
+			_debugMaterial.SetInt(ShowHashGridOverlay, _currentDisplay.showHashGridOverlay ? 1 : 0);
+			_debugMaterial.SetInt(HashGridOverlayOnly, 0);
 		}
 
 		public float EffectiveVelocityBlurRadius => _lighting != null ? _currentDisplay.GetEffectiveMotionBlurRadius(_currentCamera, _lighting.directLight.temporalCaustics.motionBlurRadius) : 0f;

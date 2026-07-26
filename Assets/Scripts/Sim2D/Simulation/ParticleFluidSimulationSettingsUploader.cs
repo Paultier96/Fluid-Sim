@@ -7,6 +7,7 @@ namespace Seb.Fluid2D.Simulation
     {
         private static readonly int BoundsSize = Shader.PropertyToID("boundsSize");
         private static readonly int DeltaTime = Shader.PropertyToID("deltaTime");
+        private static readonly int TemperatureDeltaTime = Shader.PropertyToID("temperatureDeltaTime");
         private static readonly int Gravity = Shader.PropertyToID("gravity");
         private static readonly int CollisionDamping = Shader.PropertyToID("collisionDamping");
         private static readonly int SmoothingRadius = Shader.PropertyToID("smoothingRadius");
@@ -73,8 +74,6 @@ namespace Seb.Fluid2D.Simulation
         private static readonly int CarrierWedgePhase = Shader.PropertyToID("carrierWedgePhase");
         private static readonly int CarrierWedgeDistanceMultiplier = Shader.PropertyToID("carrierWedgeDistanceMultiplier");
         private static readonly int CarrierWedgeStrength = Shader.PropertyToID("carrierWedgeStrength");
-        private static readonly int CarrierWedgeViscosityMultiplier = Shader.PropertyToID("carrierWedgeViscosityMultiplier");
-        private static readonly int CarrierWedgeInterfaceOnly = Shader.PropertyToID("carrierWedgeInterfaceOnly");
         private static readonly int CarrierWedgeInterfaceThreshold = Shader.PropertyToID("carrierWedgeInterfaceThreshold");
         private static readonly int CarrierWedgeCoilStrengthMultiplier = Shader.PropertyToID("carrierWedgeCoilStrengthMultiplier");
         private static readonly int CarrierWedgeMaxAcceleration = Shader.PropertyToID("carrierWedgeMaxAcceleration");
@@ -106,6 +105,11 @@ namespace Seb.Fluid2D.Simulation
             simulationDebug.UploadSettings(compute, particleDisplay);
             UploadInteractionSettings(compute, particleDisplay.interactionCursor);
             UploadCarrierWedgeSettings(compute, sim);
+        }
+
+        public void UploadTemperatureDeltaTime(ComputeShader compute, float temperatureDeltaTime)
+        {
+            compute.SetFloat(TemperatureDeltaTime, temperatureDeltaTime);
         }
 
         static void UploadBoundarySettings(ComputeShader compute, FluidSim2D sim)
@@ -189,12 +193,11 @@ namespace Seb.Fluid2D.Simulation
 
         static void UploadSurfaceTensionSettings(ComputeShader compute, FluidSim2D sim)
         {
-            float surfaceTensionScale = 1f / Mathf.Sqrt(sim.particleResolutionFactor);
-            compute.SetFloat(SurfaceTension, sim.surfaceTension * surfaceTensionScale);
+            compute.SetFloat(SurfaceTension, sim.surfaceTension);
             compute.SetInt(SurfaceTensionInterfaceMode, (int)sim.surfaceTensionInterfaceMode);
             compute.SetFloat(SurfaceTensionThreshold, sim.surfaceTensionThreshold);
-            compute.SetFloat(BlobBlobSurfaceTension, sim.blobBlobSurfaceTension * surfaceTensionScale);
-            compute.SetFloat(BlobSelfSurfaceTension, sim.blobSelfSurfaceTension * surfaceTensionScale);
+            compute.SetFloat(BlobBlobSurfaceTension, sim.blobBlobSurfaceTension);
+            compute.SetFloat(BlobSelfSurfaceTension, sim.blobSelfSurfaceTension);
             compute.SetInt(BlobSelfSurfaceTensionPhase, PhaseFilterToIndex(sim, sim.blobSelfSurfaceTensionPhase));
             compute.SetFloat(MaxSurfaceTensionCurvature, sim.maxSurfaceTensionCurvature);
         }
@@ -219,8 +222,6 @@ namespace Seb.Fluid2D.Simulation
             compute.SetInt(CarrierWedgePhase, Mathf.Clamp((int)sim.carrierWedgePhase, 0, sim.phases.Length - 1));
             compute.SetFloat(CarrierWedgeDistanceMultiplier, sim.carrierWedgeDistanceMultiplier);
             compute.SetFloat(CarrierWedgeStrength, sim.carrierWedgeStrength);
-            compute.SetFloat(CarrierWedgeViscosityMultiplier, sim.carrierWedgeViscosityMultiplier);
-            compute.SetBool(CarrierWedgeInterfaceOnly, sim.carrierWedgeInterfaceOnly);
             compute.SetFloat(CarrierWedgeInterfaceThreshold, sim.carrierWedgeInterfaceThreshold);
             compute.SetFloat(CarrierWedgeCoilStrengthMultiplier, sim.carrierWedgeCoilStrengthMultiplier);
             compute.SetFloat(CarrierWedgeMaxAcceleration, sim.carrierWedgeMaxAcceleration);
